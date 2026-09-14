@@ -2,14 +2,22 @@ import { useState } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
+import { getTelegramUser, isTelegramEnvironment } from './telegram'
 import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
+  const inTelegram = isTelegramEnvironment()
+  const tgUser = getTelegramUser()
 
   return (
     <>
       <section id="center">
+        <div className="tg-status">
+          {inTelegram
+            ? `Telegram WebApp — initData OK${tgUser ? ` (${tgUser.first_name})` : ''}`
+            : 'Not in Telegram — initData unavailable'}
+        </div>
         <div className="hero">
           <img src={heroImg} className="base" width="170" height="179" alt="" />
           <img src={reactLogo} className="framework" alt="React logo" />
