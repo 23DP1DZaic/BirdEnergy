@@ -131,3 +131,37 @@ export function validateTelegramInitData(
     },
   };
 }
+
+// ---------------------------------------------------------------- AUTH-03 ---
+
+export type UserRole = "user" | "admin";
+
+/**
+ * Deterministic Firebase Auth uid derived from the (server-validated)
+ * Telegram id. Only chars [A-Za-z0-9-] — safe for createCustomToken().
+ */
+export function buildTelegramUid(telegramId: number): string {
+  return `tg-${telegramId}`;
+}
+
+/**
+ * Parses the ADMIN_TELEGRAM_IDS env var: comma-separated Telegram user ids.
+ * Tolerates whitespace and silently drops garbage entries.
+ */
+export function parseAdminTelegramIds(envValue: string | undefined): Set<number> {
+  const ids = new Set<number>();
+  if (!envValue) return ids;
+  for (const part of envValue.split(",")) {
+    const id = Number.parseInt(part.trim(), 10);
+    if (Number.isInteger(id) && id > 0) ids.add(id);
+  }
+  return ids;
+}
+
+/** Role resolution happens ONLY here, server-side, from the whitelist. */
+export function resolveUserRole(
+  telegramId: number,
+  adminTelegramIds: Set<number>,
+): UserRole {
+  return adminTelegramIds.has(telegramId) ? "admin" : "user";
+}

@@ -1,10 +1,18 @@
-// src/auth.ts — AUTH-02: client-side call to the authenticateTelegram function.
-// AUTH-03 will build on this: exchange the validated identity for a Firebase
-// custom token and signInWithCustomToken.
+// src/auth.ts — AUTH-02 + AUTH-03 client flow.
+//
+// 1. authenticateTelegram(): send raw initData to the Cloud Function for
+//    server-side HMAC validation (AUTH-02).
+// 2. signInWithTelegram(): exchange the returned custom token for a real
+//    Firebase session via signInWithCustomToken (AUTH-03). The user's role
+//    (user/admin) is resolved server-side from a whitelist and arrives both
+//    in the response and as a custom claim on the Firebase ID token.
 
+import { signInWithCustomToken, onAuthStateChanged } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from './firebase'
+import { auth, functions } from './firebase'
 import { getInitData } from './telegram'
+
+export type TelegramRole = 'user' | 'admin'
 
 export interface AuthenticatedTelegramUser {
   telegramId: number
@@ -17,15 +25,19 @@ export interface AuthenticatedTelegramUser {
 
 interface AuthenticateTelegramResponse {
   ok: boolean
+  customToken: string
+  role: TelegramRole
   user: AuthenticatedTelegramUser
 }
 
-/**
- * Sends raw initData to the authenticateTelegram Cloud Function for
- * server-side HMAC validation. Throws if not in Telegram, initData is
- * missing, or server-side validation rejects the data.
- */
-export async function authenticateTelegram(): Promise<AuthenticatedTelegramUser> {
+export interface TelegramSignInResult {
+  firebaseUid: string
+  role: TelegramRole
+  user: AuthenticatedTelegramUser
+}
+
+/** AUTH-02: server-side validation of initData. Throws on any rejection. */
+export async function authenticateTelegram(): Promise<AuthenticateTelegramResponse> {
   const initData = getInitData()
   if (!initData) {
     throw new Error('initData unavailable — open the app via Telegram.')
@@ -37,5 +49,22 @@ export async function authenticateTelegram(): Promise<AuthenticatedTelegramUser>
   >(functions, 'authenticateTelegram')
 
   const result = await authenticate({ initData })
-  return result.data.user
+  return result.data
+}
+
+/**
+ * AUTH-03: full sign-in — validate initData, then exchange the custom token
+ * for a Firebase session. Resolves with the signed-in identity and role.
+ */
+export async function signInWithTelegram(): Promise<TelegramSignInResult> {
+  const { customToken, role, user } = await authenticateTelegram()
+  const credential = await signInWithCustomToken(auth, customToken)
+  return { firebaseUid: credential.user.uid, role, user }
+}
+
+/** Subscribes to Firebase session changes; returns an unsubscribe function. */
+export function observeAuthSession(
+  callback: (uid: string | null) => void,
+): () => void {
+  return onAuthStateChanged(auth, (user) => callback(user?.uid ?? null))
 }

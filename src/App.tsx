@@ -1,23 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
-import { authenticateTelegram } from './auth'
+import { observeAuthSession, signInWithTelegram, type TelegramSignInResult } from './auth'
 import { getTelegramUser, isTelegramEnvironment } from './telegram'
 import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
   const [authStatus, setAuthStatus] = useState('')
+  const [session, setSession] = useState<TelegramSignInResult | null>(null)
+  const [signedInUid, setSignedInUid] = useState<string | null>(null)
   const inTelegram = isTelegramEnvironment()
   const tgUser = getTelegramUser()
 
-  const testAuth = async () => {
-    setAuthStatus('Authenticating…')
+  // AUTH-03: reflect the live Firebase session (survives page reloads).
+  useEffect(() => observeAuthSession(setSignedInUid), [])
+
+  const handleSignIn = async () => {
+    setAuthStatus('Signing in…')
     try {
-      const user = await authenticateTelegram()
+      const result = await signInWithTelegram()
+      setSession(result)
       setAuthStatus(
-        `OK: id=${user.telegramId} @${user.username ?? '—'} ${user.firstName}`,
+        `Signed in: uid=${result.firebaseUid} role=${result.role} ` +
+        `id=${result.user.telegramId} @${result.user.username ?? '—'}`,
       )
     } catch (err) {
       setAuthStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -34,10 +41,16 @@ function App() {
         </div>
         {inTelegram && (
           <>
-            <button type="button" className="counter" onClick={testAuth}>
-              Test authenticateTelegram
+            <button type="button" className="counter" onClick={handleSignIn}>
+              Sign in with Telegram
             </button>
             {authStatus && <p className="auth-status">{authStatus}</p>}
+            {signedInUid && (
+              <p className="auth-status">
+                Firebase session active ({signedInUid})
+                {session ? ` — role: ${session.role}` : ''}
+              </p>
+            )}
           </>
         )}
         <div className="hero">
