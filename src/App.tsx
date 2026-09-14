@@ -2,13 +2,27 @@ import { useState } from 'react'
 import heroImg from './assets/hero.png'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
+import { authenticateTelegram } from './auth'
 import { getTelegramUser, isTelegramEnvironment } from './telegram'
 import './App.css'
 
 function App() {
   const [count, setCount] = useState(0)
+  const [authStatus, setAuthStatus] = useState('')
   const inTelegram = isTelegramEnvironment()
   const tgUser = getTelegramUser()
+
+  const testAuth = async () => {
+    setAuthStatus('Authenticating…')
+    try {
+      const user = await authenticateTelegram()
+      setAuthStatus(
+        `OK: id=${user.telegramId} @${user.username ?? '—'} ${user.firstName}`,
+      )
+    } catch (err) {
+      setAuthStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 
   return (
     <>
@@ -18,6 +32,14 @@ function App() {
             ? `Telegram WebApp — initData OK${tgUser ? ` (${tgUser.first_name})` : ''}`
             : 'Not in Telegram — initData unavailable'}
         </div>
+        {inTelegram && (
+          <>
+            <button type="button" className="counter" onClick={testAuth}>
+              Test authenticateTelegram
+            </button>
+            {authStatus && <p className="auth-status">{authStatus}</p>}
+          </>
+        )}
         <div className="hero">
           <img src={heroImg} className="base" width="170" height="179" alt="" />
           <img src={reactLogo} className="framework" alt="React logo" />

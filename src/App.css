@@ -7,6 +7,12 @@
   border: 1px solid var(--border);
 }
 
+.auth-status {
+  font-size: 14px;
+  margin: 0;
+  color: var(--text-m, var(--accent));
+}
+
 .counter {
   font-size: 16px;
   padding: 5px 10px;
