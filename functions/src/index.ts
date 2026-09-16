@@ -14,6 +14,10 @@
  *   - TELEGRAM_BOT_TOKEN: BotFather token used to verify initData HMAC.
  *   - ADMIN_TELEGRAM_IDS: comma-separated Telegram ids granted "admin".
  *
+ * LOCAL DEV: when served by the Functions emulator, the client may send a bare
+ * `devTelegramId` (from VITE_TELEGRAM_ID) instead of initData — see
+ * resolveDevTelegramUser(). That field is ignored by deployed functions.
+ *
  * Upgrade path: defineSecret() + Secret Manager for the bot token.
  */
 
@@ -25,8 +29,10 @@ import {logger} from "firebase-functions";
 import {
   buildTelegramUid,
   parseAdminTelegramIds,
+  resolveDevTelegramUser,
   resolveUserRole,
   validateTelegramInitData,
+  type TelegramAuthUser,
 } from "./telegramAuth.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
@@ -34,8 +40,33 @@ setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 // Required by firebase-admin Auth for custom token minting.
 initializeApp();
 
-export const authenticateTelegram = onCall(async (request) => {
-  const initData = request.data?.initData;
+/** Payload accepted from the client (see src/auth.ts). */
+interface AuthenticateTelegramData {
+  /** Signed Telegram Mini App initData — the only trusted source in production. */
+  initData?: unknown;
+  /** DEV-ONLY (src/devAuth.ts): raw Telegram id, honored by the emulator only. */
+  devTelegramId?: unknown;
+}
+
+/** True only while firebase-tools serves this code locally. */
+function isEmulator(): boolean {
+  return process.env.FUNCTIONS_EMULATOR === "true";
+}
+
+/**
+ * Resolves the caller's verified Telegram identity: dev bypass first (emulator
+ * only), otherwise HMAC validation of initData. Throws HttpsError on rejection.
+ */
+function resolveRequestUser(data: AuthenticateTelegramData): TelegramAuthUser {
+  const devUser = resolveDevTelegramUser(data.devTelegramId, isEmulator());
+  if (devUser) {
+    logger.warn("DEV login bypass used (emulator only)", {
+      telegramId: devUser.telegramId,
+    });
+    return devUser;
+  }
+
+  const {initData} = data;
   if (typeof initData !== "string" || initData.length === 0) {
     throw new HttpsError(
       "invalid-argument",
@@ -61,8 +92,14 @@ export const authenticateTelegram = onCall(async (request) => {
     );
   }
 
+  return result.user;
+}
+
+export const authenticateTelegram = onCall(async (request) => {
+  const data = (request.data ?? {}) as AuthenticateTelegramData;
+
   const {telegramId, username, firstName, lastName, languageCode, authDate} =
-    result.user;
+    resolveRequestUser(data);
 
   // AUTH-03: role from server-side whitelist — never from client input.
   const adminIds = parseAdminTelegramIds(process.env.ADMIN_TELEGRAM_IDS);

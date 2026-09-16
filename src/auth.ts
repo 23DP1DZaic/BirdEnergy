@@ -10,6 +10,7 @@
 import { signInWithCustomToken, onAuthStateChanged } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
 import { auth, functions } from './firebase'
+import { getDevTelegramId } from './devAuth'
 import { getInitData } from './telegram'
 
 export type TelegramRole = 'user' | 'admin'
@@ -30,25 +31,42 @@ interface AuthenticateTelegramResponse {
   user: AuthenticatedTelegramUser
 }
 
+interface AuthenticateTelegramRequest {
+  initData?: string
+  /** DEV-ONLY (src/devAuth.ts): accepted by the Functions emulator only. */
+  devTelegramId?: number
+}
+
 export interface TelegramSignInResult {
   firebaseUid: string
   role: TelegramRole
   user: AuthenticatedTelegramUser
 }
 
-/** AUTH-02: server-side validation of initData. Throws on any rejection. */
+/**
+ * AUTH-02: server-side validation of initData. Throws on any rejection.
+ * Inside Telegram the signed initData is always used; in a plain browser the
+ * DEV-only VITE_TELEGRAM_ID is sent instead and the Functions emulator mints
+ * the same kind of session (see src/devAuth.ts).
+ */
 export async function authenticateTelegram(): Promise<AuthenticateTelegramResponse> {
   const initData = getInitData()
-  if (!initData) {
-    throw new Error('initData unavailable — open the app via Telegram.')
+  const devTelegramId = initData ? null : getDevTelegramId()
+
+  if (!initData && devTelegramId === null) {
+    throw new Error(
+      'initData unavailable — open the app via Telegram (or set VITE_TELEGRAM_ID and VITE_USE_EMULATORS for local dev).',
+    )
   }
 
   const authenticate = httpsCallable<
-    { initData: string },
+    AuthenticateTelegramRequest,
     AuthenticateTelegramResponse
   >(functions, 'authenticateTelegram')
 
-  const result = await authenticate({ initData })
+  const result = await authenticate(
+    devTelegramId !== null ? { devTelegramId } : { initData },
+  )
   return result.data
 }
 

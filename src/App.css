@@ -8,12 +8,12 @@
   overflow: hidden;
 }
 
-/* Background1 = warm orange sky over a city skyline. cover() crops
-   center-weighted on any aspect ratio; pixel art stays crisp. */
+/* Sky art is 256x256 pixel art; cover() fills the viewport on any aspect ratio.
+   The tile itself is picked by the background button (see src/sprites.ts) and
+   passed in as an inline background-image. */
 .sky {
   position: absolute;
   inset: 0;
-  background-image: url('./assets/Background/Background1.png');
   background-size: cover;
   background-position: center bottom;
   image-rendering: pixelated;
@@ -33,18 +33,14 @@
   text-align: center;
 }
 
-.title {
-  margin: 0;
-  font-family: var(--heading);
-  font-weight: 800;
-  font-size: clamp(44px, 14vw, 84px);
-  line-height: 0.95;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: #ffd23f;
-  text-shadow:
-    2px 2px 0 #a5420c,
-    4px 4px 0 rgba(90, 30, 5, 0.55);
+/* Logo1 = pixel-art wordmark, 287x154 native. Scales with the viewport but
+   keeps its aspect ratio; pixelated keeps the upscaled edges crisp. */
+.logo {
+  display: block;
+  width: min(80vw, 460px);
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(3px 4px 0 rgba(90, 30, 5, 0.55));
 }
 
 .hello {
@@ -55,22 +51,24 @@
   text-shadow: 1px 2px 0 rgba(90, 30, 5, 0.75);
 }
 
-/* SimpleStyle1 = grass band + white line + brown dirt (matches the mockup
-   floor). Repeats horizontally, height scales fluidly with viewport. */
+/* Ground/Default.png = 480x160 pixel-art tile (Snow.png is the winter
+   variant). Kept at its native size and repeated left-to-right, so a wide
+   desktop simply shows more tiles instead of a stretched, blurry floor. */
 .floor {
   position: relative;
   z-index: 1;
   height: var(--floor-h);
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background-image: url('./assets/Tiles/Style 1/SimpleStyle1.png');
+  background-image: url('./assets/Tiles/Ground/Default.png');
   background-repeat: repeat-x;
-  background-position: center top;
-  background-size: auto 100%;
+  background-position: left top;
+  background-size: auto;
   image-rendering: pixelated;
 }
 
 :root {
-  --floor-h: clamp(48px, 12vw, 96px);
+  /* Native tile height (480x160) — do not scale, repeat instead. */
+  --floor-h: 160px;
 }
 
 .auth {
@@ -99,9 +97,28 @@
   box-shadow: 0 1px 0 #a5420c;
 }
 
+/* .btn is also used on the "Open in Telegram" anchor (link to the bot). */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .auth-status {
   margin: 0;
   font-size: 13px;
   color: #fff;
   text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.75);
+}
+
+/* Background switcher — a compact .btn pinned to the top-right corner, above
+   the sky and the content layer. Declared after .btn so it wins on order. */
+.bg-toggle {
+  position: absolute;
+  top: clamp(10px, 2vh, 18px);
+  right: clamp(10px, 2vw, 18px);
+  z-index: 2;
+  font-size: clamp(12px, 3vw, 14px);
+  padding: 8px 14px;
+  box-shadow: 0 3px 0 #a5420c;
 }

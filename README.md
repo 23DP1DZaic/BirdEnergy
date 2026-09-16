@@ -112,6 +112,53 @@ Lai projekts būtu reāli pabeidzams noteiktajā laikā, tajā netiks īstenotas
 
 Galvenais princips ir izveidot pēc iespējas vienkāršāku sistēmu, kas pilnībā atbilst projekta prasībām.
 
+## Local development without Telegram (dev login)
+
+Normally the app can only sign in inside Telegram, because `authenticateTelegram`
+requires signed `initData`. For local browser work you can sign in as any
+Telegram id through the **Functions emulator**:
+
+1. Add your own Telegram id to `birdenergy/.env` (gitignored). You can see it
+   via @userinfobot in Telegram:
+
+   ```env
+   VITE_TELEGRAM_ID=123456789
+   VITE_USE_EMULATORS=true
+   ```
+
+2. Start the emulator suite (Auth + Firestore + Functions). `functions/.env`
+   already holds the real bot token, so initData validation still works there:
+
+   ```bash
+   cd functions && npm run build && cd ..
+   npx firebase-tools emulators:start --only auth,firestore,functions --project birdenergy-f1405
+   ```
+
+3. In a second terminal: `npm run dev` → http://localhost:5173
+
+The app signs in automatically as `VITE_TELEGRAM_ID` and keeps the session like
+a real login (the emulator UI opens on http://localhost:4000). Add that id to
+`ADMIN_TELEGRAM_IDS` in `functions/.env` to get the admin role locally too.
+
+### Opening the app in a browser (no dev login)
+
+Without `VITE_TELEGRAM_ID` a browser visitor cannot sign in at all (no signed
+`initData`), so the page shows an **Open @BirdEnergy_testbot** link instead,
+pointing at the Mini App deep link `t.me/BirdEnergy_testbot/birdenergygame` —
+Telegram opens the app, where sign-in does work. The bot and short name come
+from `VITE_TELEGRAM_BOT_USERNAME` / `VITE_TELEGRAM_APP_NAME` in `.env`
+(defaults match the values above; see `src/telegram.ts`). The sign-in button
+only appears in a browser while `VITE_USE_EMULATORS=true`, because the dev
+bypass exists in the emulator only.
+
+Why it is safe: the bypass lives in `resolveDevTelegramUser()`
+(`functions/src/telegramAuth.ts`) and only returns a user when
+`FUNCTIONS_EMULATOR=true`, so deployed functions reject a client-supplied
+`devTelegramId` and fall back to strict initData validation. On the client,
+`src/devAuth.ts` is gated on `import.meta.env.DEV`, so the whole path is
+dropped from `npm run build` output. Role resolution is untouched — it always
+comes from the server-side whitelist.
+
 
 
 
