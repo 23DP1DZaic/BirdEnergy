@@ -8,13 +8,21 @@
   overflow: hidden;
 }
 
-/* Sky art is 256x256 pixel art; cover() fills the viewport on any aspect ratio.
-   The tile itself is picked by the background button (see src/sprites.ts) and
-   passed in as an inline background-image. */
+/* Sky art is a 256x256 tile. The box deliberately stops at the top edge of the
+   ground instead of spanning the whole page, so the tile's bottom line (its
+   horizon) lands on the ground line and is not hidden behind the floor. The tile
+   is picked by the background button (see src/sprites.ts) and passed in as an
+   inline image. */
 .sky {
   position: absolute;
-  inset: 0;
-  background-size: cover;
+  inset: 0 0 auto 0;
+  height: calc(100% - var(--floor-h) - env(safe-area-inset-bottom, 0px));
+  /* Fit the WHOLE tile height into the sky area and repeat it sideways.
+     cover-scaling a 256x256 tile on a wide window zooms in ~5.6x and shows
+     only the tile's bottom ~145 rows, so the skyline at the top of the art was
+     cropped away. Fitting the height keeps every row visible. */
+  background-size: auto 100%;
+  background-repeat: repeat-x;
   background-position: center bottom;
   image-rendering: pixelated;
 }
@@ -51,9 +59,13 @@
   text-shadow: 1px 2px 0 rgba(90, 30, 5, 0.75);
 }
 
-/* Ground/Default.png = 480x160 pixel-art tile (Snow.png is the winter
-   variant). Kept at its native size and repeated left-to-right, so a wide
-   desktop simply shows more tiles instead of a stretched, blurry floor. */
+/* Ground/Default.png = 480x160 pixel-art tile (Snow.png is the winter variant).
+   Kept at its native size and repeated left-to-right, so a wide desktop simply
+   shows more tiles instead of a stretched, blurry floor.
+   The band is shorter than the tile on purpose: measured, the meaningful art is
+   the top ~32px (the grass/snow line) and the tile ends in a 16px near-black
+   band, so the box crops that filler instead of scaling the art down (scaling
+   would alias it). */
 .floor {
   position: relative;
   z-index: 1;
@@ -67,8 +79,10 @@
 }
 
 :root {
-  /* Native tile height (480x160) — do not scale, repeat instead. */
-  --floor-h: 160px;
+  /* Visible ground band. The tile is 160px tall, drawn at native size and
+     cropped to this height — lower it to give the sky more room, or raise it up
+     to 160px to show the whole tile. 64-96px keeps the grass line intact. */
+  --floor-h: 80px;
 }
 
 .auth {
