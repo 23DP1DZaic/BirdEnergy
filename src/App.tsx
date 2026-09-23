@@ -1,13 +1,28 @@
+// UI-02 — app shell: screen state, sign-in flow, role-aware navigation,
+// guarded routes.
+//
+// Layout: one bottom nav on every screen size (the spec's desktop top bar was
+// dropped by preference); the Admin link renders only for the admin role.
+// React Router is deliberately not used — the spec allows a small route
+// structure, so the active screen is plain state. The sign-in flow lives here
+// (click handlers, not effects) so any guarded screen can reuse it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { observeAuthSession, signInWithTelegram, type TelegramSignInResult } from './auth'
-import { getDevTelegramId, shouldUseEmulators } from './devAuth'
-import { backgrounds, logo } from './sprites'
 import {
-  getTelegramBotLink,
-  getTelegramUser,
-  isTelegramEnvironment,
-  telegramBotUsername,
-} from './telegram'
+  observeAuthSession,
+  signInWithTelegram,
+  type TelegramSignInResult,
+} from './auth'
+import { getDevTelegramId, shouldUseEmulators } from './devAuth'
+import { isTelegramEnvironment, telegramBotUsername } from './telegram'
+import { NAV_ITEMS, type Screen } from './navigation.ts'
+import { useAuthRole } from './useAuthRole.ts'
+import type { GamePhase } from './features/game/engine'
+import { AdminPage } from './features/AdminPage.tsx'
+import { ChallengesPage } from './features/ChallengesPage.tsx'
+import { GamePage } from './features/GamePage.tsx'
+import { HomePage } from './features/HomePage.tsx'
+import { LeaderboardPage } from './features/LeaderboardPage.tsx'
+import { ProfilePage } from './features/ProfilePage.tsx'
 import './App.css'
 
 /**
@@ -23,29 +38,22 @@ function describeSignInError(err: unknown, inTelegram: boolean): string {
   return detail
 }
 
-/**
- * UI-02/UI-03: hello page — pixel-art logo, switchable sky and a tiled ground
- * floor from the asset pack (see src/sprites.ts).
- * Responsive: fluid type via clamp(), floor strip pinned to the bottom at its
- * native tile size, background covers the viewport on any aspect ratio.
- *
- * Outside Telegram (where no signed initData exists) the page offers the bot
- * link instead of a sign-in that cannot work.
- */
 function App() {
+  const [screen, setScreen] = useState<Screen>('home')
+  // AUTH-03: reflect the live Firebase session (survives page reloads).
+  const [signedInUid, setSignedInUid] = useState<string | null>(null)
+  // Sign-in flow state (moved from the old hello page so guarded screens can
+  // trigger the same flow).
   const [authStatus, setAuthStatus] = useState('')
   const [session, setSession] = useState<TelegramSignInResult | null>(null)
-  const [signedInUid, setSignedInUid] = useState<string | null>(null)
-  // Index into the sky tiles in src/sprites.ts (UI-03: background switcher).
-  const [backgroundIndex, setBackgroundIndex] = useState(0)
-  const inTelegram = isTelegramEnvironment()
-  const tgUser = getTelegramUser()
-  // DEV-ONLY (src/devAuth.ts): set VITE_TELEGRAM_ID in .env to sign in locally.
-  const devTelegramId = getDevTelegramId()
-  const autoSignInStarted = useRef(false)
+  // Game-screen phase, reported by the canvas: the nav bars are removed from
+  // the layout only while a run is actively in progress (see navHidden).
+  const [gamePhase, setGamePhase] = useState<GamePhase>('ready')
 
-  // AUTH-03: reflect the live Firebase session (survives page reloads).
   useEffect(() => observeAuthSession(setSignedInUid), [])
+
+  const role = useAuthRole(signedInUid)
+  const inTelegram = isTelegramEnvironment()
 
   const handleSignIn = useCallback(async () => {
     setAuthStatus('Signing in…')
@@ -60,70 +68,93 @@ function App() {
     }
   }, [inTelegram])
 
-  const handleChangeBackground = () =>
-    setBackgroundIndex((index) => (index + 1) % backgrounds.length)
-
-  // Local dev convenience: sign in straight away, once, when VITE_TELEGRAM_ID
-  // is configured (the ref keeps React StrictMode's double mount to one call).
+  // Local dev convenience (AUTH-04/DOC-03): sign in straight away, once, when
+  // VITE_TELEGRAM_ID is configured; the ref keeps StrictMode's double mount
+  // to one call. Click-driven elsewhere — no setState-in-effect lint issue.
+  const autoSignInStarted = useRef(false)
   useEffect(() => {
-    if (devTelegramId === null || autoSignInStarted.current) return
+    if (getDevTelegramId() === null || autoSignInStarted.current) return
     autoSignInStarted.current = true
     void handleSignIn()
-  }, [devTelegramId, handleSignIn])
+  }, [handleSignIn])
+
+  // Sign-in attempts from guarded screens land on Home, where the status line
+  // (signing in / success / failure) is visible.
+  const requestSignIn = useCallback(() => {
+    navigate('home')
+    void handleSignIn()
+  }, [handleSignIn])
+
+  // All navigation goes through here: leaving the game screen also clears any
+  // stale in-progress phase, because the canvas reports phases only while it
+  // is mounted.
+  function navigate(next: Screen) {
+    setScreen(next)
+    if (next !== 'game') setGamePhase('ready')
+  }
+
+  const renderScreen = () => {
+    switch (screen) {
+      case 'home':
+        return (
+          <HomePage
+            signedInUid={signedInUid}
+            role={role}
+            session={session}
+            authStatus={authStatus}
+            onSignIn={requestSignIn}
+            onOpenGame={() => navigate('game')}
+            onNavigate={navigate}
+          />
+        )
+      case 'game':
+        return (
+          <GamePage
+            signedInUid={signedInUid}
+            onSignIn={requestSignIn}
+            onPhaseChange={setGamePhase}
+          />
+        )
+      case 'leaderboard':
+        return <LeaderboardPage />
+      case 'challenges':
+        return <ChallengesPage />
+      case 'profile':
+        return <ProfilePage signedInUid={signedInUid} />
+      case 'admin':
+        return role === 'admin' ? <AdminPage /> : null
+    }
+  }
+
+  const visibleNav = NAV_ITEMS.filter(
+    (item) => !item.adminOnly || role === 'admin',
+  )
+
+  // Active gameplay only: the nav bars are conditionally REMOVED (not made
+  // transparent) so the run uses the full vertical space. They come back on
+  // the ready screen, the game-over/result state and every other screen.
+  const navHidden = screen === 'game' && gamePhase === 'playing'
 
   return (
-    <main className="page">
-      <div
-        className="sky"
-        style={{ backgroundImage: `url(${backgrounds[backgroundIndex]})` }}
-        aria-hidden="true"
-      />
+    <div className="shell">
+      <div className="screen-area">{renderScreen()}</div>
 
-      <button
-        type="button"
-        className="btn bg-toggle"
-        onClick={handleChangeBackground}
-      >
-        Background {backgroundIndex + 1}/{backgrounds.length}
-      </button>
-
-      <div className="content">
-        <img className="logo" src={logo} alt="Bird Energy" />
-        <p className="hello">
-          Hello, {session?.user.firstName ?? tgUser?.first_name ?? 'player'}!
-        </p>
-
-        {devTelegramId !== null && (
-          <p className="auth-status">
-            DEV login: Telegram id {devTelegramId} via the Functions emulator
-          </p>
-        )}
-
-        {(inTelegram || devTelegramId !== null) && (
-          <div className="auth">
-            <button type="button" className="btn" onClick={handleSignIn}>
-              Sign in with Telegram
+      {!navHidden && (
+        <nav className="bottomnav" aria-label="Main">
+          {visibleNav.map((item) => (
+            <button
+              key={item.screen}
+              type="button"
+              className={`navlink${screen === item.screen ? ' navlink-active' : ''}`}
+              aria-current={screen === item.screen ? 'page' : undefined}
+              onClick={() => navigate(item.screen)}
+            >
+              {item.label}
             </button>
-            {authStatus && <p className="auth-status">{authStatus}</p>}
-            {signedInUid && (
-              <p className="auth-status">
-                Session active ({signedInUid})
-                {session ? ` — role: ${session.role}` : ''}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Outside Telegram there is no initData to sign in with, so point the
-            visitor at the bot, which opens the Mini App properly. */}
-        {!inTelegram && (
-          <a className="btn" href={getTelegramBotLink()}>
-            Open @{telegramBotUsername}
-          </a>
-        )}
-      </div>
-      <div className="floor" aria-hidden="true" />
-    </main>
+          ))}
+        </nav>
+      )}
+    </div>
   )
 }
 

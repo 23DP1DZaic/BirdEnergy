@@ -2,11 +2,36 @@
 
 .page {
   position: relative;
-  min-height: 100svh;
+  /* UI-02: the page fills the area between the shell's nav bars (see
+     .screen-area) instead of the whole viewport. */
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
+
+/* UI-02 — app shell: one screen area between a top nav (desktop) and a bottom
+   nav (mobile). Exactly the viewport minus the nav bars — no page scroll, no
+   dead space below the bottom nav (Home must end at 100vh). */
+.shell {
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Fallback backdrop for placeholder screens (Home covers it fully). */
+  background: linear-gradient(#79c0f2 0%, #bfe6ff 70%, #d9f2ff 100%);
+}
+
+/* The bottom-nav buttons float over the page bottoms (no solid bar, no
+   reserved padding), so every screen — Home floor included — runs to the
+   full shell height and the buttons sit directly in front of the ground. */
 
 /* Sky art is a 256x256 tile. The box deliberately stops at the top edge of the
    ground instead of spanning the whole page, so the tile's bottom line (its
@@ -49,6 +74,28 @@
   height: auto;
   image-rendering: pixelated;
   filter: drop-shadow(3px 4px 0 rgba(90, 30, 5, 0.55));
+}
+
+/* Floating logo: a slow, gentle hover, like the bird idling in the air.
+   translate only (no layout) so it stays cheap; respects reduced motion. */
+@keyframes logo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.logo-float {
+  animation: logo-float 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-float {
+    animation: none;
+  }
 }
 
 .hello {
@@ -135,4 +182,161 @@ a.btn {
   font-size: clamp(12px, 3vw, 14px);
   padding: 8px 14px;
   box-shadow: 0 3px 0 #a5420c;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-02 — app shell additions: nav bars, home actions, placeholders.  */
+/* ------------------------------------------------------------------ */
+
+/* Bottom navigation — the ONE nav, used on phones and desktop alike.
+   No solid panel — the buttons float directly over the ground art (Home's
+   floor / the game canvas), so screens keep their full height. Chips share
+   the row width (flex) so five text labels fit even on a 320px phone. */
+.bottomnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Desktop: same transparent bottom nav — chips keep their natural size
+   instead of stretching across the full row. */
+@media (min-width: 640px) {
+  .bottomnav {
+    gap: 6px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bottomnav .navlink {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+}
+
+.navlink {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffd23f;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.navlink-active {
+  background: #ffd23f;
+  color: #5a1e05;
+  box-shadow: 0 2px 0 #a5420c;
+}
+
+/* Floating bottom-nav buttons: light translucent chips (no bar behind them)
+   with a text shadow so they stay readable on top of the ground art. They
+   flex to fill the row — tighter padding/font than the desktop links so all
+   five labels fit without horizontal overflow. */
+.bottomnav .navlink {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  text-align: center;
+  padding: 8px 6px;
+  font-size: 13px;
+  background: rgba(90, 30, 5, 0.3);
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+@media (max-width: 359.98px) {
+  .bottomnav .navlink {
+    padding: 8px 3px;
+    font-size: 12px;
+  }
+}
+
+.bottomnav .navlink-active {
+  text-shadow: none;
+}
+
+/* Play button + (for admins) the Admin Panel shortcut on Home. */
+.home-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn-small {
+  font-size: clamp(13px, 3.5vw, 15px);
+  padding: 8px 16px;
+  box-shadow: 0 3px 0 #a5420c;
+}
+
+/* Selected state for the Leaderboard period toggle stub. */
+.btn-active {
+  background: #fff3c4;
+  box-shadow: inset 0 0 0 3px #a5420c;
+}
+
+.period-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Placeholder bodies for screens whose backlog cards are still ahead. Dark
+   text: they sit on the light .screen-area backdrop, not on the sky art. */
+.placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  color: #2b1a0e;
+  overflow-y: auto;
+}
+
+/* The floating bottom nav overlaps page bottoms now — keep the last line of
+   scrollable placeholder content clear of the buttons. */
+@media (max-width: 639.98px) {
+  .placeholder {
+    padding-bottom: 84px;
+  }
+}
+
+.placeholder-hint {
+  margin: 0;
+  font-size: clamp(14px, 3.5vw, 16px);
+  color: #5a1e05;
+}
+
+.placeholder-note {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+/* Guest notice on guarded screens (Game/Profile). */
+.guard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.guard-text {
+  margin: 0;
+  max-width: 420px;
+  font-size: clamp(14px, 3.5vw, 16px);
+  color: #5a1e05;
 }
