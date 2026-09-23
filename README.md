@@ -51,8 +51,8 @@ Galvenās funkcijas:
 
 - GitHub - versiju kontrole un komandas kopīgais repozitorijs
 - Trello - Kanban metodes uzdevumu plānošana
-- Figma - lietotnes ekrānu skices un dizains
-- draw.io - sistēmas arhitektūras, ER un use case diagrammas
+- Figma - lietotnes ekrānu skices un dizains(https://www.figma.com/design/xwMlw2tNlUCefyzVseyBTm/Bird-Energy?node-id=0-1&t=PrC2u6jPggu5nt5c-1)
+- draw.io - sistēmas arhitektūras, ER un use case diagrammas(https://drive.google.com/file/d/1zYUmfxyr0Mf_M9AZopcbhHjV6l6wG1Kn/view?usp=sharing)
 
 ## Projekta struktūra
 
@@ -85,13 +85,15 @@ Atbild par Flappy Bird spēles mehāniku, Canvas implementāciju, Game ekrānu, 
 
 ### Dalībnieks 2 (Dmitrijs) - Firebase un datu slānis
 
-Atbild par Firebase konfigurāciju, Cloud Firestore datubāzi, Firebase Hosting, Telegram initData verifikāciju, Firebase custom token autentifikāciju, spēles rezultātu saglabāšanu, Firestore Security Rules un leaderboard datu servisiem.
+Atbild par Firebase konfigurāciju, Cloud Firestore datubāzi, Firebase Hosting, Firebase custom token autentifikāciju, spēles rezultātu saglabāšanu, Firestore Security Rules un leaderboard datu servisiem.
 
-### Dalībnieks 3 (Alberts) - Challenges, administrators un kvalitāte
+### Dalībnieks 3 (Alberts) - Telegramm bots, mini app pārvalde
+
+Atbild par Telegramm botu tā komandām, izskatu un Telegram initData verifikāciju. Mini app pārvalde.
+
+### Dalībnieks 4 (Rodions) - Challenges, administrators un kvalitāte
 
 Atbild par Challenges ekrānu, administratora paneli, Challenge CRUD funkcionalitāti, formu validāciju, dzēšanas apstiprinājumu, meklēšanu un filtrēšanu, integrācijas testēšanu, manuālo testu plānu, dokumentāciju un demo sagatavošanu.
-
-### Dalībnieks 4 (Rodions) - ...
 
 Visi komandas dalībnieki piedalās GitHub repozitorija uzturēšanā, Trello uzdevumu plānošanā, code review, kļūdu labošanā, dokumentācijas sagatavošanā un projekta prezentācijā.
 
@@ -187,65 +189,4 @@ Currently, two official plugins are available:
 
 The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Expanding the ESLint configuration
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
