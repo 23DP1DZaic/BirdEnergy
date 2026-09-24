@@ -25,6 +25,7 @@ import {setGlobalOptions} from "firebase-functions";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
+import {getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
 import {
   buildTelegramUid,
@@ -44,6 +45,8 @@ initializeApp();
 interface AuthenticateTelegramData {
   /** Signed Telegram Mini App initData — the only trusted source in production. */
   initData?: unknown;
+  /** DATA-01: when true, create/update the users/{uid} consent profile. */
+  acceptDataProcessing?: unknown;
   /** DEV-ONLY (src/devAuth.ts): raw Telegram id, honored by the emulator only. */
   devTelegramId?: unknown;
 }
@@ -135,6 +138,51 @@ export const authenticateTelegram = onCall(async (request) => {
 
     logger.info("Telegram user authenticated", {telegramId, username, role});
 
+    // DATA-01: create the users/{uid} profile when the user consents to data
+    // processing (leaderboard name + scores). The consent flag is trusted only
+    // after identity resolution above; the write is idempotent and preserves
+    // any existing game data (bestScore/totals) on re-consent. Server-side via
+    // the Admin SDK, so firestore.rules can keep users/ read+write=owner-only
+    // while still allowing the public leaderboard reads (SEC-01).
+    if (data.acceptDataProcessing === true) {
+      try {
+        const db = getFirestore();
+        const userDoc = db.collection("users").doc(uid);
+        await db.runTransaction(async (tx) => {
+          const existing = await tx.get(userDoc);
+          if (existing.exists) {
+            tx.update(userDoc, {
+              acceptedDataProcessingAt: new Date(),
+              telegramId,
+              username,
+              firstName,
+              lastName,
+              languageCode,
+            });
+          } else {
+            tx.set(userDoc, {
+              uid,
+              telegramId,
+              username,
+              firstName,
+              lastName,
+              languageCode,
+              role,
+              bestScore: 0,
+              gamesPlayed: 0,
+              acceptedDataProcessingAt: new Date(),
+              createdAt: new Date(),
+            });
+          }
+        });
+        logger.info("users/ profile ensured", {uid, telegramId, role});
+      } catch (dbError) {
+        // Consent profile write failing must not block sign-in/gameplay;
+        // the client surfaces the error when it reads the profile instead.
+        logger.error("users/ profile write failed", dbError);
+      }
+    }
+
     return {
       ok: true,
       customToken,
@@ -156,3 +204,75 @@ export const authenticateTelegram = onCall(async (request) => {
     );
   }
 });
+
+/**
+ * DATA-01 — explicit consent step for the data used by the game/leaderboard.
+ *
+ * Called by the consent dialog when the user accepts. Runs against the live
+ * Firebase session (request.auth), so it works even when initData has expired
+ * (Telegram initData is only fresh for 24h — the session lasts far longer).
+ * The caller's identity comes from the Auth session only: there is no
+ * client-supplied id to trust. Same idempotent upsert as in
+ * authenticateTelegram, preserving existing bestScore/gamesPlayed.
+ */
+interface AcceptDataProcessingResult {
+  ok: boolean;
+}
+
+export const acceptDataProcessing = onCall(
+  async (request): Promise<AcceptDataProcessingResult> => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in first — consent is bound to your Telegram account.",
+      );
+    }
+
+    const uid = request.auth.uid;
+    // buildTelegramUid() is `tg-<id>`; the claim carries the numeric id too.
+    const claimedId = request.auth.token.telegramId;
+    const telegramId =
+      typeof claimedId === "number"
+        ? claimedId
+        : Number.parseInt(uid.replace(/^tg-/, ""), 10);
+    if (!Number.isInteger(telegramId) || telegramId <= 0) {
+      logger.error("Cannot resolve telegramId for consent", {uid});
+      throw new HttpsError(
+        "failed-precondition",
+        "Session is not linked to a Telegram account.",
+      );
+    }
+
+    try {
+      const db = getFirestore();
+      const userDoc = db.collection("users").doc(uid);
+      await db.runTransaction(async (tx) => {
+        const existing = await tx.get(userDoc);
+        if (existing.exists) {
+          tx.update(userDoc, {acceptedDataProcessingAt: new Date()});
+        } else {
+          tx.set(userDoc, {
+            uid,
+            telegramId,
+            // Auth record fields as a best-effort profile; the next
+            // authenticateTelegram call refreshes username/firstName etc.
+            username: null,
+            firstName: (request.auth?.token.name as string | undefined) ?? "Player",
+            lastName: null,
+            languageCode: null,
+            role: request.auth?.token.role ?? "user",
+            bestScore: 0,
+            gamesPlayed: 0,
+            acceptedDataProcessingAt: new Date(),
+            createdAt: new Date(),
+          });
+        }
+      });
+      logger.info("Data-processing consent accepted", {uid, telegramId});
+      return {ok: true};
+    } catch (error) {
+      logger.error("Consent write failed", error);
+      throw new HttpsError("internal", "Could not save consent.");
+    }
+  },
+);

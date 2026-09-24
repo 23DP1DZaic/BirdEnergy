@@ -112,6 +112,7 @@ function App() {
           <GamePage
             signedInUid={signedInUid}
             onSignIn={requestSignIn}
+            onDecline={() => navigate('home')}
             onPhaseChange={setGamePhase}
           />
         )

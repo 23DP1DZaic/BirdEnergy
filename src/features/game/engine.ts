@@ -9,10 +9,9 @@
 // container (state.viewH) so the game fills the screen exactly like the Home
 // page does — sky above, 80px ground band at the bottom, no letterboxing.
 //
-// Scope per backlog card: GAME-01 delivers rendering + the loop; gravity/jump
-// feel is tuned in GAME-02, pipe collision arrives in GAME-03 (ground AND
-// ceiling contact already end the run so the loop is playable), score
-// persistence in GAME-04.
+// Scope per backlog card: GAME-01 delivered rendering + the loop; gravity/jump
+// feel is tuned in GAME-02; GAME-03 adds pipe-pair collision (ground AND
+// ceiling contact already ended the run); score persistence is GAME-04.
 
 /** Logical world width — CSS scales the canvas; sprites stay 1:1 world px. */
 export const LOGICAL_W = 480
@@ -145,6 +144,26 @@ function spawnPipe(s: GameState): void {
   s.pipes.push({ x, gapTop, passed: false })
 }
 
+/**
+ * GAME-03 — does the bird's hitbox overlap a pipe pair?
+ *
+ * The hitbox mirrors the renderer exactly: each pipe is as wide as its cap
+ * (PIPE_CAP_W * SPRITE_SCALE at the pair's left edge — the widest part of the
+ * art), the top pipe is solid from the sky down to gapTop, the bottom pipe
+ * from gapBottom down to the ground. The bird is the circle it flies as:
+ * BIRD_X ± BIRD_R horizontally, s.bird.y ± BIRD_R vertically. The 6px body
+ * inset (x + 2*S each side) is ignored on purpose — colliding with the caps'
+ * full width is what the eye judges and what classic flappy does.
+ */
+export function birdHitsPipe(s: GameState, p: PipePair): boolean {
+  const capW = PIPE_CAP_W * SPRITE_SCALE
+  const birdLeft = BIRD_X - BIRD_R
+  const birdRight = BIRD_X + BIRD_R
+  if (birdRight <= p.x || birdLeft >= p.x + capW) return false
+  const gapBottom = p.gapTop + PIPE_GAP
+  return s.bird.y - BIRD_R < p.gapTop || s.bird.y + BIRD_R > gapBottom
+}
+
 /** Advance the world by dt seconds (clamped — tab switches must not jump). */
 export function stepGame(s: GameState, dtRaw: number): void {
   const dt = Math.min(dtRaw, 0.05)
@@ -182,8 +201,16 @@ export function stepGame(s: GameState, dtRaw: number): void {
   if (s.bird.y + BIRD_R >= floorTop(s)) {
     s.bird.y = floorTop(s) - BIRD_R
     s.phase = 'game-over'
+    return
   }
-  // Pipe collision + scoring arrive with GAME-03 / GAME-04.
+  // GAME-03: touching a pipe pair (above the gap or below it) ends the run.
+  for (const p of s.pipes) {
+    if (birdHitsPipe(s, p)) {
+      s.phase = 'game-over'
+      return
+    }
+  }
+  // Score for cleared pipes arrives with GAME-04 (`passed` is already tracked).
 }
 
 /** Flap-cycle frame 0-3: animates while rising/hovering, holds mid-flap otherwise. */

@@ -263,6 +263,49 @@ a.btn {
   text-shadow: none;
 }
 
+/* DATA-01 — consent dialog on the Game screen (inside a placeholder page). */
+.consent {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 18px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+}
+
+.consent-title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  color: #ffd23f;
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+.consent-text {
+  margin: 0 0 10px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #fff4d6;
+}
+
+.consent-fineprint {
+  font-size: 12.5px;
+  opacity: 0.85;
+}
+
+.consent-error {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #ffb4a2;
+}
+
+.consent-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
 /* Play button + (for admins) the Admin Panel shortcut on Home. */
 .home-actions {
   display: flex;

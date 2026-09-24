@@ -1,19 +1,31 @@
 rules_version = '2';
 
+// SEC-01 — BirdEnergy Firestore security rules.
+//
+// Model:
+//  - users/{uid}: one profile doc per player, uid is `tg-<telegramId>`.
+//    * The owner may READ their own profile (the app shows "your data" state).
+//    * WRITES happen only server-side (Cloud Functions via the Admin SDK —
+//      authenticateTelegram / acceptDataProcessing / submitGameResult later),
+//      because identity, consent and scores must never be trusted from the
+//      client. The Admin SDK bypasses these rules by design.
+//    * No public reads yet: the leaderboard (DATA-02/UI-03) will be served by
+//      a Cloud Function or a rules change when it actually exists — until then
+//      other players' profiles (telegram ids) stay private.
+//  - Everything else: closed until a backlog card needs it.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
+    match /users/{uid} {
+      // Owner-only read; create/update/delete stay server-only.
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Default deny for any other path.
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 10, 8);
+      allow read, write: if false;
     }
   }
 }
