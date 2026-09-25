@@ -98,112 +98,123 @@ function resolveRequestUser(data: AuthenticateTelegramData): TelegramAuthUser {
   return result.user;
 }
 
-export const authenticateTelegram = onCall(async (request) => {
-  const data = (request.data ?? {}) as AuthenticateTelegramData;
+export const authenticateTelegram = onCall(
+  {
+    region: "europe-north1",
+    cors: [
+      "https://birdenergy-f1405.web.app",
+      "https://birdenergy-f1405.firebaseapp.com",
+    ],
+    // The callable protocol does its own auth (Firebase ID token -> request.auth);
+    // this only lets anonymous HTTPS reach Cloud Run so that check can run.
+    invoker: "public",
+  }, 
+  async (request) => {
+    const data = (request.data ?? {}) as AuthenticateTelegramData;
 
-  const {telegramId, username, firstName, lastName, languageCode, authDate} =
-    resolveRequestUser(data);
+    const {telegramId, username, firstName, lastName, languageCode, authDate} =
+      resolveRequestUser(data);
 
-  // AUTH-03: role from server-side whitelist — never from client input.
-  const adminIds = parseAdminTelegramIds(process.env.ADMIN_TELEGRAM_IDS);
-  const role = resolveUserRole(telegramId, adminIds);
-  const uid = buildTelegramUid(telegramId);
+    // AUTH-03: role from server-side whitelist — never from client input.
+    const adminIds = parseAdminTelegramIds(process.env.ADMIN_TELEGRAM_IDS);
+    const role = resolveUserRole(telegramId, adminIds);
+    const uid = buildTelegramUid(telegramId);
 
-  try {
-    const auth = getAuth();
+    try {
+      const auth = getAuth();
 
-    // Ensure the Auth user exists before setting claims / minting a token.
-    await auth.getUser(uid).catch(async (error: unknown) => {
-      const code = (error as {code?: string}).code;
-      if (code !== "auth/user-not-found") throw error;
-      await auth.createUser({
-        uid,
-        displayName: [firstName, lastName].filter(Boolean).join(" ") ||
-          undefined,
-        // Reserved: the users/{uid} Firestore doc (DATA-01) stores the
-        // structured profile; Auth record only carries display basics.
-      });
-      logger.info("Created Firebase Auth user", {uid, telegramId, role});
-    });
-
-    // Persist role as custom claims so Firestore rules can check
-    // request.auth.token.role, and so it survives token refreshes.
-    await auth.setCustomUserClaims(uid, {role, telegramId});
-
-    // Claims passed here are effective immediately on first sign-in.
-    const customToken = await auth.createCustomToken(uid, {
-      role,
-      telegramId,
-    });
-
-    logger.info("Telegram user authenticated", {telegramId, username, role});
-
-    // DATA-01: create the users/{uid} profile when the user consents to data
-    // processing (leaderboard name + scores). The consent flag is trusted only
-    // after identity resolution above; the write is idempotent and preserves
-    // any existing game data (bestScore/totals) on re-consent. Server-side via
-    // the Admin SDK, so firestore.rules can keep users/ read+write=owner-only
-    // while still allowing the public leaderboard reads (SEC-01).
-    if (data.acceptDataProcessing === true) {
-      try {
-        const db = getFirestore();
-        const userDoc = db.collection("users").doc(uid);
-        await db.runTransaction(async (tx) => {
-          const existing = await tx.get(userDoc);
-          if (existing.exists) {
-            tx.update(userDoc, {
-              acceptedDataProcessingAt: new Date(),
-              telegramId,
-              username,
-              firstName,
-              lastName,
-              languageCode,
-            });
-          } else {
-            tx.set(userDoc, {
-              uid,
-              telegramId,
-              username,
-              firstName,
-              lastName,
-              languageCode,
-              role,
-              bestScore: 0,
-              gamesPlayed: 0,
-              acceptedDataProcessingAt: new Date(),
-              createdAt: new Date(),
-            });
-          }
+      // Ensure the Auth user exists before setting claims / minting a token.
+      await auth.getUser(uid).catch(async (error: unknown) => {
+        const code = (error as {code?: string}).code;
+        if (code !== "auth/user-not-found") throw error;
+        await auth.createUser({
+          uid,
+          displayName: [firstName, lastName].filter(Boolean).join(" ") ||
+            undefined,
+          // Reserved: the users/{uid} Firestore doc (DATA-01) stores the
+          // structured profile; Auth record only carries display basics.
         });
-        logger.info("users/ profile ensured", {uid, telegramId, role});
-      } catch (dbError) {
-        // Consent profile write failing must not block sign-in/gameplay;
-        // the client surfaces the error when it reads the profile instead.
-        logger.error("users/ profile write failed", dbError);
-      }
-    }
+        logger.info("Created Firebase Auth user", {uid, telegramId, role});
+      });
 
-    return {
-      ok: true,
-      customToken,
-      role,
-      user: {
+      // Persist role as custom claims so Firestore rules can check
+      // request.auth.token.role, and so it survives token refreshes.
+      await auth.setCustomUserClaims(uid, {role, telegramId});
+
+      // Claims passed here are effective immediately on first sign-in.
+      const customToken = await auth.createCustomToken(uid, {
+        role,
         telegramId,
-        username,
-        firstName,
-        lastName,
-        languageCode,
-        authDate,
-      },
-    };
-  } catch (error) {
-    logger.error("Custom token minting failed", error);
-    throw new HttpsError(
-      "internal",
-      "Failed to create authentication session.",
-    );
-  }
-});
+      });
+
+      logger.info("Telegram user authenticated", {telegramId, username, role});
+
+      // DATA-01: create the users/{uid} profile when the user consents to data
+      // processing (leaderboard name + scores). The consent flag is trusted only
+      // after identity resolution above; the write is idempotent and preserves
+      // any existing game data (bestScore/totals) on re-consent. Server-side via
+      // the Admin SDK, so firestore.rules can keep users/ read+write=owner-only
+      // while still allowing the public leaderboard reads (SEC-01).
+      if (data.acceptDataProcessing === true) {
+        try {
+          const db = getFirestore();
+          const userDoc = db.collection("users").doc(uid);
+          await db.runTransaction(async (tx) => {
+            const existing = await tx.get(userDoc);
+            if (existing.exists) {
+              tx.update(userDoc, {
+                acceptedDataProcessingAt: new Date(),
+                telegramId,
+                username,
+                firstName,
+                lastName,
+                languageCode,
+              });
+            } else {
+              tx.set(userDoc, {
+                uid,
+                telegramId,
+                username,
+                firstName,
+                lastName,
+                languageCode,
+                role,
+                bestScore: 0,
+                gamesPlayed: 0,
+                acceptedDataProcessingAt: new Date(),
+                createdAt: new Date(),
+              });
+            }
+          });
+          logger.info("users/ profile ensured", {uid, telegramId, role});
+        } catch (dbError) {
+          // Consent profile write failing must not block sign-in/gameplay;
+          // the client surfaces the error when it reads the profile instead.
+          logger.error("users/ profile write failed", dbError);
+        }
+      }
+
+      return {
+        ok: true,
+        customToken,
+        role,
+        user: {
+          telegramId,
+          username,
+          firstName,
+          lastName,
+          languageCode,
+          authDate,
+        },
+      };
+    } catch (error) {
+      logger.error("Custom token minting failed", error);
+      throw new HttpsError(
+        "internal",
+        "Failed to create authentication session.",
+      );
+    }
+  });
 
 /**
  * DATA-01 — explicit consent step for the data used by the game/leaderboard.
@@ -220,6 +231,14 @@ interface AcceptDataProcessingResult {
 }
 
 export const acceptDataProcessing = onCall(
+  {
+    region: "europe-north1",
+    cors: [
+      "https://birdenergy-f1405.web.app",
+      "https://birdenergy-f1405.firebaseapp.com",
+    ],    // Auth is enforced in-code (request.auth) — see acceptDataProcessing below.
+    invoker: "public",
+  },
   async (request): Promise<AcceptDataProcessingResult> => {
     if (!request.auth) {
       throw new HttpsError(
