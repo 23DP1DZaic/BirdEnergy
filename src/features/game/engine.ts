@@ -10,8 +10,9 @@
 // page does — sky above, 80px ground band at the bottom, no letterboxing.
 //
 // Scope per backlog card: GAME-01 delivered rendering + the loop; gravity/jump
-// feel is tuned in GAME-02; GAME-03 adds pipe-pair collision (ground AND
-// ceiling contact already ended the run); score persistence is GAME-04.
+// feel is tuned in GAME-02; GAME-03 added pipe-pair collision (ground AND
+// ceiling contact end the run); GAME-04 adds score counting + the Game Over
+// screen with the final result.
 
 /** Logical world width — CSS scales the canvas; sprites stay 1:1 world px. */
 export const LOGICAL_W = 480
@@ -76,6 +77,9 @@ export interface GameState {
   bird: BirdState
   pipes: PipePair[]
   score: number
+  /** Best score this browser session — persists across restarts, not reloads.
+   *  The cross-session best lives in Firestore users/{uid}.bestScore (Week 5). */
+  best: number
   /** Total world scroll — drives sky/ground parallax. */
   scroll: number
   time: number
@@ -96,6 +100,7 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0 },
     pipes: [],
     score: 0,
+    best: 0,
     scroll: 0,
     time: 0,
     viewH,
@@ -109,7 +114,15 @@ function readyBirdY(viewH: number, time: number): number {
 
 /** In-place reset (the state object lives in the render loop closure). */
 export function resetGame(s: GameState): void {
+  const best = s.best // session best survives restarts
   Object.assign(s, createGameState(s.viewH))
+  s.best = best
+}
+
+/** Ends the run: freezes the world and records the session best (GAME-04). */
+function endRun(s: GameState): void {
+  s.phase = 'game-over'
+  s.best = Math.max(s.best, s.score)
 }
 
 /** Begin a run from the ready screen. */
@@ -194,23 +207,32 @@ export function stepGame(s: GameState, dtRaw: number): void {
   // Ceiling: flying above the screen is fatal too (no hiding behind the UI).
   if (s.bird.y - BIRD_R <= 0) {
     s.bird.y = BIRD_R
-    s.phase = 'game-over'
+    endRun(s)
     return
   }
   // Ground: landing ends the run.
   if (s.bird.y + BIRD_R >= floorTop(s)) {
     s.bird.y = floorTop(s) - BIRD_R
-    s.phase = 'game-over'
+    endRun(s)
     return
   }
   // GAME-03: touching a pipe pair (above the gap or below it) ends the run.
   for (const p of s.pipes) {
     if (birdHitsPipe(s, p)) {
-      s.phase = 'game-over'
+      endRun(s)
       return
     }
   }
-  // Score for cleared pipes arrives with GAME-04 (`passed` is already tracked).
+
+  // GAME-04: a pipe counts once its trailing edge is fully behind the bird —
+  // the same geometry birdHitsPipe uses, so score and death can never disagree.
+  const capW = PIPE_CAP_W * SPRITE_SCALE
+  for (const p of s.pipes) {
+    if (!p.passed && p.x + capW < BIRD_X - BIRD_R) {
+      p.passed = true
+      s.score++
+    }
+  }
 }
 
 /** Flap-cycle frame 0-3: animates while rising/hovering, holds mid-flap otherwise. */

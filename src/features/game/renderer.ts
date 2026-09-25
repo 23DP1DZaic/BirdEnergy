@@ -154,24 +154,87 @@ function drawBird(
   )
 }
 
-/** HUD text in the game's pixel-art palette. */
+/**
+ * GAME-04 — score HUD and the Game Over screen.
+ *
+ * Playing: the big centered score. Ready: a start hint. Game-over: a panel
+ * with the final score, the session best (best across restarts — the
+ * cross-session best lives in Firestore users/{uid}.bestScore in Week 5) and
+ * a restart hint; one tap anywhere restarts (handled in GameCanvas).
+ */
 function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
-  ctx.font = 'bold 28px system-ui, sans-serif'
   ctx.textAlign = 'center'
   ctx.lineWidth = 4
   ctx.strokeStyle = '#5a1e05'
   ctx.fillStyle = '#ffd23f'
-  const label =
-    s.phase === 'ready'
-      ? 'Tap to flap'
-      : s.phase === 'game-over'
-        ? `Game over — ${s.score}`
-        : String(s.score)
-  ctx.strokeText(label, LOGICAL_W / 2, 48)
-  ctx.fillText(label, LOGICAL_W / 2, 48)
+
+  if (s.phase === 'ready') {
+    ctx.font = 'bold 28px system-ui, sans-serif'
+    ctx.strokeText('Tap to flap', LOGICAL_W / 2, 48)
+    ctx.fillText('Tap to flap', LOGICAL_W / 2, 48)
+    return
+  }
+
+  if (s.phase === 'playing') {
+    ctx.font = 'bold 36px system-ui, sans-serif'
+    ctx.strokeText(String(s.score), LOGICAL_W / 2, 56)
+    ctx.fillText(String(s.score), LOGICAL_W / 2, 56)
+    return
+  }
+
+  // Game Over panel
+  const isNewBest = s.score > 0 && s.score >= s.best && s.best === s.score
+  const panelW = 320
+  const panelH = 168
+  const panelX = (LOGICAL_W - panelW) / 2
+  const panelY = s.viewH / 2 - panelH
+
+  ctx.fillStyle = 'rgba(90, 30, 5, 0.82)'
+  ctx.strokeStyle = '#ffd23f'
+  ctx.lineWidth = 3
+  roundRect(ctx, panelX, panelY, panelW, panelH, 14)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = '#ffd23f'
+  ctx.font = 'bold 28px system-ui, sans-serif'
+  ctx.fillText('Game Over', LOGICAL_W / 2, panelY + 44)
+
+  ctx.font = 'bold 48px system-ui, sans-serif'
+  ctx.strokeText(String(s.score), LOGICAL_W / 2, panelY + 102)
+  ctx.fillText(String(s.score), LOGICAL_W / 2, panelY + 102)
+
+  ctx.font = 'bold 16px system-ui, sans-serif'
+  ctx.fillStyle = '#fff4d6'
+  ctx.fillText(
+    isNewBest ? `New best! (session best ${s.best})` : `Best this session: ${s.best}`,
+    LOGICAL_W / 2,
+    panelY + 130,
+  )
+  ctx.fillStyle = 'rgba(255, 244, 214, 0.75)'
+  ctx.fillText('Tap to play again', LOGICAL_W / 2, panelY + 154)
 }
 
-/** Render one full frame of the current state. */
+/** Rounded-rect path helper (ctx.roundRect is missing on older Telegram webviews). */
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+}
+
+/** Render one full frame of the current state (HUD last, on top). */
 export function drawGame(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
