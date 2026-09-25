@@ -80,6 +80,10 @@ export interface GameState {
   /** Best score this browser session — persists across restarts, not reloads.
    *  The cross-session best lives in Firestore users/{uid}.bestScore (Week 5). */
   best: number
+  /** Seconds spent in the current run (playing phase only) — DATA-01 durationMs. */
+  runTime: number
+  /** Flaps this run (the starting tap counts) — DATA-01 jumpCount. */
+  jumpCount: number
   /** Total world scroll — drives sky/ground parallax. */
   scroll: number
   time: number
@@ -87,6 +91,13 @@ export interface GameState {
   viewH: number
   /** Which Home sky to draw (index into the shared 9-background list). */
   backgroundIndex: number
+}
+
+/** DATA-01 — the per-run numbers submitGameResult persists. */
+export interface RunResult {
+  score: number
+  durationMs: number
+  jumpCount: number
 }
 
 /** Top edge of the ground band for the current view. */
@@ -101,6 +112,8 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     pipes: [],
     score: 0,
     best: 0,
+    runTime: 0,
+    jumpCount: 0,
     scroll: 0,
     time: 0,
     viewH,
@@ -125,7 +138,19 @@ function endRun(s: GameState): void {
   s.best = Math.max(s.best, s.score)
 }
 
-/** Begin a run from the ready screen. */
+/**
+ * DATA-01 — snapshot of the finished run for submitGameResult. Call right
+ * after the phase flips to game-over (values are frozen until the next reset).
+ */
+export function runResult(s: GameState): RunResult {
+  return {
+    score: s.score,
+    durationMs: Math.round(s.runTime * 1000),
+    jumpCount: s.jumpCount,
+  }
+}
+
+/** Begin a run from the ready screen. The starting tap counts as flap #1. */
 export function startGame(s: GameState): void {
   s.phase = 'playing'
   s.bird.y = s.viewH / 2 - 40
@@ -133,6 +158,8 @@ export function startGame(s: GameState): void {
   s.bird.frameTime = 0
   s.pipes = []
   s.score = 0
+  s.runTime = 0
+  s.jumpCount = 1
 }
 
 /** One input: tap / click / space. Starts the run from ready, flaps in air. */
@@ -142,6 +169,7 @@ export function flap(s: GameState): void {
   } else if (s.phase === 'playing') {
     s.bird.vy = FLAP_VELOCITY
     s.bird.frameTime = 0
+    s.jumpCount++
   }
 }
 
@@ -194,6 +222,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
 
   // Playing: gravity, flap handled by flap(); ground/ceiling contact ends the run.
   s.scroll += PIPE_SPEED * dt
+  s.runTime += dt
   s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
   s.bird.y += s.bird.vy * dt
   s.bird.frameTime += dt * 1000

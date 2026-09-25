@@ -20,6 +20,15 @@
 // decoded HTMLImageElements so the renderer can pass them to drawImage and
 // read their natural width/height.
 import birdSheetUrl from '../../assets/Player/Bird2-1.png'
+// Bird skins: seven 64x16 sheets (4 frames of 16x16), same geometry as the
+// default — the skin selector (features/birdSkin.ts) swaps between them.
+import birdSkin1Url from '../../assets/Player/Bird2-1.png'
+import birdSkin2Url from '../../assets/Player/Bird2-2.png'
+import birdSkin3Url from '../../assets/Player/Bird2-3.png'
+import birdSkin4Url from '../../assets/Player/Bird2-4.png'
+import birdSkin5Url from '../../assets/Player/Bird2-5.png'
+import birdSkin6Url from '../../assets/Player/Bird2-6.png'
+import birdSkin7Url from '../../assets/Player/Bird2-7.png'
 import background1Url from '../../assets/Background/Background1.png'
 import background2Url from '../../assets/Background/Background2.png'
 import background3Url from '../../assets/Background/Background3.png'
@@ -52,6 +61,17 @@ export const gameBackgroundUrls = [
   background9Url,
 ] as const
 
+/** The seven selectable bird skins; index-matched to birdSkin.ts. */
+export const birdSkinUrls = [
+  birdSkin1Url,
+  birdSkin2Url,
+  birdSkin3Url,
+  birdSkin4Url,
+  birdSkin5Url,
+  birdSkin6Url,
+  birdSkin7Url,
+] as const
+
 /** The urls the sprite files resolve to (handy for tests/debug). */
 export const gameSpriteUrls = {
   birdSheet: birdSheetUrl,
@@ -65,7 +85,11 @@ export const gameSpriteUrls = {
 export interface GameSpriteImages {
   /** All 9 skies (index-matched to the Home page's backgrounds array). */
   backgrounds: HTMLImageElement[]
+  /** Currently active bird sheet — swapped live by the skin selector. */
   birdSheet: HTMLImageElement
+  /** All seven skins, pre-decoded; birdSkins[getStoredBirdSkinIndex()] is the
+   *  active one. Same order as birdSkinUrls / the birdSkin.ts index. */
+  birdSkins: HTMLImageElement[]
   pipeCapUp: HTMLImageElement
   pipeCapBottom: HTMLImageElement
   pipeCenter: HTMLImageElement
@@ -84,14 +108,22 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** Decode every game sprite once before the render loop starts. */
 export async function loadGameSprites(): Promise<GameSpriteImages> {
-  const [backgrounds, birdSheet, pipeCapUp, pipeCapBottom, pipeCenter, groundTile] =
+  const [backgrounds, birdSheets, pipeCapUp, pipeCapBottom, pipeCenter, groundTile] =
     await Promise.all([
       Promise.all(gameBackgroundUrls.map(loadImage)),
-      loadImage(gameSpriteUrls.birdSheet),
+      Promise.all(birdSkinUrls.map(loadImage)),
       loadImage(gameSpriteUrls.pipeCapUp),
       loadImage(gameSpriteUrls.pipeCapBottom),
       loadImage(gameSpriteUrls.pipeCenter),
       loadImage(gameSpriteUrls.groundTile),
     ])
-  return { backgrounds, birdSheet, pipeCapUp, pipeCapBottom, pipeCenter, groundTile }
+  return {
+    backgrounds,
+    birdSkins: birdSheets,
+    birdSheet: birdSheets[0],
+    pipeCapUp,
+    pipeCapBottom,
+    pipeCenter,
+    groundTile,
+  }
 }

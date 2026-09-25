@@ -16,13 +16,19 @@ import {
   flap,
   LOGICAL_W,
   resetGame,
+  runResult,
   stepGame,
   type GamePhase,
   type GameState,
+  type RunResult,
 } from './engine'
 import { configureCanvas, drawGame } from './renderer'
 import { loadGameSprites, type GameSpriteImages } from './sprites'
-import { BACKGROUND_CHANGE_EVENT, getStoredBackgroundIndex } from '../homeBackground'
+import {
+  BACKGROUND_CHANGE_EVENT,
+  getStoredBackgroundIndex,
+} from '../homeBackground'
+import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import './game.css'
 
 type LoadState =
@@ -63,8 +69,11 @@ function resizeCanvas(
 
 export function GameCanvas({
   onPhaseChange,
+  onRunEnd,
 }: {
   onPhaseChange?: (phase: GamePhase) => void
+  /** DATA-01: fired once per finished run with its final numbers. */
+  onRunEnd?: (result: RunResult) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -98,18 +107,26 @@ export function GameCanvas({
 
     configureCanvas(ctx)
     const state = createGameState()
+    // Bird skin starts at the stored choice; the renderer draws
+    // sprites.birdSheet, so swapping it re-skins every following frame.
+    load.sprites.birdSheet = load.sprites.birdSkins[getStoredBirdSkinIndex()] ?? load.sprites.birdSkins[0]
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
     }
 
     // Report phase transitions (ready → playing → game-over → ready) so the
-    // shell can hide the navigation during active gameplay only.
+    // shell can hide the navigation during active gameplay only. A transition
+    // INTO game-over is a finished run: report its final numbers once (DATA-01).
     let reported: GamePhase | null = null
     const reportPhase = () => {
       if (state.phase !== reported) {
+        const previous = reported
         reported = state.phase
         onPhaseChange?.(state.phase)
+        if (state.phase === 'game-over' && previous === 'playing') {
+          onRunEnd?.(runResult(state))
+        }
       }
     }
     reportPhase()
@@ -168,16 +185,21 @@ export function GameCanvas({
       else flap(state)
     }
 
-    // Home and Game share the background index (UI-07 continuity).
+    // Home and Game share the background index (UI-07 continuity) and the
+    // bird skin (selection lives on Home, applies to the canvas live).
     const onBackgroundChange = () => {
       state.backgroundIndex = getStoredBackgroundIndex()
     }
     state.backgroundIndex = getStoredBackgroundIndex()
+    const onBirdSkinChange = () => {
+      load.sprites.birdSheet = load.sprites.birdSkins[getStoredBirdSkinIndex()] ?? load.sprites.birdSkins[0]
+    }
 
     canvas.addEventListener('pointerdown', onPointer)
     window.addEventListener('keydown', onKey)
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener(BACKGROUND_CHANGE_EVENT, onBackgroundChange)
+    window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       cancelAnimationFrame(raf)
       observer.disconnect()
@@ -185,8 +207,11 @@ export function GameCanvas({
       window.removeEventListener('keydown', onKey)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener(BACKGROUND_CHANGE_EVENT, onBackgroundChange)
+      window.removeEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     }
-  }, [load, onPhaseChange])
+    // Callbacks arrive as stable useCallback identities (see GamePage), so a
+    // changing identity would tear down and restart the whole engine here.
+  }, [load, onPhaseChange, onRunEnd])
 
   return (
     <div className="game-wrap" ref={wrapRef}>

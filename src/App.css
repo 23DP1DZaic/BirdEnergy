@@ -170,9 +170,7 @@ a.btn {
   font-size: 13px;
   color: #fff;
   text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.75);
-}
-
-/* Background switcher — a compact .btn pinned to the top-right corner, above
+}/* Background switcher — a compact .btn pinned to the top-right corner, above
    the sky and the content layer. Declared after .btn so it wins on order. */
 .bg-toggle {
   position: absolute;
@@ -182,6 +180,24 @@ a.btn {
   font-size: clamp(12px, 3vw, 14px);
   padding: 8px 14px;
   box-shadow: 0 3px 0 #a5420c;
+}
+
+/* Bird skin switcher — same corner style, stacked below the background
+   button, with a live thumbnail of the active skin. */
+.bird-toggle {
+  top: calc(clamp(10px, 2vh, 18px) + 48px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bird-toggle-skin {
+  width: 32px;
+  height: 8px;
+  /* The sheet is 64x16 → show the first frame only. */
+  object-fit: cover;
+  object-position: left center;
+  image-rendering: pixelated;
 }
 
 /* ------------------------------------------------------------------ */

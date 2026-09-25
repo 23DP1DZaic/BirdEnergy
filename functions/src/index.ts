@@ -25,7 +25,7 @@ import {setGlobalOptions} from "firebase-functions";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
-import {getFirestore} from "firebase-admin/firestore";
+import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
 import {
   buildTelegramUid,
@@ -292,6 +292,124 @@ export const acceptDataProcessing = onCall(
     } catch (error) {
       logger.error("Consent write failed", error);
       throw new HttpsError("internal", "Could not save consent.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------- DATA-01 ---
+
+/**
+ * DATA-01 — persist one finished run.
+ *
+ * Accepts {score, durationMs, jumpCount}; the caller's identity comes ONLY
+ * from the Firebase ID token (request.auth) — never from client input.
+ * Validates ranges server-side (the client is untrusted), writes one
+ * gameResults document and updates the users/{uid} aggregates
+ * (bestScore, totalGames, totalScore) in the same transaction.
+ *
+ * Reuses the authenticateTelegram CORS origins + europe-north1 region; the
+ * caller must be signed in (Firebase ID token) AND have accepted data
+ * processing (the users/{uid} doc must exist — created by the consent flow).
+ */
+interface SubmitGameResultData {
+  score?: unknown;
+  durationMs?: unknown;
+  jumpCount?: unknown;
+}
+
+/** Server-side range validation — the client is never trusted (card DoD). */
+function validateRunData(data: SubmitGameResultData): {
+  score: number;
+  durationMs: number;
+  jumpCount: number;
+} {
+  const score = data.score;
+  if (typeof score !== "number" || !Number.isInteger(score) ||
+      score < 0 || score > 10_000) {
+    throw new HttpsError("invalid-argument",
+      "score must be an integer between 0 and 10000.");
+  }
+
+  const durationMs = data.durationMs;
+  if (typeof durationMs !== "number" || !Number.isInteger(durationMs) ||
+      durationMs < 0 || durationMs > 6 * 60 * 60 * 1000) {
+    throw new HttpsError("invalid-argument",
+      "durationMs must be an integer between 0 and 21600000.");
+  }
+
+  const jumpCount = data.jumpCount;
+  if (typeof jumpCount !== "number" || !Number.isInteger(jumpCount) ||
+      jumpCount < 0 || jumpCount > 10_000) {
+    throw new HttpsError("invalid-argument",
+      "jumpCount must be an integer between 0 and 10000.");
+  }
+
+  return {score, durationMs, jumpCount};
+}
+
+export const submitGameResult = onCall(
+  {
+    region: "europe-north1",
+    cors: [
+      "https://birdenergy-f1405.web.app",
+      "https://birdenergy-f1405.firebaseapp.com",
+    ],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to submit results.");
+    }
+
+    const run = validateRunData((request.data ?? {}) as SubmitGameResultData);
+    const uid = request.auth.uid;
+    const db = getFirestore();
+    const userDoc = db.collection("users").doc(uid);
+    const now = new Date();
+
+    try {
+      const aggregates = await db.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userDoc);
+        if (!userSnap.exists) {
+          throw new HttpsError("failed-precondition",
+            "No player profile — accept data processing first.");
+        }
+
+        const prev = userSnap.data() ?? {};
+        const prevBest = typeof prev.bestScore === "number" ? prev.bestScore : 0;
+        const newBest = run.score > prevBest;
+
+        // One attempt document per finished run (never updated afterwards).
+        const resultRef = db.collection("gameResults").doc();
+        tx.set(resultRef, {
+          uid,
+          score: run.score,
+          durationMs: run.durationMs,
+          jumpCount: run.jumpCount,
+          createdAt: now,
+        });
+
+        tx.update(userDoc, {
+          bestScore: newBest ? run.score : prevBest,
+          totalGames: FieldValue.increment(1),
+          totalScore: FieldValue.increment(run.score),
+          lastPlayedAt: now,
+        });
+
+        return {
+          bestScore: newBest ? run.score : prevBest,
+          totalGames: (typeof prev.totalGames === "number" ? prev.totalGames : 0) + 1,
+          totalScore: (typeof prev.totalScore === "number" ? prev.totalScore : 0) +
+            run.score,
+          newBest,
+        };
+      });
+
+      logger.info("Game result submitted", {uid, ...run, newBest: aggregates.newBest});
+      return aggregates;
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("submitGameResult failed", error);
+      throw new HttpsError("internal", "Could not save the result.");
     }
   },
 );

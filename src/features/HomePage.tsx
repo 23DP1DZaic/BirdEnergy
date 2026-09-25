@@ -6,6 +6,8 @@ import type { TelegramSignInResult } from '../auth'
 import { getDevTelegramId } from '../devAuth'
 import { backgrounds, logo } from '../sprites'
 import { useBackgroundIndex } from './homeBackground'
+import { useBirdSkinIndex } from './birdSkin'
+import { birdSkinUrls } from './game/sprites'
 import {
   getTelegramBotLink,
   getTelegramUser,
@@ -43,6 +45,8 @@ export function HomePage({
   const [backgroundIndex, cycleBackground] = useBackgroundIndex(
     backgrounds.length,
   )
+  // Bird skin switcher (shared with the Game canvas via birdSkin.ts).
+  const [skinIndex, cycleSkin] = useBirdSkinIndex()
   const inTelegram = isTelegramEnvironment()
   const tgUser = getTelegramUser()
   // DEV-ONLY (src/devAuth.ts): set VITE_TELEGRAM_ID in .env to sign in locally.
@@ -62,6 +66,21 @@ export function HomePage({
         onClick={cycleBackground}
       >
         Background {backgroundIndex + 1}/{backgrounds.length}
+      </button>
+
+      <button
+        type="button"
+        className="btn bg-toggle bird-toggle"
+        onClick={cycleSkin}
+        aria-label={`Bird skin ${skinIndex + 1} of ${birdSkinUrls.length}`}
+      >
+        <img
+          className="bird-toggle-skin"
+          src={birdSkinUrls[skinIndex]}
+          alt=""
+          aria-hidden="true"
+        />
+        Skin {skinIndex + 1}/{birdSkinUrls.length}
       </button>
 
       <div className="content">

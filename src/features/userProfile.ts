@@ -55,3 +55,34 @@ export async function acceptDataProcessing(): Promise<void> {
   )
   await accept({})
 }
+
+/** DATA-01 — the numbers submitGameResult accepts (mirrors engine.RunResult). */
+export interface SubmitRunInput {
+  score: number
+  durationMs: number
+  jumpCount: number
+}
+
+export interface SubmitRunResponse {
+  ok: boolean
+  bestScore: number
+  totalGames: number
+  totalScore: number
+  newBest: boolean
+}
+
+/**
+ * Persists one finished run via the submitGameResult Cloud Function. Fire-and-
+ * forget friendly on the caller side, but this promise surfaces validation or
+ * auth failures — GamePage logs them without blocking the game-over screen.
+ */
+export async function submitGameResult(
+  run: SubmitRunInput,
+): Promise<SubmitRunResponse> {
+  const submit = httpsCallable<SubmitRunInput, SubmitRunResponse>(
+    functions,
+    'submitGameResult',
+  )
+  const result = await submit(run)
+  return result.data
+}

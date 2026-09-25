@@ -7,13 +7,14 @@
 // Cloud Function (creates the Firestore doc), then the game mounts. The
 // profile is only re-checked when the uid changes, so navigating away and
 // back doesn't re-read Firestore on every visit.
-import { useEffect, useState } from 'react'
-import type { GamePhase } from './game/engine'
+import { useCallback, useEffect, useState } from 'react'
+import type { GamePhase, RunResult } from './game/engine'
 import { GameCanvas } from './game/GameCanvas'
 import { PlaceholderPage } from './PlaceholderPage'
 import {
   acceptDataProcessing,
   checkProfileConsent,
+  submitGameResult,
   type ProfileCheck,
 } from './userProfile'
 
@@ -35,6 +36,16 @@ export function GamePage({
   const [profile, setProfile] = useState<ProfileCheck | null>(null)
   const [consentBusy, setConsentBusy] = useState(false)
   const [consentError, setConsentError] = useState('')
+
+  // Stable identity so GameCanvas's engine effect never re-runs (which would
+  // reset the game) — DATA-01: persist every finished run. Failures (offline,
+  // validation) must never disturb the game-over screen; they surface in console.
+  // Declared before the early returns: hooks must run on every render.
+  const handleRunEnd = useCallback((run: RunResult) => {
+    submitGameResult(run).catch((err: unknown) => {
+      console.warn('submitGameResult failed', run, err)
+    })
+  }, [])
 
   useEffect(() => {
     if (!signedInUid) return
@@ -143,5 +154,10 @@ export function GamePage({
     )
   }
 
-  return <GameCanvas onPhaseChange={onPhaseChange} />
+  return (
+    <GameCanvas
+      onPhaseChange={onPhaseChange}
+      onRunEnd={handleRunEnd}
+    />
+  )
 }
