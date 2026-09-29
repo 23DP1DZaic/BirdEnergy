@@ -117,7 +117,12 @@ function App() {
           />
         )
       case 'leaderboard':
-        return <LeaderboardPage />
+        return (
+          <LeaderboardPage
+            signedInUid={signedInUid}
+            onSignIn={requestSignIn}
+          />
+        )
       case 'challenges':
         return <ChallengesPage />
       case 'profile':

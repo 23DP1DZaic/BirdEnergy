@@ -48,7 +48,7 @@ export const BIRD_X = 120
  * reuses this for pipe collisions.
  */
 export const BIRD_R = 13
-const FLAP_FRAME_MS = 120
+const FLAP_FRAME_MS = 180 // 120ms × 1.5 — slower, calmer wing cycle
 
 /** Gap spawn bounds relative to the current view: 60px sky margin above the
  *  gap, 30px floor margin below it. */

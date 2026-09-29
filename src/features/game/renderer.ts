@@ -29,6 +29,13 @@ import {
 
 const GROUND_TILE_W = 480
 
+/**
+ * Canvas text font — Press Start 2P (the app's pixel font, matches the CSS).
+ * The Google-Fonts stylesheet is preloaded before first draw (see main.tsx),
+ * with system-ui as the fallback while/if the webfont is unavailable.
+ */
+const PIXEL_FONT = '"Press Start 2P", system-ui, sans-serif'
+
 /** Pixel-art crispness: nearest-neighbour everywhere. */
 export function configureCanvas(ctx: CanvasRenderingContext2D): void {
   ctx.imageSmoothingEnabled = false
@@ -169,16 +176,16 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
   ctx.fillStyle = '#ffd23f'
 
   if (s.phase === 'ready') {
-    ctx.font = 'bold 28px system-ui, sans-serif'
-    ctx.strokeText('Tap to flap', LOGICAL_W / 2, 48)
-    ctx.fillText('Tap to flap', LOGICAL_W / 2, 48)
+    ctx.font = `14px ${PIXEL_FONT}`
+    ctx.strokeText('Tap to flap', LOGICAL_W / 2, 52)
+    ctx.fillText('Tap to flap', LOGICAL_W / 2, 52)
     return
   }
 
   if (s.phase === 'playing') {
-    ctx.font = 'bold 36px system-ui, sans-serif'
-    ctx.strokeText(String(s.score), LOGICAL_W / 2, 56)
-    ctx.fillText(String(s.score), LOGICAL_W / 2, 56)
+    ctx.font = `32px ${PIXEL_FONT}`
+    ctx.strokeText(String(s.score), LOGICAL_W / 2, 60)
+    ctx.fillText(String(s.score), LOGICAL_W / 2, 60)
     return
   }
 
@@ -198,22 +205,24 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
 
   ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = '#ffd23f'
-  ctx.font = 'bold 28px system-ui, sans-serif'
+  ctx.font = `16px ${PIXEL_FONT}`
   ctx.fillText('Game Over', LOGICAL_W / 2, panelY + 44)
 
-  ctx.font = 'bold 48px system-ui, sans-serif'
+  ctx.font = `40px ${PIXEL_FONT}`
   ctx.strokeText(String(s.score), LOGICAL_W / 2, panelY + 102)
   ctx.fillText(String(s.score), LOGICAL_W / 2, panelY + 102)
 
-  ctx.font = 'bold 16px system-ui, sans-serif'
+  // Press Start 2P glyphs are 1em wide — long lines must use small sizes to
+  // stay inside the 320px panel.
+  ctx.font = `8px ${PIXEL_FONT}`
   ctx.fillStyle = '#fff4d6'
   ctx.fillText(
-    isNewBest ? `New best! (session best ${s.best})` : `Best this session: ${s.best}`,
+    isNewBest ? `NEW BEST! (${s.best})` : `BEST THIS RUN: ${s.best}`,
     LOGICAL_W / 2,
     panelY + 130,
   )
   ctx.fillStyle = 'rgba(255, 244, 214, 0.75)'
-  ctx.fillText('Tap to play again', LOGICAL_W / 2, panelY + 154)
+  ctx.fillText('TAP TO PLAY AGAIN', LOGICAL_W / 2, panelY + 152)
 }
 
 /** Rounded-rect path helper (ctx.roundRect is missing on older Telegram webviews). */

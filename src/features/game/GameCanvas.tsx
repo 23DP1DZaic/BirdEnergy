@@ -107,9 +107,15 @@ export function GameCanvas({
 
     configureCanvas(ctx)
     const state = createGameState()
+    // Local mutable copy of the sprite set: the effect re-runs on every render
+    // commit, so the render-captured `load.sprites` object itself must stay
+    // untouched (react-hooks/immutability). The renderer takes sprites as a
+    // parameter, so drawing from this copy re-skins every following frame.
+    const sprites = {...load.sprites}
     // Bird skin starts at the stored choice; the renderer draws
     // sprites.birdSheet, so swapping it re-skins every following frame.
-    load.sprites.birdSheet = load.sprites.birdSkins[getStoredBirdSkinIndex()] ?? load.sprites.birdSkins[0]
+    sprites.birdSheet =
+      sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
@@ -134,7 +140,7 @@ export function GameCanvas({
     const reflow = () => resizeCanvas(canvas, wrap, ctx, state)
     reflow()
     // First frame before any rAF fires (hidden tab, throttling).
-    drawGame(ctx, load.sprites, state)
+    drawGame(ctx, sprites, state)
 
     const observer = new ResizeObserver(reflow)
     observer.observe(wrap)
@@ -148,7 +154,7 @@ export function GameCanvas({
       last = now
       if (running) stepGame(state, dt)
       reportPhase()
-      drawGame(ctx, load.sprites, state)
+      drawGame(ctx, sprites, state)
       raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
@@ -168,7 +174,7 @@ export function GameCanvas({
       ).__birdGameStep = (steps, dt) => {
         for (let i = 0; i < steps; i++) stepGame(state, dt)
         reportPhase()
-        drawGame(ctx, load.sprites, state)
+        drawGame(ctx, sprites, state)
       }
     }
 
@@ -192,7 +198,7 @@ export function GameCanvas({
     }
     state.backgroundIndex = getStoredBackgroundIndex()
     const onBirdSkinChange = () => {
-      load.sprites.birdSheet = load.sprites.birdSkins[getStoredBirdSkinIndex()] ?? load.sprites.birdSkins[0]
+      sprites.birdSheet = sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
     }
 
     canvas.addEventListener('pointerdown', onPointer)

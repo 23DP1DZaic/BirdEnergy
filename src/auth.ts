@@ -33,6 +33,12 @@ interface AuthenticateTelegramResponse {
 
 interface AuthenticateTelegramRequest {
   initData?: string
+  /**
+   * DATA-01: sign-in also ensures the users/{uid} profile doc exists (the
+   * Cloud Function upserts it with the Telegram profile fields), so every
+   * signed-in player has a leaderboard profile right away.
+   */
+  acceptDataProcessing?: boolean
   /** DEV-ONLY (src/devAuth.ts): accepted by the Functions emulator only. */
   devTelegramId?: number
 }
@@ -65,7 +71,9 @@ export async function authenticateTelegram(): Promise<AuthenticateTelegramRespon
   >(functions, 'authenticateTelegram')
 
   const result = await authenticate(
-    devTelegramId !== null ? { devTelegramId } : { initData },
+    devTelegramId !== null
+      ? { devTelegramId, acceptDataProcessing: true }
+      : { initData, acceptDataProcessing: true },
   )
   return result.data
 }

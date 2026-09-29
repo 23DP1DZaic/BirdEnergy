@@ -51,6 +51,12 @@ interface AuthenticateTelegramData {
   devTelegramId?: unknown;
 }
 
+/** Same CORS origins for every callable — the two Firebase Hosting domains. */
+const CALLABLE_CORS = [
+  "https://birdenergy-f1405.web.app",
+  "https://birdenergy-f1405.firebaseapp.com",
+];
+
 /** True only while firebase-tools serves this code locally. */
 function isEmulator(): boolean {
   return process.env.FUNCTIONS_EMULATOR === "true";
@@ -101,10 +107,7 @@ function resolveRequestUser(data: AuthenticateTelegramData): TelegramAuthUser {
 export const authenticateTelegram = onCall(
   {
     region: "europe-north1",
-    cors: [
-      "https://birdenergy-f1405.web.app",
-      "https://birdenergy-f1405.firebaseapp.com",
-    ],
+    cors: CALLABLE_CORS,
     // The callable protocol does its own auth (Firebase ID token -> request.auth);
     // this only lets anonymous HTTPS reach Cloud Run so that check can run.
     invoker: "public",
@@ -233,10 +236,8 @@ interface AcceptDataProcessingResult {
 export const acceptDataProcessing = onCall(
   {
     region: "europe-north1",
-    cors: [
-      "https://birdenergy-f1405.web.app",
-      "https://birdenergy-f1405.firebaseapp.com",
-    ],    // Auth is enforced in-code (request.auth) — see acceptDataProcessing below.
+    cors: CALLABLE_CORS,
+    // Auth is enforced in-code (request.auth) — see acceptDataProcessing below.
     invoker: "public",
   },
   async (request): Promise<AcceptDataProcessingResult> => {
@@ -350,10 +351,8 @@ function validateRunData(data: SubmitGameResultData): {
 export const submitGameResult = onCall(
   {
     region: "europe-north1",
-    cors: [
-      "https://birdenergy-f1405.web.app",
-      "https://birdenergy-f1405.firebaseapp.com",
-    ],
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
   },
   async (request) => {
     if (!request.auth) {
@@ -410,6 +409,138 @@ export const submitGameResult = onCall(
       if (error instanceof HttpsError) throw error;
       logger.error("submitGameResult failed", error);
       throw new HttpsError("internal", "Could not save the result.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ DATA-02 ---
+
+/** Leaderboard period, as chosen on the Leaderboard screen (UI-03). */
+type LeaderboardPeriod = "daily" | "weekly" | "all";
+
+interface GetLeaderboardData {
+  period?: unknown;
+}
+
+/** One leaderboard row — name + score only, never ids. */
+interface LeaderboardEntry {
+  name: string;
+  score: number;
+}
+
+/** Display name for the leaderboard: @username if set, else first name. */
+function leaderboardName(profileData: {
+  username?: unknown;
+  firstName?: unknown;
+}): string {
+  const username = profileData.username;
+  if (typeof username === "string" && username.trim().length > 0) {
+    return username;
+  }
+  const firstName = profileData.firstName;
+  if (typeof firstName === "string" && firstName.trim().length > 0) {
+    return firstName.trim().slice(0, 30);
+  }
+  return "Player";
+}
+
+/**
+ * DATA-02 — leaderboard query service (the data behind the UI-03 screen).
+ *
+ * Firestore rules (SEC-01) keep users/ and gameResults/ private, so the
+ * client cannot run ranking queries directly — this callable is the only
+ * path. Reads top scores with the Admin SDK and returns ONLY display data:
+ * leaderboard name + score, never telegramId/uid (privacy by construction).
+ *
+ * Periods:
+ *  - "all"    — best score per player, users/ ordered by bestScore desc.
+ *  - "daily" / "weekly" — best run in the window from gameResults/
+ *    createdAt >= start, score desc (maxEntries pool sorted in-function, so
+ *    no composite index is required — see backlog DoD).
+ */
+export const getLeaderboard = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<{entries: LeaderboardEntry[]}> => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in to view the leaderboard.",
+      );
+    }
+    const periodRaw =
+      typeof (request.data ?? {}).period === "string"
+        ? ((request.data as GetLeaderboardData).period as string)
+        : "";
+    if (periodRaw !== "daily" && periodRaw !== "weekly" && periodRaw !== "all") {
+      throw new HttpsError(
+        "invalid-argument",
+        "period must be daily, weekly or all.",
+      );
+    }
+    const period = periodRaw as LeaderboardPeriod;
+    const db = getFirestore();
+
+    try {
+      if (period === "all") {
+        // All Time — the users/ aggregates maintained by submitGameResult.
+        const snap = await db
+          .collection("users")
+          .orderBy("bestScore", "desc")
+          .limit(10)
+          .get();
+        const entries = snap.docs.map((d) => ({
+          name: leaderboardName(d.data()),
+          score: typeof d.data().bestScore === "number" ? d.data().bestScore : 0,
+        }));
+        return {entries};
+      }
+
+      // Daily / Weekly — best run inside the window, from the per-run docs.
+      // gameResults is written-once per run, so this collection only grows
+      // with plays; the window keeps the pool small on a fresh project while
+      // staying index-free. If it ever becomes hot, add the composite index
+      // (createdAt + score desc) and push orderBy into the query.
+      const now = Date.now();
+      const windowMs = period === "daily" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+      const snap = await db
+        .collection("gameResults")
+        .where("createdAt", ">=", new Date(now - windowMs))
+        .get();
+
+      const bestByUser = new Map<string, {name: string; score: number}>();
+      for (const doc of snap.docs) {
+        const result = doc.data();
+        if (typeof result.uid !== "string" || typeof result.score !== "number") {
+          continue;
+        }
+        const previous = bestByUser.get(result.uid);
+        if (!previous || result.score > previous.score) {
+          bestByUser.set(result.uid, {name: "", score: result.score});
+        }
+      }
+
+      // Resolve display names for the qualifying users only (2 reads per
+      // entry worst case, top 10 max).
+      const ranked = [...bestByUser.entries()]
+        .sort((a, b) => b[1].score - a[1].score)
+        .slice(0, 10);
+      const entries: LeaderboardEntry[] = [];
+      for (const [uid, best] of ranked) {
+        const userDoc = await db.collection("users").doc(uid).get();
+        const name = userDoc.exists
+          ? leaderboardName(userDoc.data() ?? {})
+          : "Player";
+        entries.push({name, score: best.score});
+      }
+      return {entries};
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("getLeaderboard failed", error);
+      throw new HttpsError("internal", "Could not load the leaderboard.");
     }
   },
 );

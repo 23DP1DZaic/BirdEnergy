@@ -11,11 +11,16 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Press Start 2P everywhere (headings included) — one pixel font for the
+     whole app, matching the pixel-art game. system-ui stays as fallback for
+     the instant before the webfont loads (and for glyphs PS2P lacks). */
+  --sans: 'Press Start 2P', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: 'Press Start 2P', system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
+  /* PS2P glyphs are square and very wide — 18px of it reads like ~22px of
+     system-ui, so drop the base size a notch to keep lines fitting. */
+  font: 14px/170% var(--sans);
   letter-spacing: 0.18px;
   color-scheme: light dark;
   color: var(--text);
@@ -26,7 +31,7 @@
   -moz-osx-font-smoothing: grayscale;
 
   @media (max-width: 1024px) {
-    font-size: 16px;
+    font-size: 13px;
   }
 }
 
@@ -70,21 +75,21 @@ h2 {
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
+  font-size: 36px;
+  letter-spacing: 0;
   margin: 32px 0;
   @media (max-width: 1024px) {
-    font-size: 36px;
+    font-size: 24px;
     margin: 20px 0;
   }
 }
 h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
+  font-size: 18px;
+  line-height: 150%;
+  letter-spacing: 0;
   margin: 0 0 8px;
   @media (max-width: 1024px) {
-    font-size: 20px;
+    font-size: 16px;
   }
 }
 p {
