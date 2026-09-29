@@ -165,3 +165,37 @@ export function resolveUserRole(
 ): UserRole {
   return adminTelegramIds.has(telegramId) ? "admin" : "user";
 }
+
+// ------------------------------------------------------------------ DEV-ONLY ---
+
+/**
+ * DEV-ONLY: synthetic Telegram user for running the Mini App in a plain
+ * browser, where no signed initData exists (see src/devAuth.ts on the client).
+ *
+ * `isEmulator` must be true — firebase-tools sets FUNCTIONS_EMULATOR=true for
+ * locally served functions — so a deployed function can never be tricked into
+ * trusting a raw client-supplied id. Returns null for anything else, which
+ * makes authenticateTelegram fall back to normal initData validation.
+ *
+ * The role is still resolved from ADMIN_TELEGRAM_IDS, so adding your own id
+ * to functions/.env also gives you the admin UI during local development.
+ */
+export function resolveDevTelegramUser(
+  devTelegramId: unknown,
+  isEmulator: boolean,
+): TelegramAuthUser | null {
+  if (!isEmulator) return null;
+
+  const telegramId =
+    typeof devTelegramId === "number" ? devTelegramId : Number(devTelegramId);
+  if (!Number.isInteger(telegramId) || telegramId <= 0) return null;
+
+  return {
+    telegramId,
+    firstName: "Dev",
+    lastName: null,
+    username: `dev_${telegramId}`,
+    languageCode: "en",
+    authDate: Math.floor(Date.now() / 1000),
+  };
+}

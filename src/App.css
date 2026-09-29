@@ -2,19 +2,52 @@
 
 .page {
   position: relative;
-  min-height: 100svh;
+  /* UI-02: the page fills the area between the shell's nav bars (see
+     .screen-area) instead of the whole viewport. */
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* Background1 = warm orange sky over a city skyline. cover() crops
-   center-weighted on any aspect ratio; pixel art stays crisp. */
+/* UI-02 — app shell: one screen area between a top nav (desktop) and a bottom
+   nav (mobile). Exactly the viewport minus the nav bars — no page scroll, no
+   dead space below the bottom nav (Home must end at 100vh). */
+.shell {
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Fallback backdrop for placeholder screens (Home covers it fully). */
+  background: linear-gradient(#79c0f2 0%, #bfe6ff 70%, #d9f2ff 100%);
+}
+
+/* The bottom-nav buttons float over the page bottoms (no solid bar, no
+   reserved padding), so every screen — Home floor included — runs to the
+   full shell height and the buttons sit directly in front of the ground. */
+
+/* Sky art is a 256x256 tile. The box deliberately stops at the top edge of the
+   ground instead of spanning the whole page, so the tile's bottom line (its
+   horizon) lands on the ground line and is not hidden behind the floor. The tile
+   is picked by the background button (see src/sprites.ts) and passed in as an
+   inline image. */
 .sky {
   position: absolute;
-  inset: 0;
-  background-image: url('./assets/Background/Background1.png');
-  background-size: cover;
+  inset: 0 0 auto 0;
+  height: calc(100% - var(--floor-h) - env(safe-area-inset-bottom, 0px));
+  /* Fit the WHOLE tile height into the sky area and repeat it sideways.
+     cover-scaling a 256x256 tile on a wide window zooms in ~5.6x and shows
+     only the tile's bottom ~145 rows, so the skyline at the top of the art was
+     cropped away. Fitting the height keeps every row visible. */
+  background-size: auto 100%;
+  background-repeat: repeat-x;
   background-position: center bottom;
   image-rendering: pixelated;
 }
@@ -23,6 +56,10 @@
   position: relative;
   z-index: 1;
   flex: 1;
+  /* Absorb the squeeze when the (pixel-font) content is taller than the
+     page — otherwise flexbox shrinks the floor instead, leaving a band of
+     bare backdrop between the sky and the ground art. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -33,44 +70,74 @@
   text-align: center;
 }
 
-.title {
-  margin: 0;
-  font-family: var(--heading);
-  font-weight: 800;
-  font-size: clamp(44px, 14vw, 84px);
-  line-height: 0.95;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: #ffd23f;
-  text-shadow:
-    2px 2px 0 #a5420c,
-    4px 4px 0 rgba(90, 30, 5, 0.55);
+/* Logo1 = pixel-art wordmark, 287x154 native. Scales with the viewport but
+   keeps its aspect ratio; pixelated keeps the upscaled edges crisp. */
+.logo {
+  display: block;
+  width: min(80vw, 460px);
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(3px 4px 0 rgba(90, 30, 5, 0.55));
+}
+
+/* Floating logo: a slow, gentle hover, like the bird idling in the air.
+   translate only (no layout) so it stays cheap; respects reduced motion. */
+@keyframes logo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.logo-float {
+  animation: logo-float 4.5s ease-in-out infinite; /* 3s × 1.5 */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-float {
+    animation: none;
+  }
 }
 
 .hello {
   margin: 0;
-  font-size: clamp(16px, 4.5vw, 22px);
-  font-weight: 600;
+  /* Press Start 2P is much wider/taller per glyph than system-ui. */
+  font-size: clamp(12px, 3.5vw, 16px);
+  font-weight: 400;
   color: #fff;
   text-shadow: 1px 2px 0 rgba(90, 30, 5, 0.75);
 }
 
-/* SimpleStyle1 = grass band + white line + brown dirt (matches the mockup
-   floor). Repeats horizontally, height scales fluidly with viewport. */
+/* Ground/Default.png = 480x160 pixel-art tile (Snow.png is the winter variant).
+   Kept at its native size and repeated left-to-right, so a wide desktop simply
+   shows more tiles instead of a stretched, blurry floor.
+   The band is shorter than the tile on purpose: measured, the meaningful art is
+   the top ~32px (the grass/snow line) and the tile ends in a 16px near-black
+   band, so the box crops that filler instead of scaling the art down (scaling
+   would alias it). */
 .floor {
   position: relative;
   z-index: 1;
   height: var(--floor-h);
+  /* The ground strip is fixed-height art: never let flex layout shrink it
+     (a shrunk floor opens a pale gap above it, under the sky tile). */
+  flex-shrink: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background-image: url('./assets/Tiles/Style 1/SimpleStyle1.png');
+  background-image: url('./assets/Tiles/Ground/Default.png');
   background-repeat: repeat-x;
-  background-position: center top;
-  background-size: auto 100%;
+  background-position: left top;
+  background-size: auto;
   image-rendering: pixelated;
 }
 
 :root {
-  --floor-h: clamp(48px, 12vw, 96px);
+  /* Visible ground band. The tile is 160px tall, drawn at native size and
+     cropped to this height — lower it to give the sky more room, or raise it up
+     to 160px to show the whole tile. 64-96px keeps the grass line intact. */
+  --floor-h: 80px;
 }
 
 .auth {
@@ -82,8 +149,8 @@
 
 .btn {
   font-family: var(--sans);
-  font-size: clamp(15px, 4vw, 18px);
-  font-weight: 700;
+  font-size: clamp(11px, 3vw, 14px);
+  font-weight: 400;
   color: #5a1e05;
   background: #ffd23f;
   border: 3px solid #a5420c;
@@ -99,9 +166,322 @@
   box-shadow: 0 1px 0 #a5420c;
 }
 
+/* .btn is also used on the "Open in Telegram" anchor (link to the bot). */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .auth-status {
   margin: 0;
-  font-size: 13px;
+  font-size: 10px;
   color: #fff;
   text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.75);
+}/* Background switcher — a compact .btn pinned to the top-right corner, above
+   the sky and the content layer. Declared after .btn so it wins on order. */
+.bg-toggle {
+  position: absolute;
+  top: clamp(10px, 2vh, 18px);
+  right: clamp(10px, 2vw, 18px);
+  z-index: 2;
+  font-size: clamp(12px, 3vw, 14px);
+  padding: 8px 14px;
+  box-shadow: 0 3px 0 #a5420c;
+}
+
+/* Bird skin switcher — same corner style, stacked below the background
+   button, with a live thumbnail of the active skin. */
+.bird-toggle {
+  top: calc(clamp(10px, 2vh, 18px) + 48px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bird-toggle-skin {
+  width: 32px;
+  height: 8px;
+  /* The sheet is 64x16 → show the first frame only. */
+  object-fit: cover;
+  object-position: left center;
+  image-rendering: pixelated;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-02 — app shell additions: nav bars, home actions, placeholders.  */
+/* ------------------------------------------------------------------ */
+
+/* Bottom navigation — the ONE nav, used on phones and desktop alike.
+   No solid panel — the buttons float directly over the ground art (Home's
+   floor / the game canvas), so screens keep their full height. Chips share
+   the row width (flex) so five text labels fit even on a 320px phone. */
+.bottomnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Desktop: same transparent bottom nav — chips keep their natural size
+   instead of stretching across the full row. */
+@media (min-width: 640px) {
+  .bottomnav {
+    gap: 6px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bottomnav .navlink {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    font-size: 11px;
+  }
+}
+
+.navlink {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 400;
+  color: #ffd23f;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.navlink-active {
+  background: #ffd23f;
+  color: #5a1e05;
+  box-shadow: 0 2px 0 #a5420c;
+}
+
+/* Floating bottom-nav buttons: light translucent chips (no bar behind them)
+   with a text shadow so they stay readable on top of the ground art. They
+   flex to fill the row — tighter padding/font than the desktop links so all
+   five labels fit without horizontal overflow. */
+.bottomnav .navlink {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  padding: 8px 6px;
+  font-size: 10px;
+  background: rgba(90, 30, 5, 0.3);
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+@media (max-width: 359.98px) {
+  .bottomnav .navlink {
+    padding: 8px 3px;
+    font-size: 8px;
+  }
+}
+
+.bottomnav .navlink-active {
+  text-shadow: none;
+}
+
+/* DATA-01 — consent dialog on the Game screen (inside a placeholder page). */
+.consent {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 18px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+}
+
+.consent-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #ffd23f;
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+.consent-text {
+  margin: 0 0 10px;
+  font-size: 10px;
+  line-height: 1.9;
+  color: #fff4d6;
+}
+
+.consent-fineprint {
+  font-size: 9px;
+  line-height: 1.9;
+  opacity: 0.85;
+}
+
+.consent-error {
+  margin: 0 0 10px;
+  font-size: 9px;
+  color: #ffb4a2;
+}
+
+.consent-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* Play button + (for admins) the Admin Panel shortcut on Home. */
+.home-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn-small {
+  font-size: clamp(10px, 3vw, 12px);
+  padding: 8px 16px;
+  box-shadow: 0 3px 0 #a5420c;
+}
+
+/* Selected state for the Leaderboard period toggle stub. */
+.btn-active {
+  background: #fff3c4;
+  box-shadow: inset 0 0 0 3px #a5420c;
+}
+
+.period-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Placeholder bodies for screens whose backlog cards are still ahead. Dark
+   text: they sit on the light .screen-area backdrop, not on the sky art. */
+.placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  color: #2b1a0e;
+  overflow-y: auto;
+}
+
+/* The floating bottom nav overlaps page bottoms now — keep the last line of
+   scrollable placeholder content clear of the buttons. */
+@media (max-width: 639.98px) {
+  .placeholder {
+    padding-bottom: 84px;
+  }
+}
+
+.placeholder-hint {
+  margin: 0;
+  font-size: clamp(10px, 3vw, 13px);
+  color: #5a1e05;
+}
+
+.placeholder-note {
+  margin: 0;
+  font-size: 9px;
+  opacity: 0.75;
+}
+
+/* Guest notice on guarded screens (Game/Profile/Leaderboard). */
+.guard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.guard-text {
+  margin: 0;
+  max-width: 420px;
+  font-size: clamp(10px, 3vw, 13px);
+  color: #5a1e05;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-03 — Leaderboard screen: period tabs + ranked rows.              */
+/* ------------------------------------------------------------------ */
+
+.board-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  overflow-y: auto;
+}
+
+.board-status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.9;
+  color: #5a1e05;
+  text-align: center;
+}
+
+.board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One ranked row: place | name | score. Compact grid — Press Start 2P is
+   wide, so long names clip with an ellipsis instead of wrapping. */
+.lrow {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: rgba(255, 210, 63, 0.16);
+  border: 2px solid #ffd23f;
+  border-radius: 10px;
+  color: #5a1e05;
+}
+
+.lrow-place {
+  font-size: 13px;
+  text-align: center;
+}
+
+.lrow-name {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lrow-score {
+  font-size: 13px;
+  font-weight: 400;
+  color: #a5420c;
+}
+
+.board-mine {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.9;
+  color: #5a1e05;
+  text-align: center;
 }
