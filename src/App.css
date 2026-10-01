@@ -425,6 +425,9 @@ a.btn {
   max-width: 520px;
   margin: 0 auto;
   padding: 24px 16px 96px;
+  /* width:100% + horizontal padding: keep padding INSIDE the width, or the
+     screen is 32px wider than the viewport and scrolls sideways. */
+  box-sizing: border-box;
   overflow-y: auto;
 }
 
@@ -446,11 +449,11 @@ a.btn {
   gap: 8px;
 }
 
-/* One ranked row: place | name | score. Compact grid — Press Start 2P is
-   wide, so long names clip with an ellipsis instead of wrapping. */
+/* One ranked row: place | avatar | name | score. Compact grid — Press Start
+   2P is wide, so long names clip with an ellipsis instead of wrapping. */
 .lrow {
   display: grid;
-  grid-template-columns: 34px 1fr auto;
+  grid-template-columns: 34px 22px 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
@@ -458,6 +461,34 @@ a.btn {
   border: 2px solid #ffd23f;
   border-radius: 10px;
   color: #5a1e05;
+}
+
+/* Leaderboard avatar: Telegram photo, or the bird-sprite fallback tile.
+   Same slot either way, so rows never shift when photos load. */
+.lrow-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #a5420c;
+  object-fit: cover;
+  display: block;
+}
+
+/* No photo from Telegram → 16x16 first bird frame cropped into the slot. */
+.lrow-avatar-fallback {
+  overflow: hidden;
+  background: #ffd23f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lrow-avatar-fallback img {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  object-position: left center;
+  image-rendering: pixelated;
 }
 
 .lrow-place {
@@ -484,4 +515,160 @@ a.btn {
   line-height: 1.9;
   color: #5a1e05;
   text-align: center;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-04 — Profile screen: identity card + stats + name editor.        */
+/* ------------------------------------------------------------------ */
+
+/* Mirrors .board-screen: width includes padding (no sideways scroll),
+   bottom padding keeps the last row clear of the floating nav. */
+.profile-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.profile-card,
+.profile-name-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Telegram photo or the bird fallback — one 56px circular slot. */
+.profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid #ffd23f;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.profile-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffd23f;
+  overflow: hidden;
+}
+
+.profile-avatar-fallback img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  object-position: left center;
+  image-rendering: pixelated;
+}
+
+.profile-id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.profile-name {
+  margin: 0;
+  font-size: 13px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.profile-username {
+  margin: 0;
+  font-size: 9px;
+  color: #a5420c;
+  overflow-wrap: anywhere;
+}
+
+.profile-role {
+  font-size: 8px;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 1px solid #a5420c;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+/* Stats reuse the leaderboard row look (place column dropped). */
+.profile-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-stats .lrow {
+  grid-template-columns: 1fr auto;
+}
+
+/* In-game name editor. */
+.profile-name-label {
+  font-size: 10px;
+  color: #ffd23f;
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+.profile-name-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.profile-name-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #fff8e1;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+.profile-name-input:focus {
+  outline: 2px solid #ffd23f;
+  outline-offset: 1px;
+}
+
+.profile-name-error,
+.profile-name-saved {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.profile-name-error {
+  color: #ffb4a2;
+}
+
+.profile-name-saved {
+  color: #ffd23f;
 }

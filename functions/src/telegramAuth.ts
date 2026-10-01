@@ -23,6 +23,9 @@ export interface TelegramAuthUser {
   firstName: string;
   lastName: string | null;
   languageCode: string | null;
+  /** Signed initData `photo_url` — Telegram profile photo (UI-04). Null when
+   *  the user has no avatar (or hides it); the UI falls back to a sprite. */
+  photoUrl: string | null;
   /** Parsed `auth_date` (unix seconds) of the validated initData. */
   authDate: number;
 }
@@ -127,6 +130,7 @@ export function validateTelegramInitData(
       username: typeof user.username === "string" ? user.username : null,
       languageCode:
         typeof user.language_code === "string" ? user.language_code : null,
+      photoUrl: typeof user.photo_url === "string" ? user.photo_url : null,
       authDate,
     },
   };
@@ -196,6 +200,7 @@ export function resolveDevTelegramUser(
     lastName: null,
     username: `dev_${telegramId}`,
     languageCode: "en",
+    photoUrl: null,
     authDate: Math.floor(Date.now() / 1000),
   };
 }

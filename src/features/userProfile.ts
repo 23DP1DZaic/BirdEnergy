@@ -15,13 +15,21 @@ import { db, functions } from '../firebase'
 export interface UserProfile {
   uid: string
   telegramId: number
+  /** Telegram @username (immutable here — set in the Telegram app). */
   username: string | null
   firstName: string
   lastName: string | null
   languageCode: string | null
+  /** Telegram profile photo (signed initData photo_url); null when the user
+   *  has none — the UI falls back to a bird sprite. */
+  photoUrl?: string | null
+  /** In-game display name (UI-04 updateProfile); preferred over @username. */
+  inGameName?: string | null
   role?: 'user' | 'admin'
   bestScore?: number
-  gamesPlayed?: number
+  /** Aggregates maintained by submitGameResult (was misnamed gamesPlayed). */
+  totalGames?: number
+  totalScore?: number
   acceptedDataProcessingAt?: { toDate(): Date }
   createdAt?: { toDate(): Date }
 }
@@ -54,6 +62,34 @@ export async function acceptDataProcessing(): Promise<void> {
     'acceptDataProcessing',
   )
   await accept({})
+}
+
+/** UI-04 — in-game name rules, mirrored server-side in functions/src/index.ts. */
+export const IN_GAME_NAME_MIN = 3
+export const IN_GAME_NAME_MAX = 20
+const IN_GAME_NAME_PATTERN = /^[A-Za-z0-9_]+$/
+
+/** True when `name` is a valid in-game name (same rules as the callable). */
+export function isValidInGameName(name: string): boolean {
+  const trimmed = name.trim()
+  return (
+    trimmed.length >= IN_GAME_NAME_MIN &&
+    trimmed.length <= IN_GAME_NAME_MAX &&
+    IN_GAME_NAME_PATTERN.test(trimmed)
+  )
+}
+
+/**
+ * UI-04 — saves the in-game display name via the updateProfile callable.
+ * Throws on validation/uniqueness failures (the Profile screen shows them).
+ */
+export async function updateInGameName(username: string): Promise<string> {
+  const update = httpsCallable<{ username: string }, { ok: boolean; inGameName: string }>(
+    functions,
+    'updateProfile',
+  )
+  const result = await update({ username: username.trim() })
+  return result.data.inGameName
 }
 
 /** DATA-01 — the numbers submitGameResult accepts (mirrors engine.RunResult). */

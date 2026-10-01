@@ -14,12 +14,37 @@ import {
   type LeaderboardPeriod,
 } from './leaderboard'
 import type { UserProfile } from './userProfile'
+import { birdSkinUrls } from './game/sprites'
 
 const PERIODS: { id: LeaderboardPeriod; label: string }[] = [
   { id: 'daily', label: 'Daily' },
   { id: 'weekly', label: 'Weekly' },
   { id: 'all', label: 'All Time' },
 ]
+
+/** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
+const birdAvatarUrl = birdSkinUrls[0]
+
+/** Avatar: Telegram photo when present, bird sprite otherwise. */
+function RowAvatar({ photoUrl, alt }: { photoUrl: string | null; alt: string }) {
+  if (photoUrl) {
+    return (
+      <img
+        className="lrow-avatar"
+        src={photoUrl}
+        alt=""
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        aria-label={alt}
+      />
+    )
+  }
+  return (
+    <span className="lrow-avatar lrow-avatar-fallback" aria-hidden="true">
+      <img src={birdAvatarUrl} alt="" />
+    </span>
+  )
+}
 
 /** 1st/2nd/3rd get a medal, everyone else a plain number. */
 function placeLabel(place: number): string {
@@ -57,13 +82,21 @@ export function LeaderboardPage({
         const snap = await getDoc(doc(db, 'users', signedInUid as string))
         const profile = snap.data() as UserProfile | undefined
         const myName = profile
-          ? (profile.username ?? profile.firstName ?? 'Player')
+          ? (profile.inGameName ?? profile.username ?? profile.firstName ?? 'Player')
           : 'Player'
+        const myPhoto = profile?.photoUrl ?? null
         if (p === 'all') {
-          mine = { name: myName, score: profile?.bestScore ?? 0 }
+          mine = { name: myName, score: profile?.bestScore ?? 0, photoUrl: myPhoto }
         } else {
           const inBoard = rows.find((r) => r.name === myName)
-          mine = inBoard ?? null
+          if (inBoard) {
+            mine = inBoard
+          } else {
+            // Not ranked in this window — still show my best-run context.
+            mine = profile
+              ? { name: myName, score: profile.bestScore ?? 0, photoUrl: myPhoto }
+              : null
+          }
         }
       } catch {
         mine = null // profile read failed — the context row is optional
@@ -139,6 +172,7 @@ export function LeaderboardPage({
           {entries.map((entry, i) => (
             <li key={`${entry.name}-${i}`} className="lrow">
               <span className="lrow-place">{placeLabel(i + 1)}</span>
+              <RowAvatar photoUrl={entry.photoUrl} alt={entry.name} />
               <span className="lrow-name">{entry.name}</span>
               <span className="lrow-score">{entry.score}</span>
             </li>
