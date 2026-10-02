@@ -21,6 +21,8 @@ export interface AuthenticatedTelegramUser {
   firstName: string
   lastName: string | null
   languageCode: string | null
+  /** Telegram profile photo from the signed initData (UI-04); null if none. */
+  photoUrl: string | null
   authDate: number
 }
 

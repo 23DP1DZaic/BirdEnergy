@@ -115,8 +115,8 @@ export const authenticateTelegram = onCall(
   async (request) => {
     const data = (request.data ?? {}) as AuthenticateTelegramData;
 
-    const {telegramId, username, firstName, lastName, languageCode, authDate} =
-      resolveRequestUser(data);
+    const {telegramId, username, firstName, lastName, languageCode, photoUrl,
+      authDate} = resolveRequestUser(data);
 
     // AUTH-03: role from server-side whitelist — never from client input.
     const adminIds = parseAdminTelegramIds(process.env.ADMIN_TELEGRAM_IDS);
@@ -172,6 +172,7 @@ export const authenticateTelegram = onCall(
                 firstName,
                 lastName,
                 languageCode,
+                photoUrl,
               });
             } else {
               tx.set(userDoc, {
@@ -181,9 +182,14 @@ export const authenticateTelegram = onCall(
                 firstName,
                 lastName,
                 languageCode,
+                photoUrl,
                 role,
                 bestScore: 0,
-                gamesPlayed: 0,
+                // submitGameResult increments totalGames/totalScore — the
+                // aggregates must start under the SAME names (was gamesPlayed,
+                // which the submit path never touches).
+                totalGames: 0,
+                totalScore: 0,
                 acceptedDataProcessingAt: new Date(),
                 createdAt: new Date(),
               });
@@ -207,6 +213,7 @@ export const authenticateTelegram = onCall(
           firstName,
           lastName,
           languageCode,
+          photoUrl,
           authDate,
         },
       };
@@ -227,7 +234,7 @@ export const authenticateTelegram = onCall(
  * (Telegram initData is only fresh for 24h — the session lasts far longer).
  * The caller's identity comes from the Auth session only: there is no
  * client-supplied id to trust. Same idempotent upsert as in
- * authenticateTelegram, preserving existing bestScore/gamesPlayed.
+ * authenticateTelegram, preserving existing bestScore/totals.
  */
 interface AcceptDataProcessingResult {
   ok: boolean;
@@ -293,6 +300,101 @@ export const acceptDataProcessing = onCall(
     } catch (error) {
       logger.error("Consent write failed", error);
       throw new HttpsError("internal", "Could not save consent.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------- UI-04 ----
+
+/**
+ * UI-04 — in-game display name ("in-game username").
+ *
+ * The Profile screen lets the player pick a display name shown on the
+ * leaderboard, independent of the immutable Telegram @username (stored as
+ * `username`) and of Telegram's first_name. Identity stays server-bound:
+ * the caller's uid comes from request.auth, and the write lands only on the
+ * caller's own users/{uid} doc — Firestore rules (SEC-01) allow no client
+ * writes, so this callable is the only path.
+ */
+interface UpdateProfileResult {
+  ok: boolean;
+  inGameName: string;
+}
+
+/** In-game name rules, shared by the client validator (mirrored in src). */
+export const IN_GAME_NAME_MIN = 3;
+export const IN_GAME_NAME_MAX = 20;
+const IN_GAME_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
+
+/**
+ * True when `name` is a valid in-game name: trimmed, 3–20 chars,
+ * letters/digits/underscore only.
+ */
+export function isValidInGameName(name: unknown): name is string {
+  if (typeof name !== "string") return false;
+  const trimmed = name.trim();
+  return (
+    trimmed.length >= IN_GAME_NAME_MIN &&
+    trimmed.length <= IN_GAME_NAME_MAX &&
+    IN_GAME_NAME_PATTERN.test(trimmed)
+  );
+}
+
+export const updateProfile = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<UpdateProfileResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to change your name.");
+    }
+
+    const username = (request.data ?? {}).username;
+    if (!isValidInGameName(username)) {
+      throw new HttpsError(
+        "invalid-argument",
+        `username must be ${IN_GAME_NAME_MIN}-${IN_GAME_NAME_MAX} characters (letters, digits, underscore).`,
+      );
+    }
+    const inGameName = username.trim();
+    const uid = request.auth.uid;
+    const db = getFirestore();
+
+    try {
+      // Uniqueness is best-effort: a doc written right after the query would
+      // slip through (no composite index/tx across two docs by design).
+      const clash = await db
+        .collection("users")
+        .where("inGameName", "==", inGameName)
+        .limit(1)
+        .get();
+      const takenBySomeoneElse = !clash.empty && clash.docs[0].id !== uid;
+      if (takenBySomeoneElse) {
+        throw new HttpsError("already-exists", "That name is already taken.");
+      }
+
+      // The caller's profile must exist (consent created it) — same
+      // precondition as submitGameResult.
+      const userDoc = db.collection("users").doc(uid);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userDoc);
+        if (!snap.exists) {
+          throw new HttpsError(
+            "failed-precondition",
+            "No player profile — accept data processing first.",
+          );
+        }
+        tx.update(userDoc, {inGameName, inGameNameUpdatedAt: new Date()});
+      });
+
+      logger.info("In-game name updated", {uid, inGameName});
+      return {ok: true, inGameName};
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("updateProfile failed", error);
+      throw new HttpsError("internal", "Could not save the name.");
     }
   },
 );
@@ -422,17 +524,30 @@ interface GetLeaderboardData {
   period?: unknown;
 }
 
-/** One leaderboard row — name + score only, never ids. */
+/**
+ * One leaderboard row — display data only, never ids (privacy by construction,
+ * see getLeaderboard below). `photoUrl` is the Telegram profile photo; null
+ * when the player has none (the UI falls back to a sprite).
+ */
 interface LeaderboardEntry {
   name: string;
   score: number;
+  photoUrl: string | null;
 }
 
-/** Display name for the leaderboard: @username if set, else first name. */
+/**
+ * Display name for the leaderboard: the in-game name (UI-04) if set, else the
+ * Telegram @username, else first name, else "Player".
+ */
 function leaderboardName(profileData: {
+  inGameName?: unknown;
   username?: unknown;
   firstName?: unknown;
 }): string {
+  const inGameName = profileData.inGameName;
+  if (typeof inGameName === "string" && inGameName.trim().length > 0) {
+    return inGameName.trim().slice(0, 30);
+  }
   const username = profileData.username;
   if (typeof username === "string" && username.trim().length > 0) {
     return username;
@@ -495,6 +610,8 @@ export const getLeaderboard = onCall(
         const entries = snap.docs.map((d) => ({
           name: leaderboardName(d.data()),
           score: typeof d.data().bestScore === "number" ? d.data().bestScore : 0,
+          photoUrl:
+            typeof d.data().photoUrl === "string" ? d.data().photoUrl : null,
         }));
         return {entries};
       }
@@ -511,7 +628,7 @@ export const getLeaderboard = onCall(
         .where("createdAt", ">=", new Date(now - windowMs))
         .get();
 
-      const bestByUser = new Map<string, {name: string; score: number}>();
+      const bestByUser = new Map<string, {score: number}>();
       for (const doc of snap.docs) {
         const result = doc.data();
         if (typeof result.uid !== "string" || typeof result.score !== "number") {
@@ -519,7 +636,7 @@ export const getLeaderboard = onCall(
         }
         const previous = bestByUser.get(result.uid);
         if (!previous || result.score > previous.score) {
-          bestByUser.set(result.uid, {name: "", score: result.score});
+          bestByUser.set(result.uid, {score: result.score});
         }
       }
 
@@ -531,10 +648,12 @@ export const getLeaderboard = onCall(
       const entries: LeaderboardEntry[] = [];
       for (const [uid, best] of ranked) {
         const userDoc = await db.collection("users").doc(uid).get();
-        const name = userDoc.exists
-          ? leaderboardName(userDoc.data() ?? {})
-          : "Player";
-        entries.push({name, score: best.score});
+        const data = userDoc.data() ?? {};
+        entries.push({
+          name: userDoc.exists ? leaderboardName(data) : "Player",
+          score: best.score,
+          photoUrl: typeof data.photoUrl === "string" ? data.photoUrl : null,
+        });
       }
       return {entries};
     } catch (error) {

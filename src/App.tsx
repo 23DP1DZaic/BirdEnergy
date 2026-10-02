@@ -126,7 +126,9 @@ function App() {
       case 'challenges':
         return <ChallengesPage />
       case 'profile':
-        return <ProfilePage signedInUid={signedInUid} />
+        return (
+          <ProfilePage signedInUid={signedInUid} onSignIn={requestSignIn} />
+        )
       case 'admin':
         return role === 'admin' ? <AdminPage /> : null
     }
