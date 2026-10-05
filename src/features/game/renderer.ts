@@ -12,7 +12,7 @@
 // strip above the ground) — and the ground strip is drawn at the bottom of
 // the view, below the background and the gameplay area.
 import {
-  BIRD_FRAME_H,
+  BIRD_FRAMES,
   BIRD_FRAME_W,
   type GameSpriteImages,
 } from './sprites'
@@ -68,8 +68,8 @@ function drawSky(
 
 /**
  * One pipe pair at SPRITE_SCALE. Composition per the measured tile facts
- * (see sprites.ts): bodies are the 28px-wide tileable core of Green-center,
- * capped with Green-bottom (lip at bottom) on top and Green-up (lip at top)
+ * (see sprites.ts): bodies are the 28px-wide tileable core of Green-mid,
+ * capped with Green-bot (lip at bottom) on top and Green-top (lip at top)
  * below, so both caps face the gap. The gap edges stay exactly gapTop /
  * gapTop + PIPE_GAP — only the rendering is scaled.
  */
@@ -80,7 +80,7 @@ function drawPipes(
 ): void {
   const capBottomLip = sprites.pipeCapBottom // top-pipe cap, lip at the bottom
   const capTopLip = sprites.pipeCapUp // bottom-pipe cap, lip at the top
-  const body = sprites.pipeCenter // 32x19, 28px core, tiles vertically
+  const body = sprites.pipeCenter // 32x20, 28px core, tiles vertically
   const horizon = floorTop(s)
   const S = SPRITE_SCALE
   const capW = PIPE_CAP_W * S
@@ -126,13 +126,16 @@ function drawPipes(
  * Ground strip at the BOTTOM of the view, drawn at its native pixel size and
  * repeated horizontally with the world scroll — repeated, never stretched.
  * Anything below the tile's meaningful rows simply crops off the canvas edge.
+ * The tile follows s.groundIndex (the Profile ground switcher).
  */
 function drawGround(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
   s: GameState,
 ): void {
-  const tile = sprites.groundTile
+  const tile =
+    sprites.groundTiles[s.groundIndex % sprites.groundTiles.length] ??
+    sprites.groundTiles[0]
   const offset = -(s.scroll % GROUND_TILE_W)
   const horizon = floorTop(s)
   for (let x = offset; x < LOGICAL_W; x += GROUND_TILE_W) {
@@ -140,20 +143,29 @@ function drawGround(
   }
 }
 
-/** The bird: one 16x16 sheet frame drawn at SPRITE_SCALE, centered on its position. */
+/**
+ * The bird, centered on its position. The frame rect is read from the sheet's
+ * own dimensions (naturalWidth / BIRD_FRAMES x naturalHeight) so the classic
+ * 16x16 sheets and the 80x80 meme birds both work, and every skin is drawn
+ * into the same on-screen box (BIRD_FRAME_W * SPRITE_SCALE = 48 logical px),
+ * so switching skins never changes gameplay proportions.
+ */
 function drawBird(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
   s: GameState,
 ): void {
   const frame = birdFrame(s)
+  const sheet = sprites.birdSheet
+  const frameW = sheet.naturalWidth / BIRD_FRAMES
+  const frameH = sheet.naturalHeight
   const size = BIRD_FRAME_W * SPRITE_SCALE
   ctx.drawImage(
-    sprites.birdSheet,
-    frame * BIRD_FRAME_W,
+    sheet,
+    frame * frameW,
     0,
-    BIRD_FRAME_W,
-    BIRD_FRAME_H,
+    frameW,
+    frameH,
     BIRD_X - size / 2,
     Math.round(s.bird.y - size / 2),
     size,

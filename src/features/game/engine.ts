@@ -91,6 +91,8 @@ export interface GameState {
   viewH: number
   /** Which Home sky to draw (index into the shared 9-background list). */
   backgroundIndex: number
+  /** Which ground strip to draw (index into the shared ground list). */
+  groundIndex: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -118,6 +120,7 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     time: 0,
     viewH,
     backgroundIndex: 0,
+    groundIndex: 0,
   }
 }
 

@@ -30,6 +30,11 @@ export interface UserProfile {
   /** Aggregates maintained by submitGameResult (was misnamed gamesPlayed). */
   totalGames?: number
   totalScore?: number
+  /** UI-04 — preferred bird skin index (birdSkinUrls), background index and
+   *  ground tile index; hydrated into localStorage on sign-in. */
+  preferredBird?: number
+  preferredBackground?: number
+  preferredGround?: number
   acceptedDataProcessingAt?: { toDate(): Date }
   createdAt?: { toDate(): Date }
 }
@@ -64,6 +69,38 @@ export async function acceptDataProcessing(): Promise<void> {
   await accept({})
 }
 
+/** DATA-01/UI-04 — fields updateProfile accepts (functions/src/index.ts). */
+export interface UpdateProfileInput {
+  /** In-game display name: 3-20 chars of [A-Za-z0-9_]. */
+  username?: string
+  preferredBird?: number
+  preferredBackground?: number
+  preferredGround?: number
+}
+
+export interface UpdateProfileResponse {
+  ok: boolean
+  /** The effective in-game name (unchanged when only prefs were sent). */
+  inGameName: string
+}
+
+/**
+ * Saves profile edits through the updateProfile Cloud Function — Firestore
+ * rules keep users/ write=server-only (SEC-01), so the client never writes
+ * the document directly. Throws a plain Error with the server's message on
+ * validation failure (e.g. "name already taken").
+ */
+export async function updateProfile(
+  input: UpdateProfileInput,
+): Promise<UpdateProfileResponse> {
+  const update = httpsCallable<UpdateProfileInput, UpdateProfileResponse>(
+    functions,
+    'updateProfile',
+  )
+  const result = await update(input)
+  return result.data
+}
+
 /** UI-04 — in-game name rules, mirrored server-side in functions/src/index.ts. */
 export const IN_GAME_NAME_MIN = 3
 export const IN_GAME_NAME_MAX = 20
@@ -77,19 +114,6 @@ export function isValidInGameName(name: string): boolean {
     trimmed.length <= IN_GAME_NAME_MAX &&
     IN_GAME_NAME_PATTERN.test(trimmed)
   )
-}
-
-/**
- * UI-04 — saves the in-game display name via the updateProfile callable.
- * Throws on validation/uniqueness failures (the Profile screen shows them).
- */
-export async function updateInGameName(username: string): Promise<string> {
-  const update = httpsCallable<{ username: string }, { ok: boolean; inGameName: string }>(
-    functions,
-    'updateProfile',
-  )
-  const result = await update({ username: username.trim() })
-  return result.data.inGameName
 }
 
 /** DATA-01 — the numbers submitGameResult accepts (mirrors engine.RunResult). */

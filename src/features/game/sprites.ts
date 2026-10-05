@@ -6,12 +6,14 @@
 // (measured)" plus pixel measurements of the pipe tiles (2026-09-23):
 //
 //   Bird2-1.png        64x16  → 4 frames of 16x16, x = i*16, y = 0
+//   KirkBird/LitvinBird 320x80 → 4 frames of 80x80 (MellBird is 316x81 —
+//                         frame width is naturalWidth/4, read from the sheet)
 //   BackgroundN.png    256x256 → seamless sky tile (one of the 9 Home skies)
-//   Pipe/Green-up      32x20  → bottom-pipe cap: lip at the TOP (rows 0-14
-//                                are 32px wide, rows 15-19 are 28px)
-//   Pipe/Green-bottom  32x19  → top-pipe cap: lip at the BOTTOM (rows 0-2 are
-//                                28px, rows 3-18 are 32px)
-//   Pipe/Green-center  32x19  → body column; opaque core is 28px wide
+//   Pipe/Green-top     32x20  → bottom-pipe cap: lip at the TOP (rows 0-15
+//                                are 32px wide, rows 16-19 are 28px)
+//   Pipe/Green-bot     32x20  → top-pipe cap: lip at the BOTTOM (rows 0-3
+//                                are 28px wide, rows 4-19 are 32px)
+//   Pipe/Green-mid     32x20  → body column; opaque core is 28px wide
 //                                (x 2-29) and its first/last rows are
 //                                identical, so it tiles vertically
 //   Ground/Default     480x160 → floor strip, drawn native-size, repeat-x
@@ -29,6 +31,9 @@ import birdSkin4Url from '../../assets/Player/Bird2-4.png'
 import birdSkin5Url from '../../assets/Player/Bird2-5.png'
 import birdSkin6Url from '../../assets/Player/Bird2-6.png'
 import birdSkin7Url from '../../assets/Player/Bird2-7.png'
+import birdSkin8Url from '../../assets/Player/KirkBird.png'
+import birdSkin9Url from '../../assets/Player/LitvinBird.png'
+import birdSkin10Url from '../../assets/Player/MellBird.png'
 import background1Url from '../../assets/Background/Background1.png'
 import background2Url from '../../assets/Background/Background2.png'
 import background3Url from '../../assets/Background/Background3.png'
@@ -38,12 +43,19 @@ import background6Url from '../../assets/Background/Background6.png'
 import background7Url from '../../assets/Background/Background7.png'
 import background8Url from '../../assets/Background/Background8.png'
 import background9Url from '../../assets/Background/Background9.png'
-import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green-up.png'
-import pipeCapBottomUrl from '../../assets/Tiles/Pipe/Green-bottom.png'
-import pipeCenterUrl from '../../assets/Tiles/Pipe/Green-center.png'
+// pipe assets were moved into per-color folders (Pipe/Green/Green-top.png,
+// Green-mid.png, Green-bot.png — the old Green-up/-bottom/-center names).
+import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green/Green-top.png'
+import pipeCapBottomUrl from '../../assets/Tiles/Pipe/Green/Green-bot.png'
+import pipeCenterUrl from '../../assets/Tiles/Pipe/Green/Green-mid.png'
 import groundTileUrl from '../../assets/Tiles/Ground/Default.png'
+import groundSnowUrl from '../../assets/Tiles/Ground/Snow.png'
 
-/** Bird animation: 4 frames of 16x16 on the 64x16 sheet. */
+/** Bird animation: 4 frames per sheet. The default sheets are 64x16 (frames
+ *  16x16); the meme birds are 320x80 / 316x81 (frames ~80x80). The renderer
+ *  reads frame width as sheet.naturalWidth / BIRD_FRAMES so both geometries
+ *  work — BIRD_FRAME_W/H only describe the default sheet and the on-screen
+ *  draw size (BIRD_FRAME_W * SPRITE_SCALE for every skin). */
 export const BIRD_FRAMES = 4
 export const BIRD_FRAME_W = 16
 export const BIRD_FRAME_H = 16
@@ -61,7 +73,8 @@ export const gameBackgroundUrls = [
   background9Url,
 ] as const
 
-/** The seven selectable bird skins; index-matched to birdSkin.ts. */
+/** The selectable bird skins; index-matched to birdSkin.ts. The first seven
+ *  are the classic 16x16 sheets, the last three the 80x80 meme birds. */
 export const birdSkinUrls = [
   birdSkin1Url,
   birdSkin2Url,
@@ -70,7 +83,13 @@ export const birdSkinUrls = [
   birdSkin5Url,
   birdSkin6Url,
   birdSkin7Url,
+  birdSkin8Url,
+  birdSkin9Url,
+  birdSkin10Url,
 ] as const
+
+/** The ground strips (Default, Snow), index-matched to features/groundTile.ts. */
+export const groundTileUrls = [groundTileUrl, groundSnowUrl] as const
 
 /** The urls the sprite files resolve to (handy for tests/debug). */
 export const gameSpriteUrls = {
@@ -87,13 +106,15 @@ export interface GameSpriteImages {
   backgrounds: HTMLImageElement[]
   /** Currently active bird sheet — swapped live by the skin selector. */
   birdSheet: HTMLImageElement
-  /** All seven skins, pre-decoded; birdSkins[getStoredBirdSkinIndex()] is the
+  /** All skins, pre-decoded; birdSkins[getStoredBirdSkinIndex()] is the
    *  active one. Same order as birdSkinUrls / the birdSkin.ts index. */
   birdSkins: HTMLImageElement[]
   pipeCapUp: HTMLImageElement
   pipeCapBottom: HTMLImageElement
   pipeCenter: HTMLImageElement
-  groundTile: HTMLImageElement
+  /** All ground strips (index-matched to groundTile.ts); the renderer picks
+   *  groundTiles[s.groundIndex]. */
+  groundTiles: HTMLImageElement[]
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -108,14 +129,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** Decode every game sprite once before the render loop starts. */
 export async function loadGameSprites(): Promise<GameSpriteImages> {
-  const [backgrounds, birdSheets, pipeCapUp, pipeCapBottom, pipeCenter, groundTile] =
+  const [backgrounds, birdSheets, pipeCapUp, pipeCapBottom, pipeCenter, groundTiles] =
     await Promise.all([
       Promise.all(gameBackgroundUrls.map(loadImage)),
       Promise.all(birdSkinUrls.map(loadImage)),
       loadImage(gameSpriteUrls.pipeCapUp),
       loadImage(gameSpriteUrls.pipeCapBottom),
       loadImage(gameSpriteUrls.pipeCenter),
-      loadImage(gameSpriteUrls.groundTile),
+      Promise.all(groundTileUrls.map(loadImage)),
     ])
   return {
     backgrounds,
@@ -124,6 +145,6 @@ export async function loadGameSprites(): Promise<GameSpriteImages> {
     pipeCapUp,
     pipeCapBottom,
     pipeCenter,
-    groundTile,
+    groundTiles,
   }
 }

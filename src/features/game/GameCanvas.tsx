@@ -29,6 +29,7 @@ import {
   getStoredBackgroundIndex,
 } from '../homeBackground'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
+import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
 import './game.css'
 
 type LoadState =
@@ -191,12 +192,16 @@ export function GameCanvas({
       else flap(state)
     }
 
-    // Home and Game share the background index (UI-07 continuity) and the
-    // bird skin (selection lives on Home, applies to the canvas live).
+    // Profile and Game share the background, ground and bird skin indices
+    // (UI-07 continuity — selections apply to the canvas live).
     const onBackgroundChange = () => {
       state.backgroundIndex = getStoredBackgroundIndex()
     }
     state.backgroundIndex = getStoredBackgroundIndex()
+    const onGroundChange = () => {
+      state.groundIndex = getStoredGroundIndex()
+    }
+    state.groundIndex = getStoredGroundIndex()
     const onBirdSkinChange = () => {
       sprites.birdSheet = sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
     }
@@ -205,6 +210,7 @@ export function GameCanvas({
     window.addEventListener('keydown', onKey)
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener(BACKGROUND_CHANGE_EVENT, onBackgroundChange)
+    window.addEventListener(GROUND_CHANGE_EVENT, onGroundChange)
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       cancelAnimationFrame(raf)
@@ -213,6 +219,7 @@ export function GameCanvas({
       window.removeEventListener('keydown', onKey)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener(BACKGROUND_CHANGE_EVENT, onBackgroundChange)
+      window.removeEventListener(GROUND_CHANGE_EVENT, onGroundChange)
       window.removeEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     }
     // Callbacks arrive as stable useCallback identities (see GamePage), so a
