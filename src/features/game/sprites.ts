@@ -38,9 +38,9 @@ import background6Url from '../../assets/Background/Background6.png'
 import background7Url from '../../assets/Background/Background7.png'
 import background8Url from '../../assets/Background/Background8.png'
 import background9Url from '../../assets/Background/Background9.png'
-import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green-up.png'
-import pipeCapBottomUrl from '../../assets/Tiles/Pipe/Green-bottom.png'
-import pipeCenterUrl from '../../assets/Tiles/Pipe/Green-center.png'
+import pipeCapUpUrl from "../../assets/Tiles/Pipe/Green/Green-top.png";
+import pipeCapBottomUrl from "../../assets/Tiles/Pipe/Green/Green-bot.png";
+import pipeCenterUrl from "../../assets/Tiles/Pipe/Green/Green-mid.png";
 import groundTileUrl from '../../assets/Tiles/Ground/Default.png'
 
 /** Bird animation: 4 frames of 16x16 on the 64x16 sheet. */

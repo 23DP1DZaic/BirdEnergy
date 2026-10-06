@@ -22,13 +22,14 @@
  */
 
 import {setGlobalOptions} from "firebase-functions";
-import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onCall, onRequest, HttpsError} from "firebase-functions/v2/https";
 import {initializeApp} from "firebase-admin/app";
+import {bot} from "./botcommand.js";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
 import {
-  buildTelegramUid,
+  buildTelegramUid, 
   parseAdminTelegramIds,
   resolveDevTelegramUser,
   resolveUserRole,
@@ -41,6 +42,27 @@ setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 // Required by firebase-admin Auth for custom token minting.
 initializeApp();
 
+
+export const telegramWebhook = onRequest(
+  {
+    region: "europe-north1",
+    invoker: "public",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("Method Not Allowed");
+      return;
+    }
+
+    try {
+      await bot.handleUpdate(req.body);
+      res.status(200).send("OK");
+    } catch (error) {
+      logger.error("Telegram webhook error", error);
+      res.status(500).send("Internal Server Error");
+    }
+  }
+);
 /** Payload accepted from the client (see src/auth.ts). */
 interface AuthenticateTelegramData {
   /** Signed Telegram Mini App initData — the only trusted source in production. */
