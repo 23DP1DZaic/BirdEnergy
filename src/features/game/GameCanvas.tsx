@@ -46,7 +46,11 @@ function resizeCanvas(
 ): void {
   const rect = wrap.getBoundingClientRect()
   if (rect.width < 1 || rect.height < 1) return
-  const dpr = Math.min(window.devicePixelRatio || 1, 3)
+  // Cap at 2× — every frame repaints the whole backing store and this is
+  // pixel art upscaled nearest-neighbour: above 2× the extra pixels are
+  // invisible, but on 3× phones they triple the fill cost (the main frame-lag
+  // source on high-DPR devices; 3× → 2× is 55% fewer pixels per frame).
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const w = Math.max(1, Math.round(rect.width * dpr))
   const h = Math.max(1, Math.round(rect.height * dpr))
   if (canvas.width !== w || canvas.height !== h) {
@@ -103,7 +107,12 @@ export function GameCanvas({
     const canvas = canvasRef.current
     const wrap = wrapRef.current
     if (!canvas || !wrap) return
-    const ctx = canvas.getContext('2d')
+    // alpha:false — the scene paints every pixel each frame (sky down to the
+    // horizon, ground band below), so canvas alpha compositing buys nothing;
+    // skipping it halves the backing-store memory and speeds up blending.
+    // (No desynchronized:true — it made the canvas skip compositor frames on
+    // some platforms/captures, i.e. a blank/stale game surface.)
+    const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
 
     configureCanvas(ctx)
@@ -143,19 +152,39 @@ export function GameCanvas({
     // First frame before any rAF fires (hidden tab, throttling).
     drawGame(ctx, sprites, state)
 
-    const observer = new ResizeObserver(reflow)
+    // Resizing clears the backing store — with alpha:false that clear is
+    // opaque black, so repaint in the same callback instead of waiting for
+    // the next rAF tick (no black flash on rotate/resize).
+    const observer = new ResizeObserver(() => {
+      reflow()
+      drawGame(ctx, sprites, state)
+    })
     observer.observe(wrap)
 
     let raf = 0
     let last = performance.now()
     let running = !document.hidden
 
+    // The game-over scene is frozen (stepGame returns immediately), so paint
+    // it once and then stop redrawing a static frame at display rate. A phase
+    // change or a skin/background/ground event sets redrawPending to repaint.
+    let drawnPhase: GamePhase | null = null
+    let redrawPending = true
+
     const frame = (now: number) => {
       const dt = (now - last) / 1000
       last = now
       if (running) stepGame(state, dt)
       reportPhase()
-      drawGame(ctx, sprites, state)
+      if (
+        state.phase !== 'game-over' ||
+        drawnPhase !== state.phase ||
+        redrawPending
+      ) {
+        drawGame(ctx, sprites, state)
+        drawnPhase = state.phase
+        redrawPending = false
+      }
       raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
@@ -196,14 +225,17 @@ export function GameCanvas({
     // (UI-07 continuity — selections apply to the canvas live).
     const onBackgroundChange = () => {
       state.backgroundIndex = getStoredBackgroundIndex()
+      redrawPending = true
     }
     state.backgroundIndex = getStoredBackgroundIndex()
     const onGroundChange = () => {
       state.groundIndex = getStoredGroundIndex()
+      redrawPending = true
     }
     state.groundIndex = getStoredGroundIndex()
     const onBirdSkinChange = () => {
       sprites.birdSheet = sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
+      redrawPending = true
     }
 
     canvas.addEventListener('pointerdown', onPointer)

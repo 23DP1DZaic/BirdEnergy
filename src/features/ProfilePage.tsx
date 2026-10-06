@@ -1,7 +1,8 @@
 // UI-04 — Profile screen: Telegram identity (photo + name fallbacks), role,
 // and the score aggregates from the users/{uid} doc — plus the in-game
-// username editor and the appearance switchers (bird skin, sky background,
-// ground strip) moved over from Home.
+// username editor and the appearance picker (three tabs — Skins, Backgrounds,
+// Grounds — each showing a grid of options you tap to pick; moved over from
+// Home).
 //
 // Name fallback chain (same as the server's leaderboardName): in-game name →
 // @username → first name → "Player" (the DoD's "korekts fallback"). The
@@ -29,14 +30,26 @@ import {
   type UserProfile,
 } from './userProfile'
 import { birdSkinUrls } from './game/sprites'
-import { useBirdSkinIndex } from './birdSkin'
-import { useGroundIndex } from './groundTile'
-import { useBackgroundIndex } from './homeBackground'
+import { applyStoredBirdSkinIndex, useBirdSkinIndex } from './birdSkin'
+import { applyStoredGroundIndex, useGroundIndex } from './groundTile'
+import {
+  applyStoredBackgroundIndex,
+  useBackgroundIndex,
+} from './homeBackground'
 import { backgrounds, groundUrls } from '../sprites'
 import { PlaceholderPage } from './PlaceholderPage'
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
 const birdAvatarUrl = birdSkinUrls[0]
+
+/** The Profile appearance pickers — each tab shows one grid of options. */
+type AppearanceTab = 'skin' | 'background' | 'ground'
+
+const APPEARANCE_TABS: { kind: AppearanceTab; label: string }[] = [
+  { kind: 'skin', label: 'Skins' },
+  { kind: 'background', label: 'Backgrounds' },
+  { kind: 'ground', label: 'Grounds' },
+]
 
 /** Display name: in-game name → @username → first name → "Player". */
 function profileDisplayName(profile: UserProfile): string {
@@ -69,13 +82,12 @@ export function ProfilePage({
   const [nameError, setNameError] = useState<string | null>(null)
   const [nameSaved, setNameSaved] = useState(false)
 
-  // Appearance switchers (UI-04): shared localStorage index + a best-effort
-  // mirror into users/{uid} (a failed save keeps the local choice working).
-  const [skinIndex, cycleSkin] = useBirdSkinIndex()
-  const [backgroundIndex, cycleBackground] = useBackgroundIndex(
-    backgrounds.length,
-  )
-  const [groundIndex, cycleGround] = useGroundIndex()
+  // Appearance picker (UI-04 rev): one shared index per kind, live in
+  // localStorage; the three tabs switch which grid is shown below them.
+  const [skinIndex] = useBirdSkinIndex()
+  const [backgroundIndex] = useBackgroundIndex(backgrounds.length)
+  const [groundIndex] = useGroundIndex()
+  const [appearanceTab, setAppearanceTab] = useState<AppearanceTab>('skin')
   const [prefError, setPrefError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -151,15 +163,50 @@ export function ProfilePage({
   const displayName = profileDisplayName(profile)
   const nameTouched = nameDraft.trim() !== (profile.inGameName ?? '')
 
-  /** Cycles one switcher locally, then mirrors it into users/{uid}. */
-  const changePref = (
-    cycle: () => void,
-    field: 'preferredBird' | 'preferredBackground' | 'preferredGround',
-    next: number,
-  ) => {
-    cycle()
+  // The active grid's data: preview urls, the current pick, and the shared
+  // setter (applyStored* validates, stores and broadcasts via window event).
+  const appearanceOptions: Record<
+    AppearanceTab,
+    {
+      urls: readonly string[]
+      index: number
+      apply: (n: number) => void
+      label: string
+    }
+  > = {
+    skin: {
+      urls: birdSkinUrls,
+      index: skinIndex,
+      apply: applyStoredBirdSkinIndex,
+      label: 'Skin',
+    },
+    background: {
+      urls: backgrounds,
+      index: backgroundIndex,
+      apply: applyStoredBackgroundIndex,
+      label: 'Background',
+    },
+    ground: {
+      urls: groundUrls,
+      index: groundIndex,
+      apply: applyStoredGroundIndex,
+      label: 'Ground',
+    },
+  }
+  const activeOptions = appearanceOptions[appearanceTab]
+
+  /** Taps a grid tile: applies the shared index locally, then mirrors it. */
+  const selectPref = (kind: AppearanceTab, i: number) => {
+    const option = appearanceOptions[kind]
+    if (i === option.index) return // already selected — nothing to save
+    option.apply(i)
     setPrefError(null)
-    const patch: UpdateProfileInput = { [field]: next }
+    const patch: UpdateProfileInput =
+      kind === 'skin'
+        ? { preferredBird: i }
+        : kind === 'background'
+          ? { preferredBackground: i }
+          : { preferredGround: i }
     updateProfile(patch).catch((err: unknown) => {
       // Keep the local choice — only the cross-device save failed.
       setPrefError(err instanceof Error ? err.message : String(err))
@@ -292,69 +339,52 @@ export function ProfilePage({
 
       <section className="profile-appearance">
         <p className="profile-name-label">Appearance</p>
-        <div className="profile-choices">
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleSkin,
-                'preferredBird',
-                (skinIndex + 1) % birdSkinUrls.length,
-              )
-            }
-            aria-label={`Change bird skin (${skinIndex + 1} of ${birdSkinUrls.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={birdSkinUrls[skinIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Skin {skinIndex + 1}/{birdSkinUrls.length}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleBackground,
-                'preferredBackground',
-                (backgroundIndex + 1) % backgrounds.length,
-              )
-            }
-            aria-label={`Change background (${backgroundIndex + 1} of ${backgrounds.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={backgrounds[backgroundIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Background {backgroundIndex + 1}/{backgrounds.length}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleGround,
-                'preferredGround',
-                (groundIndex + 1) % groundUrls.length,
-              )
-            }
-            aria-label={`Change ground (${groundIndex + 1} of ${groundUrls.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={groundUrls[groundIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Ground {groundIndex + 1}/{groundUrls.length}
-          </button>
+        <div
+          className="appearance-tabs"
+          role="tablist"
+          aria-label="Appearance category"
+        >
+          {APPEARANCE_TABS.map((tab) => (
+            <button
+              key={tab.kind}
+              type="button"
+              role="tab"
+              className={`btn btn-small appearance-tab${
+                appearanceTab === tab.kind ? ' btn-active' : ''
+              }`}
+              aria-selected={appearanceTab === tab.kind}
+              onClick={() => setAppearanceTab(tab.kind)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div
+          className={`appearance-grid appearance-grid-${appearanceTab}s`}
+          role="tabpanel"
+          aria-label={activeOptions.label}
+        >
+          {activeOptions.urls.map((url, i) => {
+            const selected = activeOptions.index === i
+            return (
+              <button
+                key={`${appearanceTab}-${i}`}
+                type="button"
+                className="appearance-tile"
+                aria-label={`${activeOptions.label} ${i + 1}${
+                  selected ? ' (selected)' : ''
+                }`}
+                aria-pressed={selected}
+                onClick={() => selectPref(appearanceTab, i)}
+              >
+                <span
+                  className="appearance-thumb"
+                  style={{ backgroundImage: `url(${url})` }}
+                  aria-hidden="true"
+                />
+              </button>
+            )
+          })}
         </div>
         {prefError && (
           <p className="profile-name-error" role="alert">

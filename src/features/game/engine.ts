@@ -34,8 +34,8 @@ const MAX_FALL_SPEED = 650
  */
 export const SPRITE_SCALE = 3
 
-/** World constants. */
-export const PIPE_SPEED = 130
+/** World constants. Pipes 1.1× faster per feedback (was 130 — ×1.1 = 143). */
+export const PIPE_SPEED = 143
 export const PIPE_SPACING = 240
 export const PIPE_GAP = 150
 export const PIPE_CAP_W = 32
@@ -48,7 +48,7 @@ export const BIRD_X = 120
  * reuses this for pipe collisions.
  */
 export const BIRD_R = 13
-const FLAP_FRAME_MS = 180 // 120ms × 1.5 — slower, calmer wing cycle
+const FLAP_FRAME_MS = 150 // 4 frames × 150ms = 600ms full wing cycle (250 felt too slow)
 
 /** Gap spawn bounds relative to the current view: 60px sky margin above the
  *  gap, 30px floor margin below it. */
@@ -62,6 +62,9 @@ export interface BirdState {
   vy: number
   /** Accumulated ms — drives the 4-frame flap animation. */
   frameTime: number
+  /** Visual tilt in radians (render-only): nose up on flap, nose-right
+   *  (clockwise) while falling; eased toward the velocity target each step. */
+  angle: number
 }
 
 export interface PipePair {
@@ -110,7 +113,7 @@ export function floorTop(s: GameState): number {
 export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
   return {
     phase: 'ready',
-    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0 },
+    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0, angle: 0 },
     pipes: [],
     score: 0,
     best: 0,
@@ -131,8 +134,14 @@ function readyBirdY(viewH: number, time: number): number {
 /** In-place reset (the state object lives in the render loop closure). */
 export function resetGame(s: GameState): void {
   const best = s.best // session best survives restarts
+  // createGameState() defaults these to 0 — carry the player's live choices
+  // (Profile-preference sky/ground, hydrated on mount) across restarts too.
+  const backgroundIndex = s.backgroundIndex
+  const groundIndex = s.groundIndex
   Object.assign(s, createGameState(s.viewH))
   s.best = best
+  s.backgroundIndex = backgroundIndex
+  s.groundIndex = groundIndex
 }
 
 /** Ends the run: freezes the world and records the session best (GAME-04). */
@@ -159,6 +168,7 @@ export function startGame(s: GameState): void {
   s.bird.y = s.viewH / 2 - 40
   s.bird.vy = FLAP_VELOCITY
   s.bird.frameTime = 0
+  s.bird.angle = 0
   s.pipes = []
   s.score = 0
   s.runTime = 0
@@ -220,6 +230,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
     s.scroll += PIPE_SPEED * 0.5 * dt
     s.bird.y = readyBirdY(s.viewH, s.time)
     s.bird.frameTime += dt * 1000
+    updateTilt(s, dt, 0) // level while waiting
     return
   }
 
@@ -229,6 +240,8 @@ export function stepGame(s: GameState, dtRaw: number): void {
   s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
   s.bird.y += s.bird.vy * dt
   s.bird.frameTime += dt * 1000
+  // Visual tilt follows velocity: a click flings it back up, falling noses right.
+  updateTilt(s, dt, rotationForVelocity(s.bird.vy))
 
   const last = s.pipes[s.pipes.length - 1]
   if (!last || last.x < LOGICAL_W - PIPE_SPACING) spawnPipe(s)
@@ -267,8 +280,47 @@ export function stepGame(s: GameState, dtRaw: number): void {
   }
 }
 
-/** Flap-cycle frame 0-3: animates while rising/hovering, holds mid-flap otherwise. */
+/**
+ * Flap-cycle frame 0-3 (mandatory 4 sprite frames). Every jump plays the
+ * FULL cycle — frameTime resets on each flap, so all four frames show over
+ * 4 × FLAP_FRAME_MS = 1s even though the rise itself lasts only ~300ms —
+ * then the wing settles on the glide frame. The ready screen loops forever;
+ * the frozen death screen always shows the glide frame.
+ */
 export function birdFrame(s: GameState): number {
-  const animating = s.phase === 'ready' || s.bird.vy < 0
-  return animating ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+  if (s.phase === 'game-over') return 1
+  const cycling = s.phase === 'ready' || s.bird.frameTime < 4 * FLAP_FRAME_MS
+  return cycling ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+}
+
+/** Score step until the pipe palette rotates (GAME-05): 0-19 green, 20-39 next… */
+export const PIPE_COLOR_SCORE_STEP = 20
+
+/**
+ * GAME-05 — pipe palette index for the current score. Green (index 0) for the
+ * first PIPE_COLOR_SCORE_STEP points, then the next color in pipeColorUrls
+ * order, wrapping after the last one.
+ */
+export function pipeColorIndex(s: GameState, colorCount: number): number {
+  if (colorCount <= 0) return 0
+  return Math.floor(s.score / PIPE_COLOR_SCORE_STEP) % colorCount
+}
+
+/** Visual tilt limits (radians): slight nose-up on flap, nose-right falling. */
+const BIRD_TILT_UP = (-10 * Math.PI) / 180
+const BIRD_TILT_DOWN = (25 * Math.PI) / 180
+
+/**
+ * Target tilt for a vertical speed: FLAP_VELOCITY → nose-up, MAX_FALL_SPEED →
+ * nose-right (clockwise). Linear in between, clamped outside the range.
+ */
+export function rotationForVelocity(vy: number): number {
+  const t = (vy - FLAP_VELOCITY) / (MAX_FALL_SPEED - FLAP_VELOCITY)
+  const c = Math.min(1, Math.max(0, t))
+  return BIRD_TILT_UP + c * (BIRD_TILT_DOWN - BIRD_TILT_UP)
+}
+
+/** Ease the bird's visual tilt toward `target` (≈100ms to snap into place). */
+function updateTilt(s: GameState, dt: number, target: number): void {
+  s.bird.angle += (target - s.bird.angle) * Math.min(1, dt * 10)
 }
