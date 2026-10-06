@@ -43,11 +43,9 @@ import background6Url from '../../assets/Background/Background6.png'
 import background7Url from '../../assets/Background/Background7.png'
 import background8Url from '../../assets/Background/Background8.png'
 import background9Url from '../../assets/Background/Background9.png'
-// pipe assets were moved into per-color folders (Pipe/Green/Green-top.png,
-// Green-mid.png, Green-bot.png — the old Green-up/-bottom/-center names).
-import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green/Green-top.png'
-import pipeCapBottomUrl from '../../assets/Tiles/Pipe/Green/Green-bot.png'
-import pipeCenterUrl from '../../assets/Tiles/Pipe/Green/Green-mid.png'
+import pipeCapUpUrl from "../../assets/Tiles/Pipe/Green/Green-top.png";
+import pipeCapBottomUrl from "../../assets/Tiles/Pipe/Green/Green-bot.png";
+import pipeCenterUrl from "../../assets/Tiles/Pipe/Green/Green-mid.png";
 import groundTileUrl from '../../assets/Tiles/Ground/Default.png'
 import groundSnowUrl from '../../assets/Tiles/Ground/Snow.png'
 
