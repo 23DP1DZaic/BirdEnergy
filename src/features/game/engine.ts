@@ -96,6 +96,8 @@ export interface GameState {
   backgroundIndex: number
   /** Which ground strip to draw (index into the shared ground list). */
   groundIndex: number
+  currentPipeColorIndex?: number
+  lastPipeColorChangeScore: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -124,6 +126,8 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     viewH,
     backgroundIndex: 0,
     groundIndex: 0,
+    currentPipeColorIndex: 0,
+    lastPipeColorChangeScore: 0,
   }
 }
 
@@ -142,6 +146,8 @@ export function resetGame(s: GameState): void {
   s.best = best
   s.backgroundIndex = backgroundIndex
   s.groundIndex = groundIndex
+  s.currentPipeColorIndex = 0
+  s.lastPipeColorChangeScore = 0
 }
 
 /** Ends the run: freezes the world and records the session best (GAME-04). */
@@ -303,8 +309,25 @@ export const PIPE_COLOR_SCORE_STEP = 20
  */
 export function pipeColorIndex(s: GameState, colorCount: number): number {
   if (colorCount <= 0) return 0
-  return Math.floor(s.score / PIPE_COLOR_SCORE_STEP) % colorCount
+  
+  // Determine which 20-point bracket we're currently in
+  const currentBracket = Math.floor(s.score / PIPE_COLOR_SCORE_STEP)
+  const lastBracket = Math.floor(s.lastPipeColorChangeScore / PIPE_COLOR_SCORE_STEP)
+  
+  // Only randomize when we enter a NEW bracket (not every frame at score 20, 40, etc.)
+  if (currentBracket > lastBracket) {
+    // Pick a random color different from current (if more than 1 color available)
+    let newIndex: number
+    do {
+      newIndex = Math.floor(Math.random() * colorCount)
+    } while (newIndex === s.currentPipeColorIndex && colorCount > 1)
+    s.currentPipeColorIndex = newIndex
+    s.lastPipeColorChangeScore = s.score
+  }
+  
+  return s.currentPipeColorIndex ?? 0
 }
+
 
 /** Visual tilt limits (radians): slight nose-up on flap, nose-right falling. */
 const BIRD_TILT_UP = (-10 * Math.PI) / 180
