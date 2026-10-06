@@ -309,9 +309,15 @@ export const acceptDataProcessing = onCall(
             firstName: (request.auth?.token.name as string | undefined) ?? "Player",
             lastName: null,
             languageCode: null,
+            // Best-effort profile from the Auth session; the next
+            // authenticateTelegram call refreshes photoUrl/firstName etc.
+            photoUrl: null,
             role: request.auth?.token.role ?? "user",
             bestScore: 0,
-            gamesPlayed: 0,
+            // Same aggregate names as submitGameResult increments (the old
+            // `gamesPlayed` field was never touched by the submit path).
+            totalGames: 0,
+            totalScore: 0,
             acceptedDataProcessingAt: new Date(),
             createdAt: new Date(),
           });
@@ -343,10 +349,45 @@ interface UpdateProfileResult {
   inGameName: string;
 }
 
+/** Payload accepted by updateProfile — every field optional, at least one
+ *  required (the Profile screen sends only what changed). */
+interface UpdateProfileData {
+  /** In-game display name (3-20 chars of [A-Za-z0-9_]). */
+  username?: unknown;
+  /** UI-04 appearance preferences — indices into the client asset lists
+ *   (bird skins, skies, ground strips); validated to sane ranges here. */
+  preferredBird?: unknown;
+  preferredBackground?: unknown;
+  preferredGround?: unknown;
+}
+
 /** In-game name rules, shared by the client validator (mirrored in src). */
 export const IN_GAME_NAME_MIN = 3;
 export const IN_GAME_NAME_MAX = 20;
 const IN_GAME_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
+
+/** Appearance preference ranges — must cover the client asset lists
+ *  (10 bird skins, 9 skies, 2 grounds) without being unbounded. */
+const PREFERRED_BIRD_MAX = 99;
+const PREFERRED_BACKGROUND_MAX = 99;
+const PREFERRED_GROUND_MAX = 99;
+
+/** Validates a preference index: a non-negative integer within the range.
+ *  Missing/undefined fields are skipped by the caller before this runs. */
+function validatePreference(
+  value: unknown,
+  max: number,
+  field: string,
+): number {
+  if (!Number.isInteger(value) || (value as number) < 0 ||
+      (value as number) > max) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be an integer between 0 and ${max}.`,
+    );
+  }
+  return value as number;
+}
 
 /**
  * True when `name` is a valid in-game name: trimmed, 3–20 chars,
@@ -370,36 +411,67 @@ export const updateProfile = onCall(
   },
   async (request): Promise<UpdateProfileResult> => {
     if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Sign in to change your name.");
+      throw new HttpsError("unauthenticated", "Sign in to change your profile.");
     }
 
-    const username = (request.data ?? {}).username;
-    if (!isValidInGameName(username)) {
-      throw new HttpsError(
-        "invalid-argument",
-        `username must be ${IN_GAME_NAME_MIN}-${IN_GAME_NAME_MAX} characters (letters, digits, underscore).`,
-      );
-    }
-    const inGameName = username.trim();
+    const data = (request.data ?? {}) as UpdateProfileData;
     const uid = request.auth.uid;
     const db = getFirestore();
 
+    // --- name (optional): same rules as before, uniqueness best-effort ---
+    let inGameName: string | null = null;
+    if (data.username !== undefined) {
+      if (!isValidInGameName(data.username)) {
+        throw new HttpsError(
+          "invalid-argument",
+          `username must be ${IN_GAME_NAME_MIN}-${IN_GAME_NAME_MAX} characters (letters, digits, underscore).`,
+        );
+      }
+      inGameName = data.username.trim();
+    }
+
+    // --- appearance preferences (optional, range-validated) ---
+    const patch: Record<string, number | string | Date> = {};
+    if (inGameName !== null) {
+      patch.inGameName = inGameName;
+      patch.inGameNameUpdatedAt = new Date();
+    }
+    if (data.preferredBird !== undefined) {
+      patch.preferredBird = validatePreference(
+        data.preferredBird, PREFERRED_BIRD_MAX, "preferredBird");
+    }
+    if (data.preferredBackground !== undefined) {
+      patch.preferredBackground = validatePreference(
+        data.preferredBackground, PREFERRED_BACKGROUND_MAX,
+        "preferredBackground");
+    }
+    if (data.preferredGround !== undefined) {
+      patch.preferredGround = validatePreference(
+        data.preferredGround, PREFERRED_GROUND_MAX, "preferredGround");
+    }
+    if (Object.keys(patch).length === 0) {
+      throw new HttpsError("invalid-argument", "Nothing to update.");
+    }
+
     try {
-      // Uniqueness is best-effort: a doc written right after the query would
-      // slip through (no composite index/tx across two docs by design).
-      const clash = await db
-        .collection("users")
-        .where("inGameName", "==", inGameName)
-        .limit(1)
-        .get();
-      const takenBySomeoneElse = !clash.empty && clash.docs[0].id !== uid;
-      if (takenBySomeoneElse) {
-        throw new HttpsError("already-exists", "That name is already taken.");
+      if (inGameName !== null) {
+        // Uniqueness is best-effort: a doc written right after the query would
+        // slip through (no composite index/tx across two docs by design).
+        const clash = await db
+          .collection("users")
+          .where("inGameName", "==", inGameName)
+          .limit(1)
+          .get();
+        const takenBySomeoneElse = !clash.empty && clash.docs[0].id !== uid;
+        if (takenBySomeoneElse) {
+          throw new HttpsError("already-exists", "That name is already taken.");
+        }
       }
 
       // The caller's profile must exist (consent created it) — same
       // precondition as submitGameResult.
       const userDoc = db.collection("users").doc(uid);
+      let effectiveName = "";
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(userDoc);
         if (!snap.exists) {
@@ -408,15 +480,19 @@ export const updateProfile = onCall(
             "No player profile — accept data processing first.",
           );
         }
-        tx.update(userDoc, {inGameName, inGameNameUpdatedAt: new Date()});
+        const current = snap.data()?.inGameName;
+        // Respond with the effective name (unchanged when only prefs changed).
+        effectiveName =
+          inGameName ?? (typeof current === "string" ? current : "");
+        tx.update(userDoc, patch);
       });
 
-      logger.info("In-game name updated", {uid, inGameName});
-      return {ok: true, inGameName};
+      logger.info("Profile updated", {uid, fields: Object.keys(patch)});
+      return {ok: true, inGameName: effectiveName};
     } catch (error) {
       if (error instanceof HttpsError) throw error;
       logger.error("updateProfile failed", error);
-      throw new HttpsError("internal", "Could not save the name.");
+      throw new HttpsError("internal", "Could not save the profile.");
     }
   },
 );

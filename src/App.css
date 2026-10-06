@@ -178,35 +178,8 @@ a.btn {
   font-size: 10px;
   color: #fff;
   text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.75);
-}/* Background switcher — a compact .btn pinned to the top-right corner, above
-   the sky and the content layer. Declared after .btn so it wins on order. */
-.bg-toggle {
-  position: absolute;
-  top: clamp(10px, 2vh, 18px);
-  right: clamp(10px, 2vw, 18px);
-  z-index: 2;
-  font-size: clamp(12px, 3vw, 14px);
-  padding: 8px 14px;
-  box-shadow: 0 3px 0 #a5420c;
-}
-
-/* Bird skin switcher — same corner style, stacked below the background
-   button, with a live thumbnail of the active skin. */
-.bird-toggle {
-  top: calc(clamp(10px, 2vh, 18px) + 48px);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bird-toggle-skin {
-  width: 32px;
-  height: 8px;
-  /* The sheet is 64x16 → show the first frame only. */
-  object-fit: cover;
-  object-position: left center;
-  image-rendering: pixelated;
-}
+  }/* UI-04 — the background/skin/ground switchers moved from Home's corner
+   buttons to the Profile screen (.profile-appearance below). */
 
 /* ------------------------------------------------------------------ */
 /* UI-02 — app shell additions: nav bars, home actions, placeholders.  */
@@ -538,7 +511,8 @@ a.btn {
 }
 
 .profile-card,
-.profile-name-editor {
+.profile-name-editor,
+.profile-appearance {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -671,4 +645,36 @@ a.btn {
 
 .profile-name-saved {
   color: #ffd23f;
+}
+
+/* UI-04 — appearance switchers (bird skin / sky background / ground strip),
+   moved here from Home's corner buttons. Each button carries a live
+   thumbnail of the current choice. */
+.profile-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  /* Let the three chips share a row on narrow phones without overflowing. */
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+/* Thumbnail = a 24px crop of the current pick (sheet/strip/sky art is wider
+   than tall, so cover + left alignment shows its first frame/section). */
+.profile-choice-thumb {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid #a5420c;
+  border-radius: 6px;
+  object-fit: cover;
+  object-position: left top;
+  image-rendering: pixelated;
 }

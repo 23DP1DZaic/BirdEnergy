@@ -13,6 +13,12 @@ import {
   type TelegramSignInResult,
 } from './auth'
 import { getDevTelegramId, shouldUseEmulators } from './devAuth'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from './firebase'
+import { applyStoredBackgroundIndex } from './features/homeBackground'
+import { applyStoredBirdSkinIndex } from './features/birdSkin'
+import { applyStoredGroundIndex } from './features/groundTile'
+import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
 import { NAV_ITEMS, type Screen } from './navigation.ts'
 import { useAuthRole } from './useAuthRole.ts'
@@ -51,6 +57,30 @@ function App() {
   const [gamePhase, setGamePhase] = useState<GamePhase>('ready')
 
   useEffect(() => observeAuthSession(setSignedInUid), [])
+
+  // UI-04 — appearance preferences saved on the profile (preferredBird /
+  // preferredBackground / preferredGround) seed the local switchers on
+  // sign-in, so the player's choice follows them across devices. Best-effort:
+  // a missing doc or corrupt field is ignored (the local copy wins).
+  useEffect(() => {
+    if (!signedInUid) return
+    let cancelled = false
+    getDoc(doc(db, 'users', signedInUid))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return
+        const profile = snap.data() as UserProfile
+        applyStoredBirdSkinIndex(profile.preferredBird)
+        applyStoredBackgroundIndex(profile.preferredBackground)
+        applyStoredGroundIndex(profile.preferredGround)
+      })
+      .catch((err: unknown) => {
+        // Preferences are cosmetic — never block sign-in on them.
+        console.warn('Appearance preference hydration failed', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [signedInUid])
 
   const role = useAuthRole(signedInUid)
   const inTelegram = isTelegramEnvironment()

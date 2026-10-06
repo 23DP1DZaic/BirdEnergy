@@ -1,11 +1,17 @@
 // UI-04 — Profile screen: Telegram identity (photo + name fallbacks), role,
 // and the score aggregates from the users/{uid} doc — plus the in-game
-// username editor (updateProfile callable).
+// username editor and the appearance switchers (bird skin, sky background,
+// ground strip) moved over from Home.
 //
 // Name fallback chain (same as the server's leaderboardName): in-game name →
 // @username → first name → "Player" (the DoD's "korekts fallback"). The
 // avatar is the Telegram photo (signed initData photo_url) or, when Telegram
 // gives none, the in-app bird sprite — no custom upload exists.
+//
+// Appearance: the live index lives in localStorage (shared with Home/the game
+// canvas via window events) and is mirrored into the profile document through
+// the updateProfile callable (Firestore rules keep users/ write=server-only,
+// SEC-01), so the choice follows the player to another device.
 //
 // Guest → sign-in prompt (same pattern as Game/Leaderboard). The no-profile
 // case points at the Game screen, where the consent dialog lives. Load state
@@ -18,10 +24,15 @@ import {
   IN_GAME_NAME_MAX,
   IN_GAME_NAME_MIN,
   isValidInGameName,
-  updateInGameName,
+  updateProfile,
+  type UpdateProfileInput,
   type UserProfile,
 } from './userProfile'
 import { birdSkinUrls } from './game/sprites'
+import { useBirdSkinIndex } from './birdSkin'
+import { useGroundIndex } from './groundTile'
+import { useBackgroundIndex } from './homeBackground'
+import { backgrounds, groundUrls } from '../sprites'
 import { PlaceholderPage } from './PlaceholderPage'
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
@@ -57,6 +68,15 @@ export function ProfilePage({
   const [nameBusy, setNameBusy] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
   const [nameSaved, setNameSaved] = useState(false)
+
+  // Appearance switchers (UI-04): shared localStorage index + a best-effort
+  // mirror into users/{uid} (a failed save keeps the local choice working).
+  const [skinIndex, cycleSkin] = useBirdSkinIndex()
+  const [backgroundIndex, cycleBackground] = useBackgroundIndex(
+    backgrounds.length,
+  )
+  const [groundIndex, cycleGround] = useGroundIndex()
+  const [prefError, setPrefError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!signedInUid) return
@@ -131,6 +151,21 @@ export function ProfilePage({
   const displayName = profileDisplayName(profile)
   const nameTouched = nameDraft.trim() !== (profile.inGameName ?? '')
 
+  /** Cycles one switcher locally, then mirrors it into users/{uid}. */
+  const changePref = (
+    cycle: () => void,
+    field: 'preferredBird' | 'preferredBackground' | 'preferredGround',
+    next: number,
+  ) => {
+    cycle()
+    setPrefError(null)
+    const patch: UpdateProfileInput = { [field]: next }
+    updateProfile(patch).catch((err: unknown) => {
+      // Keep the local choice — only the cross-device save failed.
+      setPrefError(err instanceof Error ? err.message : String(err))
+    })
+  }
+
   const saveName = async () => {
     const candidate = nameDraft.trim()
     setNameError(null)
@@ -144,9 +179,9 @@ export function ProfilePage({
     if (candidate === (profile.inGameName ?? '')) return
     setNameBusy(true)
     try {
-      const saved = await updateInGameName(candidate)
-      setProfile((p) => (p ? { ...p, inGameName: saved } : p))
-      setNameDraft(saved)
+      const result = await updateProfile({ username: candidate })
+      setProfile((p) => (p ? { ...p, inGameName: result.inGameName } : p))
+      setNameDraft(result.inGameName)
       setNameSaved(true)
     } catch (err) {
       setNameError(err instanceof Error ? err.message : String(err))
@@ -254,6 +289,83 @@ export function ProfilePage({
           characters: letters, digits, underscore.
         </p>
       </form>
+
+      <section className="profile-appearance">
+        <p className="profile-name-label">Appearance</p>
+        <div className="profile-choices">
+          <button
+            type="button"
+            className="btn btn-small profile-choice"
+            onClick={() =>
+              changePref(
+                cycleSkin,
+                'preferredBird',
+                (skinIndex + 1) % birdSkinUrls.length,
+              )
+            }
+            aria-label={`Change bird skin (${skinIndex + 1} of ${birdSkinUrls.length})`}
+          >
+            <img
+              className="profile-choice-thumb"
+              src={birdSkinUrls[skinIndex]}
+              alt=""
+              aria-hidden="true"
+            />
+            Skin {skinIndex + 1}/{birdSkinUrls.length}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-small profile-choice"
+            onClick={() =>
+              changePref(
+                cycleBackground,
+                'preferredBackground',
+                (backgroundIndex + 1) % backgrounds.length,
+              )
+            }
+            aria-label={`Change background (${backgroundIndex + 1} of ${backgrounds.length})`}
+          >
+            <img
+              className="profile-choice-thumb"
+              src={backgrounds[backgroundIndex]}
+              alt=""
+              aria-hidden="true"
+            />
+            Background {backgroundIndex + 1}/{backgrounds.length}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-small profile-choice"
+            onClick={() =>
+              changePref(
+                cycleGround,
+                'preferredGround',
+                (groundIndex + 1) % groundUrls.length,
+              )
+            }
+            aria-label={`Change ground (${groundIndex + 1} of ${groundUrls.length})`}
+          >
+            <img
+              className="profile-choice-thumb"
+              src={groundUrls[groundIndex]}
+              alt=""
+              aria-hidden="true"
+            />
+            Ground {groundIndex + 1}/{groundUrls.length}
+          </button>
+        </div>
+        {prefError && (
+          <p className="profile-name-error" role="alert">
+            Saved on this device only — {prefError}
+          </p>
+        )}
+        <p className="placeholder-note">
+          The game and Home use these right away; your choice is also saved to
+          your profile for other devices.
+        </p>
+      </section>
     </div>
   )
 }

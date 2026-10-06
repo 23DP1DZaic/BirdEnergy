@@ -14,6 +14,8 @@ import background6 from './assets/Background/Background6.png'
 import background7 from './assets/Background/Background7.png'
 import background8 from './assets/Background/Background8.png'
 import background9 from './assets/Background/Background9.png'
+import groundDefault from './assets/Tiles/Ground/Default.png'
+import groundSnow from './assets/Tiles/Ground/Snow.png'
 import logo1 from './assets/Logo/Logo1.png'
 
 /** Sky tiles offered by the background button. Add a file here to add a sky. */
@@ -28,6 +30,10 @@ export const backgrounds: string[] = [
   background8,
   background9,
 ]
+
+/** Ground strips offered by the ground button (UI-04). Add a file here to
+ *  add a ground — index-matched to features/groundTile.ts and the canvas. */
+export const groundUrls: string[] = [groundDefault, groundSnow]
 
 /** Pixel-art wordmark (287x154). Swap for Logo2/Logo3/Logo4 for another style. */
 export const logo: string = logo1

@@ -23,6 +23,19 @@ function storeBirdSkinIndex(index: number): void {
   window.dispatchEvent(new Event(BIRD_SKIN_CHANGE_EVENT))
 }
 
+/**
+ * Seeds the stored index from the users/{uid} preference (App hydrates it on
+ * sign-in). A valid value wins over the local copy — the profile document is
+ * the saved preference — and is ignored otherwise (missing/corrupt field).
+ */
+export function applyStoredBirdSkinIndex(index: unknown): void {
+  if (!Number.isInteger(index)) return
+  const n = index as number
+  if (n < 0 || n >= BIRD_SKIN_COUNT) return
+  if (getStoredBirdSkinIndex() === n) return
+  storeBirdSkinIndex(n)
+}
+
 /** Home's handle: cycles the shared skin index and re-renders on changes. */
 export function useBirdSkinIndex(): [number, () => void] {
   const [index, setIndex] = useState(getStoredBirdSkinIndex)

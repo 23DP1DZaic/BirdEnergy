@@ -13,9 +13,23 @@ export function getStoredBackgroundIndex(): number {
   return Number.isInteger(n) && n >= 0 ? n : 0
 }
 
+
 function storeBackgroundIndex(index: number): void {
   localStorage.setItem(STORAGE_KEY, String(index))
   window.dispatchEvent(new Event(BACKGROUND_CHANGE_EVENT))
+}
+
+/**
+ * Seeds the stored index from the users/{uid} preference (App hydrates it on
+ * sign-in). A valid value wins over the local copy — the profile document is
+ * the saved preference — and is ignored otherwise (missing/corrupt field).
+ */
+export function applyStoredBackgroundIndex(index: unknown): void {
+  if (!Number.isInteger(index)) return
+  const n = index as number
+  if (n < 0) return
+  if (getStoredBackgroundIndex() === n) return
+  storeBackgroundIndex(n)
 }
 
 /** Home's handle: cycles the shared index and re-renders on external changes. */
