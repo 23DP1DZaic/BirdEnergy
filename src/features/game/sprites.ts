@@ -43,6 +43,7 @@ import background6Url from '../../assets/Background/Background6.png'
 import background7Url from '../../assets/Background/Background7.png'
 import background8Url from '../../assets/Background/Background8.png'
 import background9Url from '../../assets/Background/Background9.png'
+import background10Url from '../../assets/Background/Background10.png'
 // pipe assets were moved into per-color folders (Pipe/Green/Green-top.png,
 // Green-mid.png, Green-bot.png — the old Green-up/-bottom/-center names).
 import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green/Green-top.png'
@@ -83,7 +84,10 @@ export const BIRD_FRAMES = 4
 export const BIRD_FRAME_W = 16
 export const BIRD_FRAME_H = 16
 
-/** All 9 Home skies, same order as src/sprites.ts backgrounds. */
+/** All 10 Home skies, same order as src/sprites.ts backgrounds (the index
+ *  alignment matters: the stored background index is used modulo this list —
+ *  a missing entry silently shows a DIFFERENT sky, which is exactly what
+ *  happened to Background10 before it was added here). */
 export const gameBackgroundUrls = [
   background1Url,
   background2Url,
@@ -94,6 +98,7 @@ export const gameBackgroundUrls = [
   background7Url,
   background8Url,
   background9Url,
+  background10Url,
 ] as const
 
 /** The selectable bird skins; index-matched to birdSkin.ts. The first seven

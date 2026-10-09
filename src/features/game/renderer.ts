@@ -18,6 +18,7 @@ import {
 } from './sprites'
 import {
   BIRD_X,
+  deadBirds,
   floorTop,
   LOGICAL_W,
   PIPE_CAP_W,
@@ -246,6 +247,42 @@ function drawBird(
 }
 
 /**
+ * Corpses of every bird that died this page session, rendered AFTER the
+ * ground and BEFORE the active bird (required order). Each corpse keeps its
+ * own skin (skinId → birdSkins index: the exact sheet the player used), its
+ * final wing frame and its final -180° pose, rotated around the sprite's
+ * OWN center with save/translate/rotate/drawImage/restore — never the whole
+ * canvas or scene. They never move: the renderer only reads the frozen
+ * snapshots.
+ */
+function drawDeadBirds(
+  ctx: CanvasRenderingContext2D,
+  sprites: GameSpriteImages,
+): void {
+  for (const d of deadBirds) {
+    const sheet = sprites.birdSkins[Number(d.skinId)] ?? sprites.birdSkins[0]
+    if (!sheet) continue
+    const frameW = sheet.naturalWidth / BIRD_FRAMES
+    const frameH = sheet.naturalHeight
+    ctx.save()
+    ctx.translate(d.x + d.width / 2, d.y + d.height / 2)
+    ctx.rotate((-180 * Math.PI) / 180)
+    ctx.drawImage(
+      sheet,
+      d.frame * frameW,
+      0,
+      frameW,
+      frameH,
+      -d.width / 2,
+      -d.height / 2,
+      d.width,
+      d.height,
+    )
+    ctx.restore()
+  }
+}
+
+/**
  * GAME-04 — score HUD and the Game Over screen.
  *
  * Playing: the big centered score. Ready: a start hint. Game-over: a panel
@@ -266,7 +303,10 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
     return
   }
 
-  if (s.phase === 'playing') {
+  // During the death animation ('dead') keep the plain score HUD — the Game
+  // Over panel must not cover the falling bird; it appears once the bird has
+  // landed (phase 'game-over').
+  if (s.phase === 'playing' || s.phase === 'dead') {
     ctx.font = `32px ${PIXEL_FONT}`
     ctx.strokeText(String(s.score), LOGICAL_W / 2, 60)
     ctx.fillText(String(s.score), LOGICAL_W / 2, 60)
@@ -333,9 +373,10 @@ export function drawGame(
   sprites: GameSpriteImages,
   s: GameState,
 ): void {
-  drawSky(ctx, sprites, s) // background, behind everything
-  drawPipes(ctx, sprites, s)
-  drawGround(ctx, sprites, s) // ground, at the bottom of the view
-  drawBird(ctx, sprites, s)
-  drawScore(ctx, s)
+  drawSky(ctx, sprites, s) // 1. background, behind everything
+  drawPipes(ctx, sprites, s) // 2. pipes
+  drawGround(ctx, sprites, s) // 3. ground, at the bottom of the view
+  drawDeadBirds(ctx, sprites) // 4. corpses from earlier deaths (memory only)
+  drawBird(ctx, sprites, s) // 5. active bird
+  drawScore(ctx, s) // 6. score and UI, on top
 }

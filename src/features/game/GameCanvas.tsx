@@ -13,11 +13,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   createGameState,
+  deadBirds,
   flap,
+  FLOOR_H,
   LOGICAL_W,
   resetGame,
   runResult,
   stepGame,
+  type DeadBird,
   type GamePhase,
   type GameState,
   type RunResult,
@@ -59,7 +62,18 @@ function resizeCanvas(
     configureCanvas(ctx) // resizing resets ctx settings
   }
   // Logical world: 480 wide, height follows the container aspect.
-  state.viewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
+  const newViewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
+  if (newViewH !== state.viewH) {
+    state.viewH = newViewH
+    // Corpses always rest ON the ground by construction, so a resolution
+    // change re-glues them to the new floor line instead of leaving them
+    // floating in the sky where the old ground used to be.
+    for (const d of deadBirds) d.y = newViewH - FLOOR_H - d.height / 2
+    // The bird lying on the ground behind the Game-Over panel is glued the
+    // same way; airborne phases (ready/playing/dead) re-derive their own
+    // position from the new viewH on the next frame.
+    if (state.phase === 'game-over') state.bird.y = newViewH - FLOOR_H
+  }
   // Logical → backing-store mapping: the renderer keeps drawing in logical
   // coordinates; this transform makes the world cover the element exactly.
   ctx.setTransform(
@@ -124,11 +138,18 @@ export function GameCanvas({
     const sprites = {...load.sprites}
     // Bird skin starts at the stored choice; the renderer draws
     // sprites.birdSheet, so swapping it re-skins every following frame.
-    sprites.birdSheet =
-      sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
+    // state.skinIndex mirrors the sheet so a corpse snapshot records the
+    // exact skin the player dies with.
+    const initialSkin = getStoredBirdSkinIndex()
+    sprites.birdSheet = sprites.birdSkins[initialSkin] ?? sprites.birdSkins[0]
+    state.skinIndex = initialSkin
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
+      // Live reference to the module-level corpse list (test hook: a full
+      // page reload re-evaluates the module → the array starts empty).
+      ;(window as unknown as { __birdDeadBirds?: DeadBird[] }).__birdDeadBirds =
+        deadBirds
     }
 
     // Report phase transitions (ready → playing → game-over → ready) so the
@@ -140,7 +161,10 @@ export function GameCanvas({
         const previous = reported
         reported = state.phase
         onPhaseChange?.(state.phase)
-        if (state.phase === 'game-over' && previous === 'playing') {
+        // One death = playing → dead → game-over, so this edge fires exactly
+        // once per death (never on the collision frame itself), keeping the
+        // current score-saving flow with no duplicate game results.
+        if (state.phase === 'game-over' && previous === 'dead') {
           onRunEnd?.(runResult(state))
         }
       }
@@ -235,6 +259,7 @@ export function GameCanvas({
     state.groundIndex = getStoredGroundIndex()
     const onBirdSkinChange = () => {
       sprites.birdSheet = sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
+      state.skinIndex = getStoredBirdSkinIndex()
       redrawPending = true
     }
 

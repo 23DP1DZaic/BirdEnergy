@@ -713,3 +713,129 @@ a.btn {
   background-size: cover;
   background-position: center 30%;
 }
+
+/* ------------------------------------------------------------------ */
+/* CH-01 — Challenges screen: cards with status pill + progress bar.  */
+/* ------------------------------------------------------------------ */
+
+/* Mirrors .board-screen: width includes padding (no sideways scroll),
+   bottom padding keeps the last card clear of the floating nav. */
+.challenges-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.challenge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.challenge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.challenge-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.challenge-title {
+  margin: 0;
+  font-size: 12px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+/* Status pill: solid amber = running now, outlined = not started yet,
+   muted = over. Status is derived from the dates, never stored. */
+.challenge-status {
+  flex-shrink: 0;
+  font-size: 8px;
+  line-height: 1.6;
+  padding: 4px 8px;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  color: #5a1e05;
+  white-space: nowrap;
+}
+
+.challenge-status-active {
+  background: #ffd23f;
+}
+
+.challenge-status-upcoming {
+  background: transparent;
+  color: #a5420c;
+}
+
+.challenge-status-finished {
+  background: rgba(90, 30, 5, 0.15);
+  color: rgba(90, 30, 5, 0.75);
+}
+
+.challenge-desc {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.challenge-meta {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #a5420c;
+}
+
+/* Progress: rounded track + amber fill, then "value / target · pct". */
+.challenge-bar {
+  width: 100%;
+  height: 14px;
+  background: rgba(90, 30, 5, 0.18);
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.challenge-bar-fill {
+  display: block;
+  height: 100%;
+  background: #ffd23f;
+  transition: width 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-bar-fill {
+    transition: none;
+  }
+}
+
+.challenge-pct {
+  margin: 0;
+  font-size: 10px;
+  color: #5a1e05;
+}

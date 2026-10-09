@@ -154,7 +154,12 @@ function App() {
           />
         )
       case 'challenges':
-        return <ChallengesPage />
+        return (
+          <ChallengesPage
+            signedInUid={signedInUid}
+            onSignIn={requestSignIn}
+          />
+        )
       case 'profile':
         return (
           <ProfilePage signedInUid={signedInUid} onSignIn={requestSignIn} />
