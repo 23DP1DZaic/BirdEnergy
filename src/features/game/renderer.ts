@@ -15,6 +15,7 @@ import {
   BIRD_FRAMES,
   BIRD_FRAME_W,
   type GameSpriteImages,
+  type PipeSetImages,
 } from './sprites'
 import {
   BIRD_X,
@@ -100,8 +101,16 @@ function drawSky(
  * Source resolution stays 1:1 with the art, so nearest-neighbour output is
  * bit-identical to drawing each tile directly.
  */
-let bodyColumn: HTMLCanvasElement | null = null
-let bodyColumnImg: HTMLImageElement | null = null
+/**
+ * Cached pipe-body columns (perf): the 28px core tile repeated vertically to
+ * cover the tallest column seen, built lazily PER PALETTE IMAGE and only ever
+ * grown (per-frame tiling of every pipe body was the largest source of
+ * drawImage calls; the score-20 palette cross-fade draws two palettes in the
+ * same frame, so a single-slot cache would rebuild on every pass).
+ * Source resolution stays 1:1 with the art, so nearest-neighbour output is
+ * bit-identical to drawing each tile directly.
+ */
+const bodyColumns = new Map<HTMLImageElement, HTMLCanvasElement>()
 
 function getBodyColumn(
   body: HTMLImageElement,
@@ -109,31 +118,30 @@ function getBodyColumn(
 ): HTMLCanvasElement {
   const tileH = body.naturalHeight
   const needH = Math.max(1, tiles) * tileH
-  if (!bodyColumn || bodyColumnImg !== body || bodyColumn.height < needH) {
-    const col = document.createElement('canvas')
-    col.width = BODY_CORE_W
-    col.height = needH
-    const c = col.getContext('2d')
-    if (c) {
-      c.imageSmoothingEnabled = false
-      for (let y = 0; y < col.height; y += tileH) {
-        c.drawImage(
-          body,
-          BODY_CORE_X,
-          0,
-          BODY_CORE_W,
-          tileH,
-          0,
-          y,
-          BODY_CORE_W,
-          tileH,
-        )
-      }
+  const cached = bodyColumns.get(body)
+  if (cached && cached.height >= needH) return cached
+  const col = document.createElement('canvas')
+  col.width = BODY_CORE_W
+  col.height = needH
+  const c = col.getContext('2d')
+  if (c) {
+    c.imageSmoothingEnabled = false
+    for (let y = 0; y < col.height; y += tileH) {
+      c.drawImage(
+        body,
+        BODY_CORE_X,
+        0,
+        BODY_CORE_W,
+        tileH,
+        0,
+        y,
+        BODY_CORE_W,
+        tileH,
+      )
     }
-    bodyColumn = col
-    bodyColumnImg = body
   }
-  return bodyColumn
+  bodyColumns.set(body, col)
+  return col
 }
 
 /**
@@ -141,51 +149,76 @@ function getBodyColumn(
  * (see sprites.ts): bodies are the 28px-wide tileable core of the current
  * palette, capped with the bottom-lip cap on top and the top-lip cap below,
  * so both caps face the gap. GAME-05 — the palette follows the score: green
- * for 0-19, then the next color every PIPE_COLOR_SCORE_STEP points. The gap
- * edges stay exactly gapTop / gapTop + PIPE_GAP — only rendering is scaled.
+ * for 0-19, then the next color every PIPE_COLOR_SCORE_STEP points, with the
+ * new palette CROSS-FADED in over the old one (smooth animation, not a pop).
+ * The gap edges stay exactly gapTop / gapTop + PIPE_GAP — only rendering is
+ * scaled.
  */
+
+/** Cross-fade duration when the score rotates the pipe palette. */
+const PIPE_COLOR_FADE_S = 0.5
+
 function drawPipes(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
   s: GameState,
 ): void {
-  const set = sprites.pipeSets[pipeColorIndex(s, sprites.pipeSets.length)]
-  const capBottomLip = set.bottom // top-pipe cap, lip at the bottom
-  const capTopLip = set.top // bottom-pipe cap, lip at the top
-  const body = set.center // 32x20, 28px core, tiles vertically
-  const horizon = floorTop(s)
-  const S = SPRITE_SCALE
-  const capW = PIPE_CAP_W * S
-  const bodyW = BODY_CORE_W * S
+  const pipeSets = sprites.pipeSets
+  const toIdx = pipeColorIndex(s, pipeSets.length)
+  // Fade progress of the current palette swap (1 = settled, no double draw).
+  const t = Math.min(1, Math.max(0, (s.time - s.colorSwapAt) / PIPE_COLOR_FADE_S))
+  const fromIdx =
+    t < 1 && s.previousPipeColorIndex !== toIdx
+      ? s.previousPipeColorIndex
+      : toIdx
 
-  /**
-   * Body column from yFrom down to yTo (logical px) — ONE clipped drawImage
-   * from the cached repeated-tile column (below) instead of a ~10-iteration
-   * tiling loop per pipe (that was 40-50 drawImage calls per frame during
-   * play). Pixel output is identical: the column holds the same tile rows at
-   * the same 28px-core source width and the same ×3 vertical scale.
-   */
-  const drawBody = (x: number, yFrom: number, yTo: number) => {
-    const total = yTo - yFrom
-    if (total <= 0) return
-    const srcH = total / S // source px = logical / ×3
-    const col = getBodyColumn(body, Math.ceil(srcH / body.naturalHeight))
-    ctx.drawImage(col, 0, 0, col.width, srcH, x + BODY_CORE_X * S, yFrom, bodyW, total)
+  const drawWith = (set: PipeSetImages) => {
+    const capBottomLip = set.bottom // top-pipe cap, lip at the bottom
+    const capTopLip = set.top // bottom-pipe cap, lip at the top
+    const body = set.center // 32x20, 28px core, tiles vertically
+    const horizon = floorTop(s)
+    const S = SPRITE_SCALE
+    const capW = PIPE_CAP_W * S
+    const bodyW = BODY_CORE_W * S
+
+    /**
+     * Body column from yFrom down to yTo (logical px) — ONE clipped drawImage
+     * from the cached repeated-tile column (below) instead of a ~10-iteration
+     * tiling loop per pipe (that was 40-50 drawImage calls per frame during
+     * play). Pixel output is identical: the column holds the same tile rows at
+     * the same 28px-core source width and the same ×3 vertical scale.
+     */
+    const drawBody = (x: number, yFrom: number, yTo: number) => {
+      const total = yTo - yFrom
+      if (total <= 0) return
+      const srcH = total / S // source px = logical / ×3
+      const col = getBodyColumn(body, Math.ceil(srcH / body.naturalHeight))
+      ctx.drawImage(col, 0, 0, col.width, srcH, x + BODY_CORE_X * S, yFrom, bodyW, total)
+    }
+
+    for (const p of s.pipes) {
+      const x = Math.round(p.x)
+      const topCapH = capBottomLip.naturalHeight * S
+      const bottomCapH = capTopLip.naturalHeight * S
+      const gapBottom = p.gapTop + PIPE_GAP
+
+      // --- top pipe: body from the sky down to the cap, lip facing the gap ---
+      drawBody(x, 0, p.gapTop - topCapH)
+      ctx.drawImage(capBottomLip, x, p.gapTop - topCapH, capW, topCapH)
+
+      // --- bottom pipe: cap with lip at the top, body down to the floor ---
+      ctx.drawImage(capTopLip, x, gapBottom, capW, bottomCapH)
+      drawBody(x, gapBottom + bottomCapH, horizon)
+    }
   }
 
-  for (const p of s.pipes) {
-    const x = Math.round(p.x)
-    const topCapH = capBottomLip.naturalHeight * S
-    const bottomCapH = capTopLip.naturalHeight * S
-    const gapBottom = p.gapTop + PIPE_GAP
-
-    // --- top pipe: body from the sky down to the cap, lip facing the gap ---
-    drawBody(x, 0, p.gapTop - topCapH)
-    ctx.drawImage(capBottomLip, x, p.gapTop - topCapH, capW, topCapH)
-
-    // --- bottom pipe: cap with lip at the top, body down to the floor ---
-    ctx.drawImage(capTopLip, x, gapBottom, capW, bottomCapH)
-    drawBody(x, gapBottom + bottomCapH, horizon)
+  drawWith(pipeSets[fromIdx])
+  if (fromIdx !== toIdx) {
+    // Smooth swap: the new palette fades IN over the old one (alpha 0 → 1
+    // over PIPE_COLOR_FADE_S), then the next frames draw it directly.
+    ctx.globalAlpha = t
+    drawWith(pipeSets[toIdx])
+    ctx.globalAlpha = 1
   }
 }
 
@@ -252,20 +285,26 @@ function drawBird(
  * own skin (skinId → birdSkins index: the exact sheet the player used), its
  * final wing frame and its final -180° pose, rotated around the sprite's
  * OWN center with save/translate/rotate/drawImage/restore — never the whole
- * canvas or scene. They never move: the renderer only reads the frozen
- * snapshots.
+ * canvas or scene. The snapshot's x is WORLD-space: drawing at x - scroll
+ * pins each corpse to the pipe slot where it died, so it lies at that spot
+ * on later attempts and drifts off with the scrolling ground instead of
+ * stacking in one column under the flying bird. They never move on their
+ * own: the renderer only reads the frozen snapshots.
  */
 function drawDeadBirds(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
+  s: GameState,
 ): void {
   for (const d of deadBirds) {
+    const drawX = d.x - s.scroll
+    if (drawX + d.width < 0 || drawX > LOGICAL_W) continue // off-screen
     const sheet = sprites.birdSkins[Number(d.skinId)] ?? sprites.birdSkins[0]
     if (!sheet) continue
     const frameW = sheet.naturalWidth / BIRD_FRAMES
     const frameH = sheet.naturalHeight
     ctx.save()
-    ctx.translate(d.x + d.width / 2, d.y + d.height / 2)
+    ctx.translate(drawX + d.width / 2, d.y + d.height / 2)
     ctx.rotate((-180 * Math.PI) / 180)
     ctx.drawImage(
       sheet,
@@ -376,7 +415,7 @@ export function drawGame(
   drawSky(ctx, sprites, s) // 1. background, behind everything
   drawPipes(ctx, sprites, s) // 2. pipes
   drawGround(ctx, sprites, s) // 3. ground, at the bottom of the view
-  drawDeadBirds(ctx, sprites) // 4. corpses from earlier deaths (memory only)
+  drawDeadBirds(ctx, sprites, s) // 4. corpses from earlier deaths (memory only)
   drawBird(ctx, sprites, s) // 5. active bird
   drawScore(ctx, s) // 6. score and UI, on top
 }

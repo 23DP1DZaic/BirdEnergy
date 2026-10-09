@@ -63,17 +63,16 @@ function resizeCanvas(
   }
   // Logical world: 480 wide, height follows the container aspect.
   const newViewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
-  if (newViewH !== state.viewH) {
-    state.viewH = newViewH
-    // Corpses always rest ON the ground by construction, so a resolution
-    // change re-glues them to the new floor line instead of leaving them
-    // floating in the sky where the old ground used to be.
-    for (const d of deadBirds) d.y = newViewH - FLOOR_H - d.height / 2
-    // The bird lying on the ground behind the Game-Over panel is glued the
-    // same way; airborne phases (ready/playing/dead) re-derive their own
-    // position from the new viewH on the next frame.
-    if (state.phase === 'game-over') state.bird.y = newViewH - FLOOR_H
-  }
+  state.viewH = newViewH
+  // Corpses always rest ON the ground by construction — re-glue them to the
+  // floor line on EVERY reflow (mount and resize), not only when viewH
+  // changes: a fresh state starts at DEFAULT_VIEW_H, so a change-gate can be
+  // skipped and leave corpses floating in the sky.
+  for (const d of deadBirds) d.y = newViewH - FLOOR_H - d.height / 2
+  // The bird lying on the ground behind the Game-Over panel is glued the
+  // same way; airborne phases (ready/playing/dead) re-derive their own
+  // position from the new viewH on the next frame.
+  if (state.phase === 'game-over') state.bird.y = newViewH - FLOOR_H
   // Logical → backing-store mapping: the renderer keeps drawing in logical
   // coordinates; this transform makes the world cover the element exactly.
   ctx.setTransform(

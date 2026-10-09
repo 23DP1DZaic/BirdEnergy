@@ -33,6 +33,18 @@ const MAX_FALL_SPEED = 650
 const DEATH_HOP_VELOCITY = -260
 
 /**
+ * Snappier death fall (feedback: the animation should be a bit faster than
+ * the ~1s it took): the dead-phase uses these instead of GRAVITY and
+ * MAX_FALL_SPEED — a stronger gravity AND a higher terminal speed, since at
+ * 650 px/s the cap (not gravity) dominates most of the path. The hop keeps
+ * the same initial velocity, so it stays visible but briefer.
+ * Rotation is distance-based, so it still lands on exactly -180° no matter
+ * how fast the fall is.
+ */
+const DEATH_GRAVITY = 2400
+const DEATH_FALL_SPEED = 1100
+
+/**
  * Visual (render-only) scale for the bird and pipes: logical/world coordinates
  * stay 1:1 with the source art, and the renderer draws every game object
  * SPRITE_SCALE× bigger with nearest-neighbour so the pixel art stays crisp.
@@ -73,9 +85,14 @@ export type GamePhase = 'ready' | 'playing' | 'dead' | 'game-over'
 
 /**
  * A corpse left on the map after the death animation finished (frontend
- * memory only — never written to Firestore or localStorage). x/y are the
- * top-left of the 48x48 logical sprite box, rotation is the final -180°
- * pose (-π radians), and skinId is the birdSkin.ts index as a string so the
+ * memory only — never written to Firestore or localStorage). x is the
+ * WORLD-space left edge of the 48x48 sprite box (worldX = scroll at death +
+ * screen x): the renderer draws it at x - s.scroll, so the corpse lies at
+ * the spot — and pipe slot — where the bird actually died and drifts off
+ * with the scrolling ground on later attempts instead of stacking under the
+ * flying bird. y is the top-left in view coords (re-anchored to the ground
+ * line on every canvas reflow). rotation is the final -180° pose
+ * (-π radians), and skinId is the birdSkin.ts index as a string so the
  * renderer draws the EXACT sheet the player was using when they died.
  */
 export interface DeadBird {
@@ -152,6 +169,11 @@ export interface GameState {
   deathApexY: number
   currentPipeColorIndex?: number
   lastPipeColorChangeScore: number
+  /** Pipe-palette cross-fade (GAME-05 smooth animation): the palette we are
+   *  fading FROM and the s.time the swap happened (render-only state;
+   *  colorSwapAt = -1 means “no fade in progress”). */
+  previousPipeColorIndex: number
+  colorSwapAt: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -185,6 +207,8 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     deathApexY: 0,
     currentPipeColorIndex: 0,
     lastPipeColorChangeScore: 0,
+    previousPipeColorIndex: 0,
+    colorSwapAt: -1,
   }
 }
 
@@ -328,7 +352,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
   // — the map itself is NOT reset (Play Again does that, and the corpse stays
   // lying there).
   if (s.phase === 'dead') {
-    s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
+    s.bird.vy = Math.min(s.bird.vy + DEATH_GRAVITY * dt, DEATH_FALL_SPEED)
     s.bird.y += s.bird.vy * dt
     if (s.bird.y < s.deathApexY) s.deathApexY = s.bird.y // impact-hop apex
     // Rotation progress measured along the fall path: 0 at the highest point,
@@ -352,7 +376,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
       const size = BIRD_BOX
       deadBirds.push({
         id: `dead-${++deadBirdSeq}`,
-        x: BIRD_X - size / 2,
+        x: s.scroll + BIRD_X - size / 2, // world coords — where it died
         y: landY - size / 2,
         rotation: -Math.PI,
         skinId: String(s.skinIndex),
@@ -449,8 +473,13 @@ export function pipeColorIndex(s: GameState, colorCount: number): number {
     do {
       newIndex = Math.floor(Math.random() * colorCount)
     } while (newIndex === s.currentPipeColorIndex && colorCount > 1)
-    s.currentPipeColorIndex = newIndex
     s.lastPipeColorChangeScore = s.score
+    // Remember the outgoing palette + swap time so the renderer can
+    // cross-fade the pipes smoothly (fade in of the new colors) instead of
+    // popping to them instantly.
+    s.previousPipeColorIndex = s.currentPipeColorIndex ?? 0
+    s.currentPipeColorIndex = newIndex
+    s.colorSwapAt = s.time
   }
   
   return s.currentPipeColorIndex ?? 0
