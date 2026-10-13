@@ -13,7 +13,7 @@
 // State is internal: the parent switches create ↔ edit by REMOUNTING the form
 // (key), which is also how a fresh form is handed out after a save.
 import { useRef, useState, type FormEvent } from 'react'
-import type { ChallengeInput, ChallengeOperation } from './challenges'
+import type { ChallengeFormMode, ChallengeInput } from './challenges'
 import {
   CHALLENGE_DESCRIPTION_MAX,
   CHALLENGE_DESCRIPTION_MIN,
@@ -32,7 +32,7 @@ import {
 
 interface ChallengeFormProps {
   /** 'create' → blank form, 'update' → the challenge in initialValues. */
-  mode: ChallengeOperation
+  mode: ChallengeFormMode
   /** Existing values (update mode). Ignored on a fresh mount of 'create'. */
   initialValues?: ChallengeFormValues
   /** Called only with valid values; a rejection is shown in the form. */

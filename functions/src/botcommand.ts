@@ -110,11 +110,11 @@ bot.command(["me", "profile"], async (ctx) => {
     const ground = data.preferredGround ?? 0;
 
     const message =
-      `🐦 BirdEnergy Profile\n\n` +
+      "🐦 BirdEnergy Profile\n\n" +
       `Player: ${name}\n` +
       `Best Score: ${bestScore}\n` +
       `Games Played: ${totalGames}\n\n` +
-      `Appearance:\n` +
+      "Appearance:\n" +
       `Bird Skin: #${bird}\n` +
       `Background: #${background}\n` +
       `Terrain: #${ground}`;

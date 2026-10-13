@@ -1,16 +1,17 @@
-// CH-03 — Admin Panel: create and edit challenges with validation.
+// CH-03 / ADM-02 — Admin Panel: create, edit and delete challenges.
 //
-// The form (./ChallengeForm) owns validation and its error display; this page
-// owns the data around it: the list of existing challenges (tap Edit to load
-// one into the form), the call to adminChallengeMutation, and the reload after
-// a save. Delete + its confirmation modal arrive with ADM-02.
+// The form (./ChallengeForm) owns validation and its error display; the
+// confirmation dialog (./ConfirmDialog) owns the irreversible step. This page
+// owns the data around them: the list of existing challenges, the calls to
+// adminChallengeMutation, and the reload after a change.
 //
 // Remounting the form is how mode changes: `key` mixes the mode, the challenge
-// id and a counter that ticks after each save, so switching create ↔ edit (or
+// id and a counter that ticks after each change, so switching create ↔ edit (or
 // saving) always yields a correctly seeded, error-free form.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   adminChallengeMutation,
+  deleteChallenge,
   fetchChallenges,
   formatDateRange,
   targetLabel,
@@ -22,6 +23,7 @@ import {
   type ChallengeFormValues,
 } from './challengeValidation'
 import { ChallengeForm } from './ChallengeForm'
+import { ConfirmDialog } from './ConfirmDialog'
 
 export function AdminPage() {
   const [challenges, setChallenges] = useState<Challenge[] | null>(null)
@@ -31,7 +33,13 @@ export function AdminPage() {
   const [editing, setEditing] = useState<Challenge | null>(null)
   /** Bumped after every save to hand out a fresh form. */
   const [formVersion, setFormVersion] = useState(0)
-  const [savedMessage, setSavedMessage] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  /** ADM-02 — challenge awaiting confirmation; null = no dialog on screen. */
+  const [pendingDelete, setPendingDelete] = useState<Challenge | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  /** The Delete button that opened the dialog, so focus can return to it. */
+  const deleteTrigger = useRef<HTMLElement | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,7 +66,7 @@ export function AdminPage() {
   /** CH-03 — reached only with validated values (see ChallengeForm). */
   const save = async (input: ChallengeInput) => {
     await adminChallengeMutation(editing ? 'update' : 'create', input, editing?.id)
-    setSavedMessage(
+    setStatusMessage(
       editing
         ? `Updated “${input.title}”.`
         : `Created “${input.title}”.`,
@@ -66,6 +74,47 @@ export function AdminPage() {
     setEditing(null)
     setFormVersion((v) => v + 1)
     await load()
+  }
+
+  /**
+   * ADM-02 — close the dialog and hand focus back to the button that opened it
+   * (after a delete the list reloads, so that button may be gone by then).
+   */
+  const closeDeleteDialog = () => {
+    setPendingDelete(null)
+    setDeleteError(null)
+    const trigger = deleteTrigger.current
+    deleteTrigger.current = null
+    if (trigger?.isConnected) trigger.focus()
+  }
+
+  /**
+   * ADM-02 — the only path that deletes anything, and it runs solely from the
+   * dialog's destructive button: cancelling never reaches this code.
+   */
+  const confirmDelete = async () => {
+    const target = pendingDelete
+    if (!target) return
+    setDeleteBusy(true)
+    setDeleteError(null)
+    try {
+      await deleteChallenge(target.id)
+      setStatusMessage(`Deleted “${target.title}”.`)
+      // Editing a challenge that no longer exists would leave the form pointed
+      // at a missing doc; a half-typed CREATE form is deliberately left alone.
+      if (editing?.id === target.id) {
+        setEditing(null)
+        setFormVersion((v) => v + 1)
+      }
+      closeDeleteDialog()
+      await load()
+    } catch (err) {
+      // Spec's kļūdu uzvedība: the dialog stays open and says why, so the
+      // admin can retry or cancel — nothing was removed.
+      setDeleteError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   const initialValues: ChallengeFormValues | undefined = editing
@@ -86,14 +135,14 @@ export function AdminPage() {
           onSubmit={save}
           onCancel={() => {
             setEditing(null)
-            setSavedMessage(null)
+            setStatusMessage(null)
           }}
         />
       </section>
 
-      {savedMessage && (
+      {statusMessage && (
         <p className="form-saved" role="status">
-          {savedMessage}
+          {statusMessage}
         </p>
       )}
 
@@ -126,17 +175,33 @@ export function AdminPage() {
                     {formatDateRange(challenge.startDate, challenge.endDate)}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  aria-label={`Edit ${challenge.title}`}
-                  onClick={() => {
-                    setEditing(challenge)
-                    setSavedMessage(null)
-                  }}
-                >
-                  Edit
-                </button>
+                <div className="admin-challenge-actions">
+                  <button
+                    type="button"
+                    className="btn btn-small"
+                    aria-label={`Edit ${challenge.title}`}
+                    onClick={() => {
+                      setEditing(challenge)
+                      setStatusMessage(null)
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-small btn-danger"
+                    aria-label={`Delete ${challenge.title}`}
+                    onClick={(event) => {
+                      // Remember the trigger for focus restoration on close.
+                      deleteTrigger.current = event.currentTarget
+                      setDeleteError(null)
+                      setStatusMessage(null)
+                      setPendingDelete(challenge)
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -146,9 +211,29 @@ export function AdminPage() {
           </p>
         )}
         <p className="placeholder-note">
-          Deleting a challenge arrives with the confirmation modal (ADM-02).
+          Deleting is permanent for every player, so it always asks for
+          confirmation first.
         </p>
       </section>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete this challenge?"
+          message={
+            <>
+              “{pendingDelete.title}” will be removed for every player and
+              cannot be brought back. Progress already earned stays in the
+              players' game results.
+            </>
+          }
+          confirmLabel="Delete"
+          busyLabel="Deleting…"
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={() => void confirmDelete()}
+          onCancel={closeDeleteDialog}
+        />
+      )}
     </div>
   )
 }
