@@ -110,6 +110,39 @@ describe("submitGameResult — valid input", () => {
     assert.equal(profile.totalScore, 13);
   });
 
+  it("ignores a retry with the same runId (offline queue)", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      bestScore: 0,
+      totalGames: 0,
+      totalScore: 0,
+    });
+    const run = {score: 25, durationMs: 10_000, jumpCount: 5, runId: "abc-123"};
+
+    const first = await invoke({data: run, auth: USER_AUTH});
+    const second = await invoke({data: run, auth: USER_AUTH});
+
+    // The retry is a no-op: same totals, no second gameResults document.
+    assert.equal(first.totalGames, 1);
+    assert.equal(second.totalGames, 1);
+    assert.equal(second.totalScore, 25);
+    assert.equal(second.newBest, false);
+    assert.equal(db.rows("gameResults").length, 1);
+  });
+
+  it("treats a malformed runId as absent rather than failing", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      bestScore: 0,
+      totalGames: 0,
+      totalScore: 0,
+    });
+    const result = await invoke({
+      data: {score: 1, durationMs: 1, jumpCount: 1, runId: "../../oops"},
+      auth: USER_AUTH,
+    });
+    assert.equal(result.totalGames, 1);
+    assert.equal(db.rows("gameResults").length, 1);
+  });
+
   it("keeps the previous best score when the new run is lower", async () => {
     db.seed("users", USER_AUTH.uid, {
       bestScore: 50,
