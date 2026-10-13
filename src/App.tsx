@@ -29,6 +29,7 @@ import { GamePage } from './features/GamePage.tsx'
 import { HomePage } from './features/HomePage.tsx'
 import { LeaderboardPage } from './features/LeaderboardPage.tsx'
 import { ProfilePage } from './features/ProfilePage.tsx'
+import { TutorialPage } from './features/TutorialPage.tsx'
 import './App.css'
 
 /**
@@ -56,7 +57,20 @@ function App() {
   // the layout only while a run is actively in progress (see navHidden).
   const [gamePhase, setGamePhase] = useState<GamePhase>('ready')
 
-  useEffect(() => observeAuthSession(setSignedInUid), [])
+  // AUTH-03: the live session. When it ends (sign-out, expired token) the
+  // sign-in outcome is cleared with it — otherwise Home would greet a guest
+  // with the previous player's name and keep showing "Signed in: …".
+  useEffect(
+    () =>
+      observeAuthSession((uid) => {
+        setSignedInUid(uid)
+        if (uid === null) {
+          setSession(null)
+          setAuthStatus('')
+        }
+      }),
+    [],
+  )
 
   // UI-04 — appearance preferences saved on the profile (preferredBird /
   // preferredBackground / preferredGround) seed the local switchers on
@@ -166,6 +180,10 @@ function App() {
         )
       case 'admin':
         return role === 'admin' ? <AdminPage /> : null
+      // UI-02 — How to play, opened from Home's settings menu (Info). The
+      // bottom nav stays visible, so it is also the way back.
+      case 'tutorial':
+        return <TutorialPage />
     }
   }
 

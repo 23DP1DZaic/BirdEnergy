@@ -14,6 +14,10 @@
 //
 // `active` is never stored — the spec derives it as
 // startDate <= now <= endDate (see deriveStatus).
+//
+// CH-02 — search + filter: the whole list is already in memory, so the search
+// box (title substring, case-insensitive) and the All/Active/Finished filter
+// are pure client-side predicates here — typing never triggers a refetch.
 import {
   collection,
   getDocs,
@@ -43,6 +47,16 @@ export interface GameRun {
 }
 
 export type ChallengeStatus = 'upcoming' | 'active' | 'finished'
+
+/** CH-02 — the filter tabs. 'all' is the default (everything, any status). */
+export type ChallengeFilter = 'all' | 'active' | 'finished'
+
+/** One rendered row: the challenge + its derived status and my progress. */
+export interface ChallengeRow {
+  challenge: Challenge
+  status: ChallengeStatus
+  progress: ChallengeProgress
+}
 
 export interface ChallengeProgress {
   /** Best score / games played inside the challenge window. */
@@ -108,7 +122,8 @@ function parseChallenge(id: string, data: DocumentData): Challenge | null {
 
 /**
  * All challenges, newest start first (spec: "kārtot pēc startDate desc").
- * Search + Active/Finished filtering happen client-side later (CH-02).
+ * CH-02 search + Active/Finished filtering run client-side over this list
+ * (see filterChallengeRows).
  */
 export async function fetchChallenges(): Promise<Challenge[]> {
   const snap = await getDocs(
@@ -167,6 +182,40 @@ export function computeProgress(
   const target = challenge.targetValue
   const pct = Math.min(100, Math.round((value / target) * 100))
   return { value, target, pct, done: value >= target }
+}
+
+/**
+ * CH-02 — search: does the title contain the typed text? Case-insensitive and
+ * whitespace-tolerant; an empty (or all-spaces) query matches everything, so
+ * clearing the box restores the full list.
+ */
+export function matchesTitle(challenge: Challenge, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return challenge.title.toLowerCase().includes(needle)
+}
+
+/** CH-02 — filter: 'all' keeps everything; otherwise an exact status match.
+ *  Upcoming challenges are neither active nor finished, so they show only
+ *  under 'all' (the backlog asks for an Active/Finished split, not a third
+ *  tab). */
+export function matchesFilter(
+  status: ChallengeStatus,
+  filter: ChallengeFilter,
+): boolean {
+  return filter === 'all' || status === filter
+}
+
+/** CH-02 — search + filter applied together, list order preserved. */
+export function filterChallengeRows(
+  rows: ChallengeRow[],
+  query: string,
+  filter: ChallengeFilter,
+): ChallengeRow[] {
+  return rows.filter(
+    (row) =>
+      matchesTitle(row.challenge, query) && matchesFilter(row.status, filter),
+  )
 }
 
 /** Compact date range: "3–10 Aug 2026", "28 Sep – 4 Oct 2026". */

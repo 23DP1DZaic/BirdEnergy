@@ -147,6 +147,127 @@
   gap: 10px;
 }
 
+/* ------------------------------------------------------------------ */
+/* UI-02 — Home settings button (top-right) + its left-opening menu.   */
+/* ------------------------------------------------------------------ */
+
+.settings {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 12px;
+  z-index: 2;
+}
+
+/* Text-only for now ("Settings"); the icon pass will shrink this to a square
+   glyph button, so the menu is positioned from this box, not the label. */
+.settings-button {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #ffd23f;
+  background: rgba(90, 30, 5, 0.45);
+  border: 2px solid rgba(255, 210, 63, 0.6);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
+.settings-button[aria-expanded='true'] {
+  background: #ffd23f;
+  color: #5a1e05;
+  border-color: #a5420c;
+  text-shadow: none;
+}
+
+/* Anchored to the button's right edge and growing LEFTWARD, so it stays on
+   screen from the corner position. */
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #fff8e1;
+  border: 3px solid #a5420c;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #a5420c;
+}
+
+.settings-item {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settings-item:hover,
+.settings-item:focus-visible {
+  background: #ffe07a;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-02 — "How to play" tutorial screen (Home → Settings → Info).     */
+/* ------------------------------------------------------------------ */
+
+/* Same frame as .board-screen / .challenges-screen: fills the screen area,
+   scrolls, and keeps the last element clear of the floating bottom nav. */
+.tutorial-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.tutorial-title {
+  margin: 0;
+  font-family: var(--heading);
+  font-size: clamp(14px, 4vw, 20px);
+  color: #5a1e05;
+  text-align: center;
+}
+
+.tutorial-text {
+  margin: 0;
+  font-size: clamp(10px, 3vw, 12px);
+  line-height: 1.9;
+  color: #5a1e05;
+  text-align: center;
+}
+
+/* Square slot for the tutorial GIF (1:1 so the real asset drops straight in
+   without touching this rule). */
+.tutorial-media {
+  width: min(78vw, 320px);
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.32);
+  border: 3px dashed #a5420c;
+  border-radius: 14px;
+  image-rendering: pixelated;
+}
+
+.tutorial-media-note {
+  font-size: 9px;
+  color: #8a6a4a;
+}
+
 .btn {
   font-family: var(--sans);
   font-size: clamp(11px, 3vw, 14px);
@@ -742,6 +863,64 @@ a.btn {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* CH-02 — Challenges search box + All/Active/Finished filter tabs.    */
+/* ------------------------------------------------------------------ */
+
+.challenge-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.challenge-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* Same field look as .profile-name-input, kept as its own class so the
+   challenges screen can restyle independently. */
+.challenge-search {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #fff8e1;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+.challenge-search::placeholder {
+  color: #8a6a4a;
+}
+
+.challenge-search:focus {
+  outline: 2px solid #ffd23f;
+  outline-offset: 1px;
+}
+
+/* "7 challenges" / "3 of 7 shown" — the search's live feedback line. */
+.challenge-count {
+  margin: 0;
+  font-size: 9px;
+  color: #5a1e05;
+  text-align: center;
+}
+
+/* Filters matched nothing: message + Clear button, both centered. */
+.challenge-none {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
 .challenge-card {
