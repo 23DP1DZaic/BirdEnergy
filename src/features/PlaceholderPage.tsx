@@ -2,6 +2,7 @@
 // ahead (GAME-01..04, DATA-01/02, UI-03/04, CH/ADM). Keeps every future page
 // visually consistent while the app shell (nav, routing, guards) already works.
 import type { ReactNode } from 'react'
+import { t } from '../i18n'
 
 interface PlaceholderPageProps {
   /** Which backlog card will replace this placeholder. */
@@ -14,7 +15,7 @@ export function PlaceholderPage({ card, children }: PlaceholderPageProps) {
     <div className="placeholder">
       {children}
       <p className="placeholder-note">
-        Coming in <strong>{card}</strong>
+        {t('placeholder.coming', { card })}
       </p>
     </div>
   )

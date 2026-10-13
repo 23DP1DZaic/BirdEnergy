@@ -27,18 +27,20 @@ import {
   type ChallengeStatus,
   type GameRun,
 } from './challenges'
+import { useT } from '../i18n'
 
-const STATUS_LABEL: Record<ChallengeStatus, string> = {
-  upcoming: 'Upcoming',
-  active: 'Active',
-  finished: 'Finished',
+/** Status label key per status — translated in the component via t(). */
+const STATUS_KEY: Record<ChallengeStatus, string> = {
+  upcoming: 'status.upcoming',
+  active: 'status.active',
+  finished: 'status.finished',
 }
 
 /** CH-02 filter tabs in display order ('all' first, the default). */
-const FILTERS: { id: ChallengeFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'active', label: 'Active' },
-  { id: 'finished', label: 'Finished' },
+const FILTERS: { id: ChallengeFilter; labelKey: string }[] = [
+  { id: 'all', labelKey: 'filter.all' },
+  { id: 'active', labelKey: 'filter.active' },
+  { id: 'finished', labelKey: 'filter.finished' },
 ]
 
 export function ChallengesPage({
@@ -48,6 +50,7 @@ export function ChallengesPage({
   signedInUid: string | null
   onSignIn: () => void
 }) {
+  const { t, tn } = useT()
   const [rows, setRows] = useState<ChallengeRow[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -110,10 +113,10 @@ export function ChallengesPage({
       <div className="challenges-screen">
         <div className="guard">
           <p className="guard-text">
-            Sign in with Telegram to see challenges and your progress.
+            {t('challenges.guard')}
           </p>
           <button type="button" className="btn" onClick={onSignIn}>
-            Sign in with Telegram
+            {t('sign.signIn')}
           </button>
         </div>
       </div>
@@ -123,10 +126,10 @@ export function ChallengesPage({
   return (
     <div className="challenges-screen">
       {loading ? (
-        <p className="board-status">Loading…</p>
+        <p className="board-status">{t('common.loading')}</p>
       ) : error ? (
         <div className="guard">
-          <p className="guard-text">Could not load challenges.</p>
+          <p className="guard-text">{t('challenges.error')}</p>
           <p className="placeholder-note">{error}</p>
           <button
             type="button"
@@ -136,15 +139,14 @@ export function ChallengesPage({
               void load(signedInUid)
             }}
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : rows && rows.length > 0 ? (
         <>
           {runsFailed && (
             <p className="board-status" role="alert">
-              Progress is unavailable right now — showing the challenges
-              without it.
+              {t('challenges.progressUnavailable')}
             </p>
           )}
           {/* CH-02 toolbar: live title search + All/Active/Finished tabs. */}
@@ -153,8 +155,8 @@ export function ChallengesPage({
               <input
                 type="text"
                 className="challenge-search"
-                placeholder="Search challenges…"
-                aria-label="Search challenges by title"
+                placeholder={t('challenges.search')}
+                aria-label={t('challenges.searchAria')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -162,7 +164,7 @@ export function ChallengesPage({
                 <button
                   type="button"
                   className="btn btn-small"
-                  aria-label="Clear search"
+                  aria-label={t('challenges.clearSearch')}
                   onClick={() => setQuery('')}
                 >
                   ✕
@@ -172,7 +174,7 @@ export function ChallengesPage({
             <div
               className="period-toggle"
               role="tablist"
-              aria-label="Challenge status filter"
+              aria-label={t('challenges.filterAria')}
             >
               {FILTERS.map((f) => (
                 <button
@@ -183,21 +185,24 @@ export function ChallengesPage({
                   className={`btn btn-small${filter === f.id ? ' btn-active' : ''}`}
                   onClick={() => setFilter(f.id)}
                 >
-                  {f.label}
+                  {t(f.labelKey)}
                 </button>
               ))}
             </div>
             {/* Live region: the count updates as you type. */}
             <p className="challenge-count" role="status">
               {filtering
-                ? `${visibleRows.length} of ${rows.length} shown`
-                : `${rows.length} ${rows.length === 1 ? 'challenge' : 'challenges'}`}
+                ? t('challenges.shown', {
+                    shown: visibleRows.length,
+                    total: rows.length,
+                  })
+                : tn('challenges.count', rows.length)}
             </p>
           </div>
           {visibleRows.length === 0 ? (
             <div className="challenge-none">
               <p className="board-status">
-                No challenges match your search.
+                {t('challenges.noMatch')}
               </p>
               <button
                 type="button"
@@ -207,7 +212,7 @@ export function ChallengesPage({
                   setFilter('all')
                 }}
               >
-                Clear filters
+                {t('challenges.clearFilters')}
               </button>
             </div>
           ) : (
@@ -219,7 +224,7 @@ export function ChallengesPage({
                     <span
                       className={`challenge-status challenge-status-${status}`}
                     >
-                      {STATUS_LABEL[status]}
+                      {t(STATUS_KEY[status])}
                     </span>
                   </div>
                   <p className="challenge-desc">{challenge.description}</p>
@@ -228,13 +233,17 @@ export function ChallengesPage({
                     {formatDateRange(challenge.startDate, challenge.endDate)}
                   </p>
                   {runsFailed ? (
-                    <p className="challenge-progress">Progress: —</p>
+                    <p className="challenge-progress">
+                      {t('challenges.progressMissing')}
+                    </p>
                   ) : (
                     <>
                       <div
                         className="challenge-bar"
                         role="progressbar"
-                        aria-label={`${challenge.title} progress`}
+                        aria-label={t('challenges.progressAria', {
+                          title: challenge.title,
+                        })}
                         aria-valuemin={0}
                         aria-valuemax={progress.target}
                         // Clamped: ARIA forbids valuenow > valuemax (finished
@@ -260,7 +269,7 @@ export function ChallengesPage({
         </>
       ) : (
         <p className="board-status">
-          No challenges yet — check back soon!
+          {t('challenges.none')}
         </p>
       )}
     </div>

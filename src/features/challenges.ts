@@ -33,6 +33,7 @@ import {
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
+import { LOCALE_CODE, getLocale, t } from '../i18n'
 
 export type ChallengeType = 'single_game_score' | 'games_played'
 
@@ -320,7 +321,7 @@ export async function adminChallengeMutation(
 /** Compact date range: "3–10 Aug 2026", "28 Sep – 4 Oct 2026". */
 export function formatDateRange(start: Date, end: Date): string {
   const fmt = (d: Date, withYear: boolean) =>
-    d.toLocaleDateString('en-GB', {
+    d.toLocaleDateString(LOCALE_CODE[getLocale()], {
       day: 'numeric',
       month: 'short',
       ...(withYear ? { year: 'numeric' } : {}),
@@ -334,6 +335,10 @@ export function formatDateRange(start: Date, end: Date): string {
 
 /** Target line: "Target: 100 points" / "Target: 10 games". */
 export function targetLabel(challenge: Challenge): string {
-  const unit = challenge.type === 'games_played' ? 'games' : 'points'
-  return `Target: ${challenge.targetValue} ${unit}`
+  return t('target.label', {
+    n: challenge.targetValue,
+    unit: t(
+      challenge.type === 'games_played' ? 'target.games' : 'target.points',
+    ),
+  })
 }

@@ -37,6 +37,7 @@ import {
   useBackgroundIndex,
 } from './homeBackground'
 import { backgrounds, groundUrls } from '../sprites'
+import { useT, type t as TFn } from '../i18n'
 import { PlaceholderPage } from './PlaceholderPage'
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
@@ -45,21 +46,24 @@ const birdAvatarUrl = birdSkinUrls[0]
 /** The Profile appearance pickers — each tab shows one grid of options. */
 type AppearanceTab = 'skin' | 'background' | 'ground'
 
-const APPEARANCE_TABS: { kind: AppearanceTab; label: string }[] = [
-  { kind: 'skin', label: 'Skins' },
-  { kind: 'background', label: 'Backgrounds' },
-  { kind: 'ground', label: 'Grounds' },
+const APPEARANCE_TABS: { kind: AppearanceTab; labelKey: string }[] = [
+  { kind: 'skin', labelKey: 'profile.tabs.skins' },
+  { kind: 'background', labelKey: 'profile.tabs.backgrounds' },
+  { kind: 'ground', labelKey: 'profile.tabs.grounds' },
 ]
 
-/** Display name: in-game name → @username → first name → "Player". */
-function profileDisplayName(profile: UserProfile): string {
+/**
+ * Display name: in-game name → @username → first name → "Player".
+ * `t` comes from the caller so the fallback follows the active language.
+ */
+function profileDisplayName(profile: UserProfile, t: typeof TFn): string {
   const inGame = profile.inGameName?.trim()
   if (inGame) return inGame
   const username = profile.username?.trim()
   if (username) return `@${username}`
   const first = profile.firstName?.trim()
   if (first) return first
-  return 'Player'
+  return t('profile.player')
 }
 
 export function ProfilePage({
@@ -69,6 +73,7 @@ export function ProfilePage({
   signedInUid: string | null
   onSignIn: () => void
 }) {
+  const { t } = useT()
   // The profile/error + the uid it was loaded for. `loading` is derived:
   // anything the current uid hasn't loaded yet shows the loading state (this
   // also covers sign-out → sign-in back to the same account).
@@ -117,10 +122,10 @@ export function ProfilePage({
       <PlaceholderPage card="UI-04">
         <div className="guard">
           <p className="guard-text">
-            Sign in with Telegram to see your profile and stats.
+            {t('profile.guard')}
           </p>
           <button type="button" className="btn" onClick={onSignIn}>
-            Sign in with Telegram
+            {t('sign.signIn')}
           </button>
         </div>
       </PlaceholderPage>
@@ -130,7 +135,7 @@ export function ProfilePage({
   if (signedInUid !== loadedUid) {
     return (
       <PlaceholderPage card="UI-04">
-        <p className="guard-text">Loading your profile…</p>
+        <p className="guard-text">{t('profile.loading')}</p>
       </PlaceholderPage>
     )
   }
@@ -139,7 +144,7 @@ export function ProfilePage({
     return (
       <PlaceholderPage card="UI-04">
         <div className="guard">
-          <p className="guard-text">Could not load your profile.</p>
+          <p className="guard-text">{t('profile.error')}</p>
           <p className="placeholder-note">{error}</p>
         </div>
       </PlaceholderPage>
@@ -152,15 +157,14 @@ export function ProfilePage({
       <PlaceholderPage card="UI-04">
         <div className="guard">
           <p className="guard-text">
-            No player profile yet. Open the Game screen and accept data
-            processing to create it.
+            {t('profile.none')}
           </p>
         </div>
       </PlaceholderPage>
     )
   }
 
-  const displayName = profileDisplayName(profile)
+  const displayName = profileDisplayName(profile, t)
   const nameTouched = nameDraft.trim() !== (profile.inGameName ?? '')
 
   // The active grid's data: preview urls, the current pick, and the shared
@@ -171,26 +175,26 @@ export function ProfilePage({
       urls: readonly string[]
       index: number
       apply: (n: number) => void
-      label: string
+      labelKey: string
     }
   > = {
     skin: {
       urls: birdSkinUrls,
       index: skinIndex,
       apply: applyStoredBirdSkinIndex,
-      label: 'Skin',
+      labelKey: 'profile.opt.skin',
     },
     background: {
       urls: backgrounds,
       index: backgroundIndex,
       apply: applyStoredBackgroundIndex,
-      label: 'Background',
+      labelKey: 'profile.opt.background',
     },
     ground: {
       urls: groundUrls,
       index: groundIndex,
       apply: applyStoredGroundIndex,
-      label: 'Ground',
+      labelKey: 'profile.opt.ground',
     },
   }
   const activeOptions = appearanceOptions[appearanceTab]
@@ -219,7 +223,10 @@ export function ProfilePage({
     setNameSaved(false)
     if (!isValidInGameName(candidate)) {
       setNameError(
-        `Must be ${IN_GAME_NAME_MIN}–${IN_GAME_NAME_MAX} characters: letters, digits, underscore.`,
+        t('profile.nameRule', {
+          min: IN_GAME_NAME_MIN,
+          max: IN_GAME_NAME_MAX,
+        }),
       )
       return
     }
@@ -245,7 +252,7 @@ export function ProfilePage({
             <img
               className="profile-avatar"
               src={profile.photoUrl}
-              alt={`${displayName} avatar`}
+              alt={t('profile.avatar', { name: displayName })}
               referrerPolicy="no-referrer"
             />
           ) : (
@@ -262,22 +269,22 @@ export function ProfilePage({
               <p className="profile-username">@{profile.username}</p>
             )}
             {profile.role === 'admin' && (
-              <span className="profile-role">admin</span>
+              <span className="profile-role">{t('profile.role')}</span>
             )}
           </div>
         </div>
 
         <ul className="profile-stats">
           <li className="lrow">
-            <span className="lrow-name">Best score</span>
+            <span className="lrow-name">{t('profile.best')}</span>
             <span className="lrow-score">{profile.bestScore ?? 0}</span>
           </li>
           <li className="lrow">
-            <span className="lrow-name">Total games</span>
+            <span className="lrow-name">{t('profile.totalGames')}</span>
             <span className="lrow-score">{profile.totalGames ?? 0}</span>
           </li>
           <li className="lrow">
-            <span className="lrow-name">Total score</span>
+            <span className="lrow-name">{t('profile.totalScore')}</span>
             <span className="lrow-score">{profile.totalScore ?? 0}</span>
           </li>
         </ul>
@@ -291,7 +298,7 @@ export function ProfilePage({
         }}
       >
         <label className="profile-name-label" htmlFor="in-game-name">
-          In-game name
+          {t('profile.inGameName')}
         </label>
         <div className="profile-name-row">
           <input
@@ -305,7 +312,10 @@ export function ProfilePage({
               setNameSaved(false)
               setNameError(null)
             }}
-            placeholder={`${IN_GAME_NAME_MIN}–${IN_GAME_NAME_MAX} chars`}
+            placeholder={t('profile.chars', {
+              min: IN_GAME_NAME_MIN,
+              max: IN_GAME_NAME_MAX,
+            })}
             autoComplete="off"
             spellCheck={false}
           />
@@ -318,7 +328,7 @@ export function ProfilePage({
               nameDraft.trim() === (profile.inGameName ?? '')
             }
           >
-            {nameBusy ? 'Saving…' : 'Save'}
+            {nameBusy ? t('common.saving') : t('profile.save')}
           </button>
         </div>
         {nameError && (
@@ -328,21 +338,20 @@ export function ProfilePage({
         )}
         {nameSaved && (
           <p className="profile-name-saved" role="status">
-            Saved — the leaderboard now shows this name.
+            {t('profile.nameSaved')}
           </p>
         )}
         <p className="placeholder-note">
-          Shown on the leaderboard instead of your Telegram @username. 3–20
-          characters: letters, digits, underscore.
+          {t('profile.nameHint')}
         </p>
       </form>
 
       <section className="profile-appearance">
-        <p className="profile-name-label">Appearance</p>
+        <p className="profile-name-label">{t('profile.appearance')}</p>
         <div
           className="appearance-tabs"
           role="tablist"
-          aria-label="Appearance category"
+          aria-label={t('profile.tabsAria')}
         >
           {APPEARANCE_TABS.map((tab) => (
             <button
@@ -355,14 +364,14 @@ export function ProfilePage({
               aria-selected={appearanceTab === tab.kind}
               onClick={() => setAppearanceTab(tab.kind)}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
         <div
           className={`appearance-grid appearance-grid-${appearanceTab}s`}
           role="tabpanel"
-          aria-label={activeOptions.label}
+          aria-label={t(activeOptions.labelKey)}
         >
           {activeOptions.urls.map((url, i) => {
             const selected = activeOptions.index === i
@@ -371,8 +380,8 @@ export function ProfilePage({
                 key={`${appearanceTab}-${i}`}
                 type="button"
                 className="appearance-tile"
-                aria-label={`${activeOptions.label} ${i + 1}${
-                  selected ? ' (selected)' : ''
+                aria-label={`${t(activeOptions.labelKey)} ${i + 1}${
+                  selected ? t('profile.selected') : ''
                 }`}
                 aria-pressed={selected}
                 onClick={() => selectPref(appearanceTab, i)}
@@ -388,12 +397,11 @@ export function ProfilePage({
         </div>
         {prefError && (
           <p className="profile-name-error" role="alert">
-            Saved on this device only — {prefError}
+            {t('profile.prefError', { message: prefError })}
           </p>
         )}
         <p className="placeholder-note">
-          The game and Home use these right away; your choice is also saved to
-          your profile for other devices.
+          {t('profile.appearanceHint')}
         </p>
       </section>
     </div>

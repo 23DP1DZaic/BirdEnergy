@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './ErrorBoundary'
 
 // Set in this module before first render; awaited by the canvas renderer so
 // the pixel font is loaded before the first canvas text is drawn.
@@ -10,11 +11,16 @@ declare global {
     __pixelFontReady?: Promise<void>
   }
 }
+import { applyTelegramLanguage } from './i18n';
 import { auth, db, functions } from './firebase';
 import { getDevTelegramId, shouldUseEmulators } from './devAuth';
 import { getInitData, getTelegramUser, initTelegramWebApp, isTelegramEnvironment } from './telegram';
 
 initTelegramWebApp();
+
+// i18n — the language Telegram reports for this user (language_code) picks the
+// first-render language, unless the player already chose one on this device.
+applyTelegramLanguage(getTelegramUser()?.language_code ?? null);
 
 // Press Start 2P — kick off the load before first render and block the first
 // canvas frame on it (see GameCanvas). The DOM swaps via font-display: swap;
@@ -45,9 +51,13 @@ if (isTelegramEnvironment()) {
   );
 }
 
+// The boundary wraps everything: a crash in any screen shows a reload screen
+// instead of blanking the Mini App (see ErrorBoundary.tsx).
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
 

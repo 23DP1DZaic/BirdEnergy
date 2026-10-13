@@ -14,8 +14,14 @@
 // validateChallengeForm returns errors keyed BY FIELD, so the form can render
 // each message under its own input, mark that input invalid and focus the
 // first offender (CH-03 DoD: invalid data blocks saving, errors under fields).
+//
+// i18n: an error is a MESSAGE KEY + params, never a finished English sentence
+// — the rules are language-neutral, the wording belongs to src/i18n.ts. The
+// form calls t(err.key, err.params) at render time, so a message follows the
+// language switch without re-validating.
 
 import type { Challenge, ChallengeInput, ChallengeType } from './challenges'
+import { LOCALE_CODE, getLocale } from '../i18n'
 
 export type ChallengeFormField =
   | 'title'
@@ -67,9 +73,23 @@ export const EMPTY_CHALLENGE_FORM: ChallengeFormValues = {
   endDate: '',
 }
 
-export type ChallengeFormErrors = Partial<Record<ChallengeFormField, string>>
+/**
+ * One validation message as a translation key + its params. Deliberately not
+ * a string: the same rule has to read correctly in en/lv/ru.
+ */
+export interface ChallengeFormError {
+  key: string
+  params?: Record<string, string | number>
+}
 
-const count = (n: number) => `${n} character${n === 1 ? '' : 's'}`
+/** Rules produce these; ChallengeForm turns them into text with t(). */
+export type ChallengeFormErrors = Partial<
+  Record<ChallengeFormField, ChallengeFormError>
+>
+
+/** Shorthand for the message builders below. */
+const err = (key: string, params?: Record<string, string | number>) =>
+  params ? { key, params } : { key }
 
 /**
  * 'YYYY-MM-DD' → local midnight. null when the text is not exactly that shape
@@ -99,39 +119,53 @@ export function toDateInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-function titleError(raw: string): string | null {
+function titleError(raw: string): ChallengeFormError | null {
   const title = raw.trim()
-  if (!title) return 'Title is required.'
+  if (!title) return err('validate.titleRequired')
   if (title.length < CHALLENGE_TITLE_MIN) {
-    return `Use at least ${CHALLENGE_TITLE_MIN} characters (${count(title.length)} so far).`
+    return err('validate.min', {
+      min: CHALLENGE_TITLE_MIN,
+      count: title.length,
+    })
   }
   if (title.length > CHALLENGE_TITLE_MAX) {
-    return `Use at most ${CHALLENGE_TITLE_MAX} characters (${count(title.length)}).`
+    return err('validate.max', {
+      max: CHALLENGE_TITLE_MAX,
+      count: title.length,
+    })
   }
   return null
 }
 
-function descriptionError(raw: string): string | null {
+function descriptionError(raw: string): ChallengeFormError | null {
   const description = raw.trim()
-  if (!description) return 'Description is required.'
+  if (!description) return err('validate.descRequired')
   if (description.length < CHALLENGE_DESCRIPTION_MIN) {
-    return `Use at least ${CHALLENGE_DESCRIPTION_MIN} characters (${count(description.length)} so far).`
+    return err('validate.min', {
+      min: CHALLENGE_DESCRIPTION_MIN,
+      count: description.length,
+    })
   }
   if (description.length > CHALLENGE_DESCRIPTION_MAX) {
-    return `Use at most ${CHALLENGE_DESCRIPTION_MAX} characters (${count(description.length)}).`
+    return err('validate.max', {
+      max: CHALLENGE_DESCRIPTION_MAX,
+      count: description.length,
+    })
   }
   return null
 }
 
-function targetError(raw: string): string | null {
+function targetError(raw: string): ChallengeFormError | null {
   const text = raw.trim()
-  if (!text) return 'Target is required.'
+  if (!text) return err('validate.targetRequired')
   const value = Number(text)
-  if (!Number.isFinite(value)) return 'Enter a number.'
-  if (!Number.isInteger(value)) return 'Use a whole number — no decimals.'
-  if (value <= 0) return 'Target must be greater than 0.'
+  if (!Number.isFinite(value)) return err('validate.number')
+  if (!Number.isInteger(value)) return err('validate.whole')
+  if (value <= 0) return err('validate.positive')
   if (value > CHALLENGE_TARGET_MAX) {
-    return `Target must be at most ${CHALLENGE_TARGET_MAX.toLocaleString('en-GB')}.`
+    return err('validate.maxTarget', {
+      max: CHALLENGE_TARGET_MAX.toLocaleString(LOCALE_CODE[getLocale()]),
+    })
   }
   return null
 }
@@ -149,7 +183,7 @@ export function validateChallengeForm(
   if (description) errors.description = description
 
   if (values.type !== 'single_game_score' && values.type !== 'games_played') {
-    errors.type = 'Choose a challenge type.'
+    errors.type = err('validate.type')
   }
 
   const target = targetError(values.targetValue)
@@ -157,14 +191,14 @@ export function validateChallengeForm(
 
   // Parsed once: the end-date rule compares against the start window.
   const start = parseDateInput(values.startDate)
-  if (!values.startDate.trim()) errors.startDate = 'Start date is required.'
-  else if (!start) errors.startDate = 'Enter a valid start date.'
+  if (!values.startDate.trim()) errors.startDate = err('validate.startRequired')
+  else if (!start) errors.startDate = err('validate.startInvalid')
 
   const end = parseDateInput(values.endDate)
-  if (!values.endDate.trim()) errors.endDate = 'End date is required.'
-  else if (!end) errors.endDate = 'Enter a valid end date.'
+  if (!values.endDate.trim()) errors.endDate = err('validate.endRequired')
+  else if (!end) errors.endDate = err('validate.endInvalid')
   else if (start && end.getTime() < start.getTime()) {
-    errors.endDate = 'End date must be on or after the start date.'
+    errors.endDate = err('validate.endOrder')
   }
 
   return errors

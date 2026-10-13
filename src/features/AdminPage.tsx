@@ -22,8 +22,10 @@ import {
   type ChallengeFormValues,
 } from './challengeValidation'
 import { ChallengeForm } from './ChallengeForm'
+import { useT } from '../i18n'
 
 export function AdminPage() {
+  const { t } = useT()
   const [challenges, setChallenges] = useState<Challenge[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -59,9 +61,7 @@ export function AdminPage() {
   const save = async (input: ChallengeInput) => {
     await adminChallengeMutation(editing ? 'update' : 'create', input, editing?.id)
     setSavedMessage(
-      editing
-        ? `Updated “${input.title}”.`
-        : `Created “${input.title}”.`,
+      t(editing ? 'admin.updated' : 'admin.created', { title: input.title }),
     )
     setEditing(null)
     setFormVersion((v) => v + 1)
@@ -77,7 +77,7 @@ export function AdminPage() {
     <div className="admin-screen">
       <section className="admin-panel">
         <h2 className="admin-title">
-          {mode === 'update' ? 'Edit challenge' : 'New challenge'}
+          {t(mode === 'update' ? 'admin.editTitle' : 'admin.newTitle')}
         </h2>
         <ChallengeForm
           key={`${mode}:${editing?.id ?? 'new'}:${formVersion}`}
@@ -98,19 +98,19 @@ export function AdminPage() {
       )}
 
       <section className="admin-panel">
-        <h2 className="admin-title">Existing challenges</h2>
+        <h2 className="admin-title">{t('admin.existing')}</h2>
         {loading ? (
-          <p className="board-status">Loading…</p>
+          <p className="board-status">{t('common.loading')}</p>
         ) : listError ? (
           <div className="guard">
-            <p className="guard-text">Could not load challenges.</p>
+            <p className="guard-text">{t('challenges.error')}</p>
             <p className="placeholder-note">{listError}</p>
             <button
               type="button"
               className="btn btn-small"
               onClick={() => void load()}
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         ) : challenges && challenges.length > 0 ? (
@@ -129,24 +129,24 @@ export function AdminPage() {
                 <button
                   type="button"
                   className="btn btn-small"
-                  aria-label={`Edit ${challenge.title}`}
+                  aria-label={t('admin.editAria', { title: challenge.title })}
                   onClick={() => {
                     setEditing(challenge)
                     setSavedMessage(null)
                   }}
                 >
-                  Edit
+                  {t('admin.edit')}
                 </button>
               </li>
             ))}
           </ul>
         ) : (
           <p className="board-status">
-            No challenges yet — the form above creates the first one.
+            {t('admin.empty')}
           </p>
         )}
         <p className="placeholder-note">
-          Deleting a challenge arrives with the confirmation modal (ADM-02).
+          {t('admin.deleteNote')}
         </p>
       </section>
     </div>

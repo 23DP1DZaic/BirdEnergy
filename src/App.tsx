@@ -21,6 +21,7 @@ import { applyStoredGroundIndex } from './features/groundTile'
 import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
 import { NAV_ITEMS, type Screen } from './navigation.ts'
+import { t, useT } from './i18n'
 import { useAuthRole } from './useAuthRole.ts'
 import type { GamePhase } from './features/game/engine'
 import { AdminPage } from './features/AdminPage.tsx'
@@ -40,12 +41,13 @@ import './App.css'
 function describeSignInError(err: unknown, inTelegram: boolean): string {
   const detail = err instanceof Error ? err.message : String(err)
   if (!inTelegram && shouldUseEmulators()) {
-    return `${detail} — are the local emulators running? Start them with "npx firebase-tools emulators:start --only auth,firestore,functions --project birdenergy-f1405", or open the app via @${telegramBotUsername}.`
+    return t('sign.emulatorHint', {message: detail, bot: telegramBotUsername})
   }
   return detail
 }
 
 function App() {
+  const {t} = useT()
   const [screen, setScreen] = useState<Screen>('home')
   // AUTH-03: reflect the live Firebase session (survives page reloads).
   const [signedInUid, setSignedInUid] = useState<string | null>(null)
@@ -100,17 +102,21 @@ function App() {
   const inTelegram = isTelegramEnvironment()
 
   const handleSignIn = useCallback(async () => {
-    setAuthStatus('Signing in…')
+    setAuthStatus(t('sign.inProgress'))
     try {
       const result = await signInWithTelegram()
       setSession(result)
       setAuthStatus(
-        `Signed in: role=${result.role} id=${result.user.telegramId} @${result.user.username ?? '—'}`,
+        t('sign.signedIn', {
+          role: result.role,
+          id: result.user.telegramId,
+          name: result.user.username ?? result.user.firstName,
+        }),
       )
     } catch (err) {
-      setAuthStatus(`Failed: ${describeSignInError(err, inTelegram)}`)
+      setAuthStatus(t('sign.failed', {message: describeSignInError(err, inTelegram)}))
     }
-  }, [inTelegram])
+  }, [inTelegram, t])
 
   // Local dev convenience (AUTH-04/DOC-03): sign in straight away, once, when
   // VITE_TELEGRAM_ID is configured; the ref keeps StrictMode's double mount
@@ -210,7 +216,7 @@ function App() {
               aria-current={screen === item.screen ? 'page' : undefined}
               onClick={() => navigate(item.screen)}
             >
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
         </nav>

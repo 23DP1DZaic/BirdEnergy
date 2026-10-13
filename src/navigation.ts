@@ -10,28 +10,22 @@ export type Screen =
   /** Reached from Home's settings menu (Info) — deliberately NOT a nav item. */
   | 'tutorial'
 
-/** Bottom-nav (mobile) / top-nav (desktop) entries in display order. */
+/**
+ * Bottom-nav (mobile) / top-nav (desktop) entries in display order.
+ * i18n: `labelKey` is looked up in src/i18n.ts, so the bar follows the
+ * language chosen on Home / detected from Telegram.
+ */
 export const NAV_ITEMS: Array<{
   screen: Screen
-  label: string
+  labelKey: string
   /** Admin Panel is reachable only for the admin role. */
   adminOnly?: boolean
 }> = [
-  { screen: 'challenges', label: 'Challenges' },
-  { screen: 'home', label: 'Home' },
-  { screen: 'game', label: 'Play' },
-  { screen: 'leaderboard', label: 'Leaderboard' },
-  { screen: 'profile', label: 'Profile' },
-  { screen: 'admin', label: 'Admin', adminOnly: true },
+  { screen: 'challenges', labelKey: 'nav.challenges' },
+  { screen: 'home', labelKey: 'nav.home' },
+  { screen: 'game', labelKey: 'nav.play' },
+  { screen: 'leaderboard', labelKey: 'nav.leaderboard' },
+  { screen: 'profile', labelKey: 'nav.profile' },
+  { screen: 'admin', labelKey: 'nav.admin', adminOnly: true },
 ]
 
-/** Title shown in a screen header. */
-export const SCREEN_TITLES: Record<Screen, string> = {
-  home: 'Bird Energy',
-  game: 'Game',
-  leaderboard: 'Leaderboard',
-  challenges: 'Challenges',
-  profile: 'Profile',
-  admin: 'Admin Panel',
-  tutorial: 'How to play',
-}
