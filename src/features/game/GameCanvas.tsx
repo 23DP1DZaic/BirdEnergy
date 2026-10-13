@@ -12,15 +12,19 @@
 // run is actually in progress and bring it back on ready/game-over.
 import { useEffect, useRef, useState } from 'react'
 import {
+  advancePipePalette,
   createGameState,
   deadBirds,
+  drainEvents,
   flap,
   FLOOR_H,
+  isCelebrating,
   LOGICAL_W,
   resetGame,
   runResult,
   stepGame,
   type DeadBird,
+  type GameChallengeView,
   type GamePhase,
   type GameState,
   type RunResult,
@@ -31,6 +35,9 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
+// AUDIO: pre-decode the optional files + start the loop; both are no-ops
+// until something is dropped into src/assets/Sound (see features/audio.ts).
+import { loadAudioAssets, playMusic, playSfx, stopMusic } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
 import './game.css'
@@ -39,6 +46,39 @@ type LoadState =
   | { kind: 'loading' }
   | { kind: 'ready'; sprites: GameSpriteImages }
   | { kind: 'error'; message: string }
+
+/**
+ * C — copies the newest best/challenge into the engine's frozen state. A
+ * challenge that just reached its target is the one that celebrates, and it
+ * keeps celebrating for that game-over only (its numbers move on afterwards).
+ */
+function syncChallenge(
+  state: GameState,
+  view: { serverBest: number; challenge: GameChallengeView | null },
+): void {
+  state.serverBest = view.serverBest
+  if (!view.challenge) {
+    state.challenge = null
+    return
+  }
+  const current = state.challenge
+  if (current === null || current.id !== view.challenge.id) {
+    const done = view.challenge.value >= view.challenge.target
+    state.challenge = {
+      ...view.challenge,
+      celebrate: done,
+      celebrateAt: done ? state.time : 0,
+    }
+    return
+  }
+  // Same challenge: refresh the numbers, keep the celebration state.
+  state.challenge = {
+    ...current,
+    title: view.challenge.title,
+    value: view.challenge.value,
+    target: view.challenge.target,
+  }
+}
 
 /** Resize the canvas backing store to the container and map logical px onto it. */
 function resizeCanvas(
@@ -68,7 +108,7 @@ function resizeCanvas(
   // floor line on EVERY reflow (mount and resize), not only when viewH
   // changes: a fresh state starts at DEFAULT_VIEW_H, so a change-gate can be
   // skipped and leave corpses floating in the sky.
-  for (const d of deadBirds) d.y = newViewH - FLOOR_H - d.height / 2
+  deadBirds.restOn(newViewH - FLOOR_H)
   // The bird lying on the ground behind the Game-Over panel is glued the
   // same way; airborne phases (ready/playing/dead) re-derive their own
   // position from the new viewH on the next frame.
@@ -88,14 +128,27 @@ function resizeCanvas(
 export function GameCanvas({
   onPhaseChange,
   onRunEnd,
+  serverBest = 0,
+  challenge = null,
 }: {
   onPhaseChange?: (phase: GamePhase) => void
   /** DATA-01: fired once per finished run with its final numbers. */
   onRunEnd?: (result: RunResult) => void
+  /** C — the player's real (server) personal best; 0 while it is unknown. */
+  serverBest?: number
+  /** C — the active challenge, when one is running (GamePage resolves it). */
+  challenge?: GameChallengeView | null
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' })
+  // C — the engine keeps its OWN copy of these (it owns a frozen object), so a
+  // new best or a new progress value must never restart the run: the frame
+  // loop copies them through this ref instead of reading the props.
+  const latest = useRef({ serverBest, challenge })
+  useEffect(() => {
+    latest.current = { serverBest, challenge }
+  }, [serverBest, challenge])
 
   useEffect(() => {
     let cancelled = false
@@ -130,6 +183,11 @@ export function GameCanvas({
 
     configureCanvas(ctx)
     const state = createGameState()
+
+    // AUDIO — decode the optional assets while the ready screen is up and start
+    // the loop (stops again in this effect's cleanup). Silent when no files.
+    void loadAudioAssets()
+    playMusic()
     // Local mutable copy of the sprite set: the effect re-runs on every render
     // commit, so the render-captured `load.sprites` object itself must stay
     // untouched (react-hooks/immutability). The renderer takes sprites as a
@@ -145,10 +203,10 @@ export function GameCanvas({
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
-      // Live reference to the module-level corpse list (test hook: a full
-      // page reload re-evaluates the module → the array starts empty).
-      ;(window as unknown as { __birdDeadBirds?: DeadBird[] }).__birdDeadBirds =
-        deadBirds
+      // Live reference to the corpse store (test hook: a full page reload
+      // re-evaluates the module → the store starts empty).
+      ;(window as unknown as { __birdDeadBirds?: readonly DeadBird[] })
+        .__birdDeadBirds = deadBirds.all()
     }
 
     // Report phase transitions (ready → playing → game-over → ready) so the
@@ -198,11 +256,22 @@ export function GameCanvas({
       const dt = (now - last) / 1000
       last = now
       if (running) stepGame(state, dt)
+      // G — the pipe palette advances HERE (once per frame, in the engine
+      // loop), not in the draw path, so a repaint can never re-roll it.
+      advancePipePalette(state, sprites.pipeSets.length)
       reportPhase()
+      // AUDIO — the engine queues events as data; this is where sound happens.
+      for (const event of drainEvents(state)) playSfx(event)
+      // C — refresh the personal best and the challenge block; the completion
+      // banner belongs to the run that reached the target, so the same
+      // challenge id keeps its celebration state until a new one appears.
+      syncChallenge(state, latest.current)
       if (
         state.phase !== 'game-over' ||
         drawnPhase !== state.phase ||
-        redrawPending
+        redrawPending ||
+        // C — keep drawing while the completion banner is still pulsing.
+        isCelebrating(state)
       ) {
         drawGame(ctx, sprites, state)
         drawnPhase = state.phase
@@ -269,6 +338,7 @@ export function GameCanvas({
     window.addEventListener(GROUND_CHANGE_EVENT, onGroundChange)
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
+      stopMusic()
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)
