@@ -150,6 +150,33 @@ impulsu, sadursmes ar zemi, griestiem un caurulēm, punktu skaitīšanu, nāves
 animāciju un Play Again atiestatīšanu, kā arī `runResult` datus, ko nosūta
 `submitGameResult`.
 
+## Veiktspēja mobilajās ierīcēs
+
+Spēles ekrāns no jauna zīmē visu ainu katrā `requestAnimationFrame` kadru, tāpēc
+vidējas klases Android ierīcēs dominē aizpildīto pikseļu skaits. Lai uz tādām
+ieturētu 60 fps, `src/features/game/GameCanvas.tsx` lieto adaptīvu
+izšķirtspējas kāpni:
+
+- sākuma mērogs ir `min(devicePixelRatio, 2)` (3× telefonam tas ir 55% mazāk
+  pikseļu nekā pilna izšķirtspēja);
+- ja pēdējo 60 kadru logā vismaz 8 kadri pārsniedz 25 ms, mērogs pazeminās
+  (2× → 1,5× → 1×) un aina tiek pārzīmēta tajā pašā taktē;
+- mērogs atkal paceļas tikai pēc 240 tīriem kadriem un tikai ārpus spēles
+  gaitas, lai ierīce uz robežas nešūpotos starp diviem mērogiem.
+
+Fizika, punkti un paliek loģiskajās koordinātās (480 × viewH), tāpēc mērogs
+maina tikai attēla asumu, nevis spēli. Papildus spēles HUD teksts (`Tap to
+flap`, punktu skaitītājs) tiek reizrasterizēts nelielā kešotā slānī un katrā
+kadrā tikai `drawImage` vietā `strokeText` + `fillText`, un, ja panels ir
+ātrāks par 60 Hz, zīmēšana ir ierobežota līdz ~60 kadriem sekundē (loģika
+joprojām soļo katrā kadrā).
+
+Izstrādes režīmā (`npm run dev`) ekrāna augšējā kreisajā stūrī ir redzama
+veiktspējas pārklājuma informācija (fps, kadra laiks, zīmēšanas laiks,
+aktīvais mērogs). Tie paši skaitļi pieejami konsolē kā `window.__birdPerf`;
+`window.__birdSetScaleStep(0|1|2)` piespiedu kāpj pa mēroga skalām manuālai
+pārbaudei. Produkcijas būvējumā (`npm run build`) šī koda nav.
+
 ## Local development without Telegram (dev login)
 
 Normally the app can only sign in inside Telegram, because `authenticateTelegram`

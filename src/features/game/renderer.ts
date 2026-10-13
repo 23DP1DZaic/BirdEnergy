@@ -44,8 +44,14 @@ const BODY_CORE_W = 28
 const PIXEL_FONT = '"Press Start 2P", system-ui, sans-serif'
 
 /** Pixel-art crispness: nearest-neighbour everywhere. */
-export function configureCanvas(ctx: CanvasRenderingContext2D): void {
+export function configureCanvas(
+  ctx: CanvasRenderingContext2D,
+  /** Backing-store px per logical px — the cached score HUD (below) is
+   *  rasterized at this scale so its blit stays 1:1 device pixels. */
+  scale?: number,
+): void {
   ctx.imageSmoothingEnabled = false
+  if (scale !== undefined && scale > 0) hudScale = scale
 }
 
 /**
@@ -144,20 +150,81 @@ function getBodyColumn(
   return col
 }
 
-/**
- * One pipe pair at SPRITE_SCALE. Composition per the measured tile facts
- * (see sprites.ts): bodies are the 28px-wide tileable core of the current
- * palette, capped with the bottom-lip cap on top and the top-lip cap below,
- * so both caps face the gap. GAME-05 — the palette follows the score: green
- * for 0-19, then the next color every PIPE_COLOR_SCORE_STEP points, with the
- * new palette CROSS-FADED in over the old one (smooth animation, not a pop).
- * The gap edges stay exactly gapTop / gapTop + PIPE_GAP — only rendering is
- * scaled.
- */
-
 /** Cross-fade duration when the score rotates the pipe palette. */
 const PIPE_COLOR_FADE_S = 0.5
 
+/**
+ * Body column from yFrom down to yTo (logical px) — ONE clipped drawImage
+ * from the cached repeated-tile column (getBodyColumn) instead of a ~10
+ * -iteration tiling loop per pipe (that was 40-50 drawImage calls per frame
+ * during play). Pixel output is identical: the column holds the same tile
+ * rows at the same 28px-core source width and the same ×3 vertical scale.
+ * Module-level rather than a per-frame closure: this runs for every pipe on
+ * every frame, and the closure used to be re-created 60×/s — steady garbage
+ * that shows up as GC hiccups on low-end phones.
+ */
+function drawPipeBody(
+  ctx: CanvasRenderingContext2D,
+  body: HTMLImageElement,
+  x: number,
+  yFrom: number,
+  yTo: number,
+): void {
+  const total = yTo - yFrom
+  if (total <= 0) return
+  const srcH = total / SPRITE_SCALE // source px = logical / ×3
+  const col = getBodyColumn(body, Math.ceil(srcH / body.naturalHeight))
+  ctx.drawImage(
+    col,
+    0,
+    0,
+    col.width,
+    srcH,
+    x + BODY_CORE_X * SPRITE_SCALE,
+    yFrom,
+    BODY_CORE_W * SPRITE_SCALE,
+    total,
+  )
+}
+
+/** One palette's worth of pipes — composition per the measured tile facts
+ *  (see sprites.ts): bodies are the 28px tileable core of the palette, the
+ *  top pipe capped with the bottom-lip cap, the bottom pipe with the top-lip
+ *  cap, so both caps face the gap. */
+function drawPipeSet(
+  ctx: CanvasRenderingContext2D,
+  set: PipeSetImages,
+  s: GameState,
+  horizon: number,
+): void {
+  const capBottomLip = set.bottom // top-pipe cap, lip at the bottom
+  const capTopLip = set.top // bottom-pipe cap, lip at the top
+  const body = set.center // 32x20, 28px core, tiles vertically
+  const S = SPRITE_SCALE
+  const capW = PIPE_CAP_W * S
+
+  for (const p of s.pipes) {
+    const x = Math.round(p.x)
+    const topCapH = capBottomLip.naturalHeight * S
+    const bottomCapH = capTopLip.naturalHeight * S
+    const gapBottom = p.gapTop + PIPE_GAP
+
+    // --- top pipe: body from the sky down to the cap, lip facing the gap ---
+    drawPipeBody(ctx, body, x, 0, p.gapTop - topCapH)
+    ctx.drawImage(capBottomLip, x, p.gapTop - topCapH, capW, topCapH)
+
+    // --- bottom pipe: cap with lip at the top, body down to the floor ---
+    ctx.drawImage(capTopLip, x, gapBottom, capW, bottomCapH)
+    drawPipeBody(ctx, body, x, gapBottom + bottomCapH, horizon)
+  }
+}
+
+/**
+ * GAME-05 — the palette follows the score: green for 0-19, then the next
+ * color every PIPE_COLOR_SCORE_STEP points, with the new palette CROSS-FADED
+ * in over the old one (smooth animation, not a pop). The gap edges stay
+ * exactly gapTop / gapTop + PIPE_GAP — only rendering is scaled.
+ */
 function drawPipes(
   ctx: CanvasRenderingContext2D,
   sprites: GameSpriteImages,
@@ -171,53 +238,14 @@ function drawPipes(
     t < 1 && s.previousPipeColorIndex !== toIdx
       ? s.previousPipeColorIndex
       : toIdx
+  const horizon = floorTop(s)
 
-  const drawWith = (set: PipeSetImages) => {
-    const capBottomLip = set.bottom // top-pipe cap, lip at the bottom
-    const capTopLip = set.top // bottom-pipe cap, lip at the top
-    const body = set.center // 32x20, 28px core, tiles vertically
-    const horizon = floorTop(s)
-    const S = SPRITE_SCALE
-    const capW = PIPE_CAP_W * S
-    const bodyW = BODY_CORE_W * S
-
-    /**
-     * Body column from yFrom down to yTo (logical px) — ONE clipped drawImage
-     * from the cached repeated-tile column (below) instead of a ~10-iteration
-     * tiling loop per pipe (that was 40-50 drawImage calls per frame during
-     * play). Pixel output is identical: the column holds the same tile rows at
-     * the same 28px-core source width and the same ×3 vertical scale.
-     */
-    const drawBody = (x: number, yFrom: number, yTo: number) => {
-      const total = yTo - yFrom
-      if (total <= 0) return
-      const srcH = total / S // source px = logical / ×3
-      const col = getBodyColumn(body, Math.ceil(srcH / body.naturalHeight))
-      ctx.drawImage(col, 0, 0, col.width, srcH, x + BODY_CORE_X * S, yFrom, bodyW, total)
-    }
-
-    for (const p of s.pipes) {
-      const x = Math.round(p.x)
-      const topCapH = capBottomLip.naturalHeight * S
-      const bottomCapH = capTopLip.naturalHeight * S
-      const gapBottom = p.gapTop + PIPE_GAP
-
-      // --- top pipe: body from the sky down to the cap, lip facing the gap ---
-      drawBody(x, 0, p.gapTop - topCapH)
-      ctx.drawImage(capBottomLip, x, p.gapTop - topCapH, capW, topCapH)
-
-      // --- bottom pipe: cap with lip at the top, body down to the floor ---
-      ctx.drawImage(capTopLip, x, gapBottom, capW, bottomCapH)
-      drawBody(x, gapBottom + bottomCapH, horizon)
-    }
-  }
-
-  drawWith(pipeSets[fromIdx])
+  drawPipeSet(ctx, pipeSets[fromIdx], s, horizon)
   if (fromIdx !== toIdx) {
     // Smooth swap: the new palette fades IN over the old one (alpha 0 → 1
     // over PIPE_COLOR_FADE_S), then the next frames draw it directly.
     ctx.globalAlpha = t
-    drawWith(pipeSets[toIdx])
+    drawPipeSet(ctx, pipeSets[toIdx], s, horizon)
     ctx.globalAlpha = 1
   }
 }
@@ -322,6 +350,86 @@ function drawDeadBirds(
 }
 
 /**
+ * Cached score-HUD layer (perf). The ready hint and the playing/dead score
+ * are drawn EVERY frame, and strokeText + fillText is among the slowest
+ * canvas operations on mid-range Android — so the glyphs are rasterized once
+ * per change and blitted with a single drawImage. The key carries the font
+ * size, the text, the backing-store scale and the webfont's availability, so
+ * the layer rebuilds exactly when one of them changes — including when Press
+ * Start 2P finishes loading after the first frames (checked every frame,
+ * rebuilt once on the transition). Rasterizing at the CURRENT backing-store
+ * scale keeps the blit 1:1 device pixels, i.e. pixel-identical to drawing
+ * the text directly through the canvas transform.
+ */
+let hudScale = 1
+let hudLayer: HTMLCanvasElement | null = null
+let hudLayerCtx: CanvasRenderingContext2D | null = null
+let hudKey = ''
+
+/** Horizontal padding in the layer so the 4px stroke is not clipped. */
+const HUD_PAD = 8
+
+/** Baseline inside the layer — leaves room above and below the glyphs. */
+const HUD_BASELINE = 38
+
+function drawCachedHudText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  fontPx: number,
+  centerX: number,
+  baselineY: number,
+): void {
+  // Press Start 2P glyphs are 1em wide → the text is exactly text×fontPx wide.
+  const textW = text.length * fontPx
+  const layerW = textW + HUD_PAD * 2
+  const layerH = HUD_BASELINE + 12
+  const fontReady =
+    typeof document.fonts?.check === 'function'
+      ? document.fonts.check(`${fontPx}px "Press Start 2P"`)
+      : true
+  const key = `${fontPx}|${text}|${hudScale}|${fontReady}`
+  if (key !== hudKey || !hudLayer || !hudLayerCtx) {
+    hudKey = key
+    if (!hudLayer) hudLayer = document.createElement('canvas')
+    if (!hudLayerCtx) hudLayerCtx = hudLayer.getContext('2d')
+    const layer = hudLayer
+    const lw = Math.max(1, Math.ceil(layerW * hudScale))
+    const lh = Math.max(1, Math.ceil(layerH * hudScale))
+    if (layer.width !== lw || layer.height !== lh) {
+      layer.width = lw // assigning a size resets ctx settings — re-set below
+      layer.height = lh
+    }
+    const lc = hudLayerCtx
+    if (lc) {
+      lc.setTransform(hudScale, 0, 0, hudScale, 0, 0) // logical px → device px
+      lc.clearRect(0, 0, layerW, layerH)
+      lc.imageSmoothingEnabled = false
+      lc.textAlign = 'center'
+      lc.textBaseline = 'alphabetic'
+      lc.lineWidth = 4
+      lc.strokeStyle = '#5a1e05'
+      lc.fillStyle = '#ffd23f'
+      lc.font = `${fontPx}px ${PIXEL_FONT}`
+      lc.strokeText(text, layerW / 2, HUD_BASELINE)
+      lc.fillText(text, layerW / 2, HUD_BASELINE)
+    }
+  }
+  if (hudLayer) {
+    ctx.drawImage(
+      hudLayer,
+      0,
+      0,
+      hudLayer.width,
+      hudLayer.height,
+      centerX - layerW / 2,
+      baselineY - HUD_BASELINE,
+      layerW,
+      layerH,
+    )
+  }
+}
+
+/**
  * GAME-04 — score HUD and the Game Over screen.
  *
  * Playing: the big centered score. Ready: a start hint. Game-over: a panel
@@ -330,15 +438,8 @@ function drawDeadBirds(
  * a restart hint; one tap anywhere restarts (handled in GameCanvas).
  */
 function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
-  ctx.textAlign = 'center'
-  ctx.lineWidth = 4
-  ctx.strokeStyle = '#5a1e05'
-  ctx.fillStyle = '#ffd23f'
-
   if (s.phase === 'ready') {
-    ctx.font = `14px ${PIXEL_FONT}`
-    ctx.strokeText('Tap to flap', LOGICAL_W / 2, 52)
-    ctx.fillText('Tap to flap', LOGICAL_W / 2, 52)
+    drawCachedHudText(ctx, 'Tap to flap', 14, LOGICAL_W / 2, 52)
     return
   }
 
@@ -346,13 +447,15 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
   // Over panel must not cover the falling bird; it appears once the bird has
   // landed (phase 'game-over').
   if (s.phase === 'playing' || s.phase === 'dead') {
-    ctx.font = `32px ${PIXEL_FONT}`
-    ctx.strokeText(String(s.score), LOGICAL_W / 2, 60)
-    ctx.fillText(String(s.score), LOGICAL_W / 2, 60)
+    drawCachedHudText(ctx, String(s.score), 32, LOGICAL_W / 2, 60)
     return
   }
 
-  // Game Over panel
+  // Game Over panel — this frame is painted once and then frozen (GameCanvas
+  // stops redrawing it), so the text is drawn straight onto the canvas: no
+  // layer cache is worth it here.
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
   const isNewBest = s.score > 0 && s.score >= s.best && s.best === s.score
   const panelW = 320
   const panelH = 168
