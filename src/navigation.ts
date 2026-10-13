@@ -7,6 +7,8 @@ export type Screen =
   | 'challenges'
   | 'profile'
   | 'admin'
+  /** Reached from Home's settings menu (Info) — deliberately NOT a nav item. */
+  | 'tutorial'
 
 /** Bottom-nav (mobile) / top-nav (desktop) entries in display order. */
 export const NAV_ITEMS: Array<{
@@ -23,7 +25,7 @@ export const NAV_ITEMS: Array<{
   { screen: 'admin', label: 'Admin', adminOnly: true },
 ]
 
-/** Title shown in a placeholder page header. */
+/** Title shown in a screen header. */
 export const SCREEN_TITLES: Record<Screen, string> = {
   home: 'Bird Energy',
   game: 'Game',
@@ -31,4 +33,5 @@ export const SCREEN_TITLES: Record<Screen, string> = {
   challenges: 'Challenges',
   profile: 'Profile',
   admin: 'Admin Panel',
+  tutorial: 'How to play',
 }

@@ -13,11 +13,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   createGameState,
+  deadBirds,
   flap,
+  FLOOR_H,
   LOGICAL_W,
   resetGame,
   runResult,
   stepGame,
+  type DeadBird,
   type GamePhase,
   type GameState,
   type RunResult,
@@ -46,7 +49,11 @@ function resizeCanvas(
 ): void {
   const rect = wrap.getBoundingClientRect()
   if (rect.width < 1 || rect.height < 1) return
-  const dpr = Math.min(window.devicePixelRatio || 1, 3)
+  // Cap at 2× — every frame repaints the whole backing store and this is
+  // pixel art upscaled nearest-neighbour: above 2× the extra pixels are
+  // invisible, but on 3× phones they triple the fill cost (the main frame-lag
+  // source on high-DPR devices; 3× → 2× is 55% fewer pixels per frame).
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const w = Math.max(1, Math.round(rect.width * dpr))
   const h = Math.max(1, Math.round(rect.height * dpr))
   if (canvas.width !== w || canvas.height !== h) {
@@ -55,7 +62,17 @@ function resizeCanvas(
     configureCanvas(ctx) // resizing resets ctx settings
   }
   // Logical world: 480 wide, height follows the container aspect.
-  state.viewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
+  const newViewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
+  state.viewH = newViewH
+  // Corpses always rest ON the ground by construction — re-glue them to the
+  // floor line on EVERY reflow (mount and resize), not only when viewH
+  // changes: a fresh state starts at DEFAULT_VIEW_H, so a change-gate can be
+  // skipped and leave corpses floating in the sky.
+  for (const d of deadBirds) d.y = newViewH - FLOOR_H - d.height / 2
+  // The bird lying on the ground behind the Game-Over panel is glued the
+  // same way; airborne phases (ready/playing/dead) re-derive their own
+  // position from the new viewH on the next frame.
+  if (state.phase === 'game-over') state.bird.y = newViewH - FLOOR_H
   // Logical → backing-store mapping: the renderer keeps drawing in logical
   // coordinates; this transform makes the world cover the element exactly.
   ctx.setTransform(
@@ -103,7 +120,12 @@ export function GameCanvas({
     const canvas = canvasRef.current
     const wrap = wrapRef.current
     if (!canvas || !wrap) return
-    const ctx = canvas.getContext('2d')
+    // alpha:false — the scene paints every pixel each frame (sky down to the
+    // horizon, ground band below), so canvas alpha compositing buys nothing;
+    // skipping it halves the backing-store memory and speeds up blending.
+    // (No desynchronized:true — it made the canvas skip compositor frames on
+    // some platforms/captures, i.e. a blank/stale game surface.)
+    const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
 
     configureCanvas(ctx)
@@ -115,11 +137,18 @@ export function GameCanvas({
     const sprites = {...load.sprites}
     // Bird skin starts at the stored choice; the renderer draws
     // sprites.birdSheet, so swapping it re-skins every following frame.
-    sprites.birdSheet =
-      sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
+    // state.skinIndex mirrors the sheet so a corpse snapshot records the
+    // exact skin the player dies with.
+    const initialSkin = getStoredBirdSkinIndex()
+    sprites.birdSheet = sprites.birdSkins[initialSkin] ?? sprites.birdSkins[0]
+    state.skinIndex = initialSkin
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
+      // Live reference to the module-level corpse list (test hook: a full
+      // page reload re-evaluates the module → the array starts empty).
+      ;(window as unknown as { __birdDeadBirds?: DeadBird[] }).__birdDeadBirds =
+        deadBirds
     }
 
     // Report phase transitions (ready → playing → game-over → ready) so the
@@ -131,7 +160,10 @@ export function GameCanvas({
         const previous = reported
         reported = state.phase
         onPhaseChange?.(state.phase)
-        if (state.phase === 'game-over' && previous === 'playing') {
+        // One death = playing → dead → game-over, so this edge fires exactly
+        // once per death (never on the collision frame itself), keeping the
+        // current score-saving flow with no duplicate game results.
+        if (state.phase === 'game-over' && previous === 'dead') {
           onRunEnd?.(runResult(state))
         }
       }
@@ -143,19 +175,39 @@ export function GameCanvas({
     // First frame before any rAF fires (hidden tab, throttling).
     drawGame(ctx, sprites, state)
 
-    const observer = new ResizeObserver(reflow)
+    // Resizing clears the backing store — with alpha:false that clear is
+    // opaque black, so repaint in the same callback instead of waiting for
+    // the next rAF tick (no black flash on rotate/resize).
+    const observer = new ResizeObserver(() => {
+      reflow()
+      drawGame(ctx, sprites, state)
+    })
     observer.observe(wrap)
 
     let raf = 0
     let last = performance.now()
     let running = !document.hidden
 
+    // The game-over scene is frozen (stepGame returns immediately), so paint
+    // it once and then stop redrawing a static frame at display rate. A phase
+    // change or a skin/background/ground event sets redrawPending to repaint.
+    let drawnPhase: GamePhase | null = null
+    let redrawPending = true
+
     const frame = (now: number) => {
       const dt = (now - last) / 1000
       last = now
       if (running) stepGame(state, dt)
       reportPhase()
-      drawGame(ctx, sprites, state)
+      if (
+        state.phase !== 'game-over' ||
+        drawnPhase !== state.phase ||
+        redrawPending
+      ) {
+        drawGame(ctx, sprites, state)
+        drawnPhase = state.phase
+        redrawPending = false
+      }
       raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
@@ -196,14 +248,18 @@ export function GameCanvas({
     // (UI-07 continuity — selections apply to the canvas live).
     const onBackgroundChange = () => {
       state.backgroundIndex = getStoredBackgroundIndex()
+      redrawPending = true
     }
     state.backgroundIndex = getStoredBackgroundIndex()
     const onGroundChange = () => {
       state.groundIndex = getStoredGroundIndex()
+      redrawPending = true
     }
     state.groundIndex = getStoredGroundIndex()
     const onBirdSkinChange = () => {
       sprites.birdSheet = sprites.birdSkins[getStoredBirdSkinIndex()] ?? sprites.birdSkins[0]
+      state.skinIndex = getStoredBirdSkinIndex()
+      redrawPending = true
     }
 
     canvas.addEventListener('pointerdown', onPointer)

@@ -23,6 +23,25 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // CH-01 — the Challenges screen reads the whole challenge list (sorted
+    // startDate desc, client-side search/filter per the spec). Writes stay
+    // denied: ADM-01's adminChallengeMutation is the only writer (Admin SDK
+    // bypasses these rules by design).
+    match /challenges/{challengeId} {
+      allow get, list: if request.auth != null;
+      allow write: if false;
+    }
+
+    // CH-01 — challenge progress is computed from gameResults with no separate
+    // challengeProgress collection (backlog DoD). A player may list only
+    // THEIR OWN runs: the query must filter where('uid', auth.uid), which is
+    // exactly what the client does (rules provably reject unscoped queries).
+    // Writes happen only server-side in submitGameResult.
+    match /gameResults/{resultId} {
+      allow list: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow get, write: if false;
+    }
+
     // Default deny for any other path.
     match /{document=**} {
       allow read, write: if false;

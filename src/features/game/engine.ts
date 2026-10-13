@@ -26,6 +26,25 @@ const FLAP_VELOCITY = -420
 const MAX_FALL_SPEED = 650
 
 /**
+ * Small jump at the collision that kills the bird (feedback): the corpse
+ * hops up a little before gravity takes over — deliberately weaker than a
+ * real flap (FLAP_VELOCITY), so it reads as a bounce, not a flight.
+ */
+const DEATH_HOP_VELOCITY = -260
+
+/**
+ * Snappier death fall (feedback: the animation should be a bit faster than
+ * the ~1s it took): the dead-phase uses these instead of GRAVITY and
+ * MAX_FALL_SPEED — a stronger gravity AND a higher terminal speed, since at
+ * 650 px/s the cap (not gravity) dominates most of the path. The hop keeps
+ * the same initial velocity, so it stays visible but briefer.
+ * Rotation is distance-based, so it still lands on exactly -180° no matter
+ * how fast the fall is.
+ */
+const DEATH_GRAVITY = 2400
+const DEATH_FALL_SPEED = 1100
+
+/**
  * Visual (render-only) scale for the bird and pipes: logical/world coordinates
  * stay 1:1 with the source art, and the renderer draws every game object
  * SPRITE_SCALE× bigger with nearest-neighbour so the pixel art stays crisp.
@@ -34,8 +53,16 @@ const MAX_FALL_SPEED = 650
  */
 export const SPRITE_SCALE = 3
 
-/** World constants. */
-export const PIPE_SPEED = 130
+/**
+ * On-screen bird sprite box (logical px): 16px art frame × SPRITE_SCALE —
+ * the same 48px box every skin is drawn into (BIRD_FRAME_W × SPRITE_SCALE in
+ * sprites.ts). Engine-local so the pure engine never imports the asset
+ * manifest.
+ */
+const BIRD_BOX = 16 * SPRITE_SCALE
+
+/** World constants. Pipes 1.1× faster per feedback (was 130 — ×1.1 = 143). */
+export const PIPE_SPEED = 143
 export const PIPE_SPACING = 240
 export const PIPE_GAP = 150
 export const PIPE_CAP_W = 32
@@ -48,13 +75,48 @@ export const BIRD_X = 120
  * reuses this for pipe collisions.
  */
 export const BIRD_R = 13
-const FLAP_FRAME_MS = 180 // 120ms × 1.5 — slower, calmer wing cycle
+const FLAP_FRAME_MS = 150 // 4 frames × 150ms = 600ms full wing cycle (250 felt too slow)
 
 /** Gap spawn bounds relative to the current view: 60px sky margin above the
  *  gap, 30px floor margin below it. */
 const GAP_TOP_MIN = 60
 
-export type GamePhase = 'ready' | 'playing' | 'game-over'
+export type GamePhase = 'ready' | 'playing' | 'dead' | 'game-over'
+
+/**
+ * A corpse left on the map after the death animation finished (frontend
+ * memory only — never written to Firestore or localStorage). x is the
+ * WORLD-space left edge of the 48x48 sprite box (worldX = scroll at death +
+ * screen x): the renderer draws it at x - s.scroll, so the corpse lies at
+ * the spot — and pipe slot — where the bird actually died and drifts off
+ * with the scrolling ground on later attempts instead of stacking under the
+ * flying bird. y is the top-left in view coords (re-anchored to the ground
+ * line on every canvas reflow). rotation is the final -180° pose
+ * (-π radians), and skinId is the birdSkin.ts index as a string so the
+ * renderer draws the EXACT sheet the player was using when they died.
+ */
+export interface DeadBird {
+  id: string
+  x: number
+  y: number
+  rotation: number
+  skinId: string
+  width: number
+  height: number
+  /** Final wing frame ("final animation state") — the glide frame. */
+  frame: number
+  animationFinished: boolean
+}
+
+/**
+ * Every bird that died during this page session, in death order.
+ * Module-level frontend memory: it survives Play Again restarts and screen
+ * navigation within the session, and a full page reload re-evaluates this
+ * module, which starts the array empty again (req: reload = clean map).
+ * The renderer draws these BEFORE the active bird.
+ */
+export const deadBirds: DeadBird[] = []
+let deadBirdSeq = 0
 
 export interface BirdState {
   /** Vertical center of the bird in logical px. */
@@ -62,6 +124,9 @@ export interface BirdState {
   vy: number
   /** Accumulated ms — drives the 4-frame flap animation. */
   frameTime: number
+  /** Visual tilt in radians (render-only): nose up on flap, nose-right
+   *  (clockwise) while falling; eased toward the velocity target each step. */
+  angle: number
 }
 
 export interface PipePair {
@@ -93,6 +158,22 @@ export interface GameState {
   backgroundIndex: number
   /** Which ground strip to draw (index into the shared ground list). */
   groundIndex: number
+  /** Skin index of the ACTIVE bird — synced by GameCanvas from birdSkin.ts
+   *  and snapshotted into the corpse when the bird dies. */
+  skinIndex: number
+  /** Death-animation bookkeeping: the tilt at the moment of collision and
+   *  the highest point reached (the impact hop's apex). Rotation progress is
+   *  measured from that apex down to the landing spot, so the spin spans the
+   *  whole fall and lands on exactly -180°. */
+  deathStartAngle: number
+  deathApexY: number
+  currentPipeColorIndex?: number
+  lastPipeColorChangeScore: number
+  /** Pipe-palette cross-fade (GAME-05 smooth animation): the palette we are
+   *  fading FROM and the s.time the swap happened (render-only state;
+   *  colorSwapAt = -1 means “no fade in progress”). */
+  previousPipeColorIndex: number
+  colorSwapAt: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -110,7 +191,7 @@ export function floorTop(s: GameState): number {
 export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
   return {
     phase: 'ready',
-    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0 },
+    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0, angle: 0 },
     pipes: [],
     score: 0,
     best: 0,
@@ -121,6 +202,13 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     viewH,
     backgroundIndex: 0,
     groundIndex: 0,
+    skinIndex: 0,
+    deathStartAngle: 0,
+    deathApexY: 0,
+    currentPipeColorIndex: 0,
+    lastPipeColorChangeScore: 0,
+    previousPipeColorIndex: 0,
+    colorSwapAt: -1,
   }
 }
 
@@ -131,14 +219,37 @@ function readyBirdY(viewH: number, time: number): number {
 /** In-place reset (the state object lives in the render loop closure). */
 export function resetGame(s: GameState): void {
   const best = s.best // session best survives restarts
+  // createGameState() defaults these to 0 — carry the player's live choices
+  // (Profile-preference sky/ground, hydrated on mount) across restarts too.
+  const backgroundIndex = s.backgroundIndex
+  const groundIndex = s.groundIndex
+  const skinIndex = s.skinIndex
   Object.assign(s, createGameState(s.viewH))
   s.best = best
+  s.backgroundIndex = backgroundIndex
+  s.groundIndex = groundIndex
+  s.skinIndex = skinIndex
+  s.currentPipeColorIndex = 0
+  s.lastPipeColorChangeScore = 0
 }
 
-/** Ends the run: freezes the world and records the session best (GAME-04). */
+/**
+ * Ends the run: freezes the world and records the session best (GAME-04).
+ * The phase goes to 'dead' — the death animation then runs inside stepGame
+ * (fall under gravity while rotating to -180°) and, on landing, appends the
+ * corpse snapshot to deadBirds; only then does the game-over screen appear.
+ * The impact also injects a small upward hop (DEATH_HOP_VELOCITY) and records
+ * the rotation bookkeeping, so a bird that dies on the ground or a pipe
+ * bounces before it goes down.
+ * Collision re-enters endRun only from 'playing', so a bird can never start
+ * a second death animation (and the run result is reported exactly once).
+ */
 function endRun(s: GameState): void {
-  s.phase = 'game-over'
+  s.phase = 'dead'
   s.best = Math.max(s.best, s.score)
+  s.bird.vy = DEATH_HOP_VELOCITY // small jump on impact
+  s.deathStartAngle = s.bird.angle
+  s.deathApexY = s.bird.y
 }
 
 /**
@@ -159,13 +270,18 @@ export function startGame(s: GameState): void {
   s.bird.y = s.viewH / 2 - 40
   s.bird.vy = FLAP_VELOCITY
   s.bird.frameTime = 0
+  s.bird.angle = 0
   s.pipes = []
   s.score = 0
   s.runTime = 0
   s.jumpCount = 1
 }
 
-/** One input: tap / click / space. Starts the run from ready, flaps in air. */
+/**
+ * One input: tap / click / space. Starts the run from ready, flaps in air.
+ * Deliberately ignored during 'dead' and 'game-over' — no jump input is
+ * accepted after the collision that started the death animation.
+ */
 export function flap(s: GameState): void {
   if (s.phase === 'ready') {
     startGame(s)
@@ -216,10 +332,61 @@ export function stepGame(s: GameState, dtRaw: number): void {
   if (s.phase === 'game-over') return // freeze the world on the death screen
 
   if (s.phase === 'ready') {
-    // Idle hover: gentle bob, slowly scrolling scenery.
-    s.scroll += PIPE_SPEED * 0.5 * dt
+    // Idle hover: the bird bobs and flaps, but the scenery stays STILL —
+    // sky and ground only start scrolling on the first tap (startGame →
+    // playing), so the ready screen has no parallax drift.
     s.bird.y = readyBirdY(s.viewH, s.time)
     s.bird.frameTime += dt * 1000
+    updateTilt(s, dt, 0) // level while waiting
+    return
+  }
+
+  // Death animation: the world is frozen (no scroll, no pipes, no score, no
+  // runTime, no collision checks — this branch touches none of them) while
+  // the bird alone keeps moving: the impact hop carries it up, gravity pulls
+  // it down, and the rotation spans the ENTIRE fall — from the hop's apex to
+  // the ground — so it is still turning right until it touches down and
+  // arrives at EXACTLY -180°. On landing the bird is snapped to its final
+  // pose (center on the ground line, half in the grass) and a corpse snapshot
+  // is appended to deadBirds (memory only), then the game-over screen appears
+  // — the map itself is NOT reset (Play Again does that, and the corpse stays
+  // lying there).
+  if (s.phase === 'dead') {
+    s.bird.vy = Math.min(s.bird.vy + DEATH_GRAVITY * dt, DEATH_FALL_SPEED)
+    s.bird.y += s.bird.vy * dt
+    if (s.bird.y < s.deathApexY) s.deathApexY = s.bird.y // impact-hop apex
+    // Rotation progress measured along the fall path: 0 at the highest point,
+    // 1 the instant the bird reaches the landing spot. Clamped to [0,1] and
+    // lerped toward -π, the angle can never pass -180° (no overshoot, no
+    // extra spin) and can never finish early — it is still rotating as it
+    // hits the ground.
+    const landY = floorTop(s) // center lands ON the ground line: the 48px
+    // sprite rests half in the grass — a few px lower than the old
+    // radius-based stop, where it only touched the surface.
+    const span = landY - s.deathApexY
+    const p = span > 0 ? Math.min(1, Math.max(0, (s.bird.y - s.deathApexY) / span)) : 1
+    s.bird.angle = Math.max(
+      -Math.PI,
+      s.deathStartAngle + (-Math.PI - s.deathStartAngle) * p,
+    )
+    if (s.bird.y >= landY) {
+      s.bird.y = landY
+      s.bird.vy = 0
+      s.bird.angle = -Math.PI // exactly -180° — the corpse keeps this forever
+      const size = BIRD_BOX
+      deadBirds.push({
+        id: `dead-${++deadBirdSeq}`,
+        x: s.scroll + BIRD_X - size / 2, // world coords — where it died
+        y: landY - size / 2,
+        rotation: -Math.PI,
+        skinId: String(s.skinIndex),
+        width: size,
+        height: size,
+        frame: birdFrame(s),
+        animationFinished: true,
+      })
+      s.phase = 'game-over'
+    }
     return
   }
 
@@ -229,6 +396,8 @@ export function stepGame(s: GameState, dtRaw: number): void {
   s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
   s.bird.y += s.bird.vy * dt
   s.bird.frameTime += dt * 1000
+  // Visual tilt follows velocity: a click flings it back up, falling noses right.
+  updateTilt(s, dt, rotationForVelocity(s.bird.vy))
 
   const last = s.pipes[s.pipes.length - 1]
   if (!last || last.x < LOGICAL_W - PIPE_SPACING) spawnPipe(s)
@@ -267,8 +436,71 @@ export function stepGame(s: GameState, dtRaw: number): void {
   }
 }
 
-/** Flap-cycle frame 0-3: animates while rising/hovering, holds mid-flap otherwise. */
+/**
+ * Flap-cycle frame 0-3 (mandatory 4 sprite frames). Every jump plays the
+ * FULL cycle — frameTime resets on each flap, so all four frames show over
+ * 4 × FLAP_FRAME_MS = 1s even though the rise itself lasts only ~300ms —
+ * then the wing settles on the glide frame. The ready screen loops forever;
+ * the frozen death screen always shows the glide frame.
+ */
 export function birdFrame(s: GameState): number {
-  const animating = s.phase === 'ready' || s.bird.vy < 0
-  return animating ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+  // Dead + game-over: wings frozen on the glide frame — the corpse snapshot
+  // records this frame as its "final animation state".
+  if (s.phase === 'dead' || s.phase === 'game-over') return 1
+  const cycling = s.phase === 'ready' || s.bird.frameTime < 4 * FLAP_FRAME_MS
+  return cycling ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+}
+
+/** Score step until the pipe palette rotates (GAME-05): 0-19 green, 20-39 next… */
+export const PIPE_COLOR_SCORE_STEP = 20
+
+/**
+ * GAME-05 — pipe palette index for the current score. Green (index 0) for the
+ * first PIPE_COLOR_SCORE_STEP points, then the next color in pipeColorUrls
+ * order, wrapping after the last one.
+ */
+export function pipeColorIndex(s: GameState, colorCount: number): number {
+  if (colorCount <= 0) return 0
+  
+  // Determine which 20-point bracket we're currently in
+  const currentBracket = Math.floor(s.score / PIPE_COLOR_SCORE_STEP)
+  const lastBracket = Math.floor(s.lastPipeColorChangeScore / PIPE_COLOR_SCORE_STEP)
+  
+  // Only randomize when we enter a NEW bracket (not every frame at score 20, 40, etc.)
+  if (currentBracket > lastBracket) {
+    // Pick a random color different from current (if more than 1 color available)
+    let newIndex: number
+    do {
+      newIndex = Math.floor(Math.random() * colorCount)
+    } while (newIndex === s.currentPipeColorIndex && colorCount > 1)
+    s.lastPipeColorChangeScore = s.score
+    // Remember the outgoing palette + swap time so the renderer can
+    // cross-fade the pipes smoothly (fade in of the new colors) instead of
+    // popping to them instantly.
+    s.previousPipeColorIndex = s.currentPipeColorIndex ?? 0
+    s.currentPipeColorIndex = newIndex
+    s.colorSwapAt = s.time
+  }
+  
+  return s.currentPipeColorIndex ?? 0
+}
+
+
+/** Visual tilt limits (radians): slight nose-up on flap, nose-right falling. */
+const BIRD_TILT_UP = (-10 * Math.PI) / 180
+const BIRD_TILT_DOWN = (25 * Math.PI) / 180
+
+/**
+ * Target tilt for a vertical speed: FLAP_VELOCITY → nose-up, MAX_FALL_SPEED →
+ * nose-right (clockwise). Linear in between, clamped outside the range.
+ */
+export function rotationForVelocity(vy: number): number {
+  const t = (vy - FLAP_VELOCITY) / (MAX_FALL_SPEED - FLAP_VELOCITY)
+  const c = Math.min(1, Math.max(0, t))
+  return BIRD_TILT_UP + c * (BIRD_TILT_DOWN - BIRD_TILT_UP)
+}
+
+/** Ease the bird's visual tilt toward `target` (≈100ms to snap into place). */
+function updateTilt(s: GameState, dt: number, target: number): void {
+  s.bird.angle += (target - s.bird.angle) * Math.min(1, dt * 10)
 }

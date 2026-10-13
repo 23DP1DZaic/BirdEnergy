@@ -43,9 +43,35 @@ import background6Url from '../../assets/Background/Background6.png'
 import background7Url from '../../assets/Background/Background7.png'
 import background8Url from '../../assets/Background/Background8.png'
 import background9Url from '../../assets/Background/Background9.png'
-import pipeCapUpUrl from "../../assets/Tiles/Pipe/Green/Green-top.png";
-import pipeCapBottomUrl from "../../assets/Tiles/Pipe/Green/Green-bot.png";
-import pipeCenterUrl from "../../assets/Tiles/Pipe/Green/Green-mid.png";
+import background10Url from '../../assets/Background/Background10.png'
+// pipe assets were moved into per-color folders (Pipe/Green/Green-top.png,
+// Green-mid.png, Green-bot.png — the old Green-up/-bottom/-center names).
+import pipeCapUpUrl from '../../assets/Tiles/Pipe/Green/Green-top.png'
+import pipeCapBottomUrl from '../../assets/Tiles/Pipe/Green/Green-bot.png'
+import pipeCenterUrl from '../../assets/Tiles/Pipe/Green/Green-mid.png'
+// GAME-05 — the other pipe palettes. Every set is 32x20 with the same lip
+// layout as Green (verified with `file`), so the renderer can swap sets.
+import pipeBlueTopUrl from '../../assets/Tiles/Pipe/Blue/Blue-top.png'
+import pipeBlueBotUrl from '../../assets/Tiles/Pipe/Blue/Blue-bot.png'
+import pipeBlueMidUrl from '../../assets/Tiles/Pipe/Blue/Blue-mid.png'
+import pipeRedTopUrl from '../../assets/Tiles/Pipe/Red/Red-top.png'
+import pipeRedBotUrl from '../../assets/Tiles/Pipe/Red/Red-bot.png'
+import pipeRedMidUrl from '../../assets/Tiles/Pipe/Red/Red-mid.png'
+import pipeYellowTopUrl from '../../assets/Tiles/Pipe/Yellow/Yellow-top.png'
+import pipeYellowBotUrl from '../../assets/Tiles/Pipe/Yellow/Yellow-bot.png'
+import pipeYellowMidUrl from '../../assets/Tiles/Pipe/Yellow/Yellow-mid.png'
+import pipePurpleTopUrl from '../../assets/Tiles/Pipe/Purple/Purple-top.png'
+import pipePurpleBotUrl from '../../assets/Tiles/Pipe/Purple/Purple-bot.png'
+import pipePurpleMidUrl from '../../assets/Tiles/Pipe/Purple/Purple-mid.png'
+import pipeOrangeTopUrl from '../../assets/Tiles/Pipe/Orange/Orange-top.png'
+import pipeOrangeBotUrl from '../../assets/Tiles/Pipe/Orange/Orange-bot.png'
+import pipeOrangeMidUrl from '../../assets/Tiles/Pipe/Orange/Orange-mid.png'
+import pipeWhiteTopUrl from '../../assets/Tiles/Pipe/White/White-top.png'
+import pipeWhiteBotUrl from '../../assets/Tiles/Pipe/White/White-bot.png'
+import pipeWhiteMidUrl from '../../assets/Tiles/Pipe/White/White-mid.png'
+import pipeBrownTopUrl from '../../assets/Tiles/Pipe/Brown/Brown-top.png'
+import pipeBrownBotUrl from '../../assets/Tiles/Pipe/Brown/Brown-bot.png'
+import pipeBrownMidUrl from '../../assets/Tiles/Pipe/Brown/Brown-mid.png'
 import groundTileUrl from '../../assets/Tiles/Ground/Default.png'
 import groundSnowUrl from '../../assets/Tiles/Ground/Snow.png'
 
@@ -58,7 +84,10 @@ export const BIRD_FRAMES = 4
 export const BIRD_FRAME_W = 16
 export const BIRD_FRAME_H = 16
 
-/** All 9 Home skies, same order as src/sprites.ts backgrounds. */
+/** All 10 Home skies, same order as src/sprites.ts backgrounds (the index
+ *  alignment matters: the stored background index is used modulo this list —
+ *  a missing entry silently shows a DIFFERENT sky, which is exactly what
+ *  happened to Background10 before it was added here). */
 export const gameBackgroundUrls = [
   background1Url,
   background2Url,
@@ -69,6 +98,7 @@ export const gameBackgroundUrls = [
   background7Url,
   background8Url,
   background9Url,
+  background10Url,
 ] as const
 
 /** The selectable bird skins; index-matched to birdSkin.ts. The first seven
@@ -89,6 +119,23 @@ export const birdSkinUrls = [
 /** The ground strips (Default, Snow), index-matched to features/groundTile.ts. */
 export const groundTileUrls = [groundTileUrl, groundSnowUrl] as const
 
+/**
+ * GAME-05 — pipe palettes in rotation order: every PIPE_COLOR_SCORE_STEP
+ * (20) points the game switches to the next set; score 0-19 is green.
+ * `top` = lip at the top (bottom-pipe cap), `bottom` = lip at the bottom
+ * (top-pipe cap), `center` = the tileable 32x20 body.
+ */
+export const pipeColorUrls = [
+  { name: 'Green', top: pipeCapUpUrl, bottom: pipeCapBottomUrl, center: pipeCenterUrl },
+  { name: 'Blue', top: pipeBlueTopUrl, bottom: pipeBlueBotUrl, center: pipeBlueMidUrl },
+  { name: 'Red', top: pipeRedTopUrl, bottom: pipeRedBotUrl, center: pipeRedMidUrl },
+  { name: 'Yellow', top: pipeYellowTopUrl, bottom: pipeYellowBotUrl, center: pipeYellowMidUrl },
+  { name: 'Purple', top: pipePurpleTopUrl, bottom: pipePurpleBotUrl, center: pipePurpleMidUrl },
+  { name: 'Orange', top: pipeOrangeTopUrl, bottom: pipeOrangeBotUrl, center: pipeOrangeMidUrl },
+  { name: 'White', top: pipeWhiteTopUrl, bottom: pipeWhiteBotUrl, center: pipeWhiteMidUrl },
+  { name: 'Brown', top: pipeBrownTopUrl, bottom: pipeBrownBotUrl, center: pipeBrownMidUrl },
+] as const
+
 /** The urls the sprite files resolve to (handy for tests/debug). */
 export const gameSpriteUrls = {
   birdSheet: birdSheetUrl,
@@ -99,6 +146,16 @@ export const gameSpriteUrls = {
   groundTile: groundTileUrl,
 } as const
 
+/** One pipe palette: the three 32x20 tiles of a single color. */
+export interface PipeSetImages {
+  /** `<Color>-top.png` — lip at the TOP (bottom-pipe cap). */
+  top: HTMLImageElement
+  /** `<Color>-bot.png` — lip at the BOTTOM (top-pipe cap). */
+  bottom: HTMLImageElement
+  /** `<Color>-mid.png` — the tileable body (28px core). */
+  center: HTMLImageElement
+}
+
 export interface GameSpriteImages {
   /** All 9 skies (index-matched to the Home page's backgrounds array). */
   backgrounds: HTMLImageElement[]
@@ -107,9 +164,9 @@ export interface GameSpriteImages {
   /** All skins, pre-decoded; birdSkins[getStoredBirdSkinIndex()] is the
    *  active one. Same order as birdSkinUrls / the birdSkin.ts index. */
   birdSkins: HTMLImageElement[]
-  pipeCapUp: HTMLImageElement
-  pipeCapBottom: HTMLImageElement
-  pipeCenter: HTMLImageElement
+  /** All pipe palettes, index-matched with pipeColorUrls — the renderer
+   *  picks pipeSets[pipeColorIndex(score)] (GAME-05 color rotation). */
+  pipeSets: PipeSetImages[]
   /** All ground strips (index-matched to groundTile.ts); the renderer picks
    *  groundTiles[s.groundIndex]. */
   groundTiles: HTMLImageElement[]
@@ -127,22 +184,23 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** Decode every game sprite once before the render loop starts. */
 export async function loadGameSprites(): Promise<GameSpriteImages> {
-  const [backgrounds, birdSheets, pipeCapUp, pipeCapBottom, pipeCenter, groundTiles] =
-    await Promise.all([
-      Promise.all(gameBackgroundUrls.map(loadImage)),
-      Promise.all(birdSkinUrls.map(loadImage)),
-      loadImage(gameSpriteUrls.pipeCapUp),
-      loadImage(gameSpriteUrls.pipeCapBottom),
-      loadImage(gameSpriteUrls.pipeCenter),
-      Promise.all(groundTileUrls.map(loadImage)),
-    ])
+  const [backgrounds, birdSheets, pipeSets, groundTiles] = await Promise.all([
+    Promise.all(gameBackgroundUrls.map(loadImage)),
+    Promise.all(birdSkinUrls.map(loadImage)),
+    Promise.all(
+      pipeColorUrls.map(async (urls) => ({
+        top: await loadImage(urls.top),
+        bottom: await loadImage(urls.bottom),
+        center: await loadImage(urls.center),
+      })),
+    ),
+    Promise.all(groundTileUrls.map(loadImage)),
+  ])
   return {
     backgrounds,
     birdSkins: birdSheets,
     birdSheet: birdSheets[0],
-    pipeCapUp,
-    pipeCapBottom,
-    pipeCenter,
+    pipeSets,
     groundTiles,
   }
 }

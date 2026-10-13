@@ -14,6 +14,7 @@ import background6 from './assets/Background/Background6.png'
 import background7 from './assets/Background/Background7.png'
 import background8 from './assets/Background/Background8.png'
 import background9 from './assets/Background/Background9.png'
+import background10 from './assets/Background/Background10.png'
 import groundDefault from './assets/Tiles/Ground/Default.png'
 import groundSnow from './assets/Tiles/Ground/Snow.png'
 import logo1 from './assets/Logo/Logo1.png'
@@ -29,6 +30,7 @@ export const backgrounds: string[] = [
   background7,
   background8,
   background9,
+  background10,
 ]
 
 /** Ground strips offered by the ground button (UI-04). Add a file here to
