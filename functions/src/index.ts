@@ -761,3 +761,237 @@ export const getLeaderboard = onCall(
     }
   },
 );
+
+// ------------------------------------------------------------------ ADM-01 ---
+
+/**
+ * ADM-01 — adminChallengeMutation: the ONE writer for the challenges/ collection.
+ *
+ * Called from the Admin Panel form (src/features/AdminPage.tsx via
+ * src/features/challenges.ts). Firestore rules (SEC-01) deny all client writes
+ * to challenges/, so create/update can only happen here, with the Admin SDK.
+ *
+ * DoD:
+ *  - requests without the admin role are rejected with permission-denied;
+ *  - create and update persist to Firestore (and are visible to the Challenges
+ *    screen, which reads challenges/ ordered by startDate desc);
+ *  - the payload is re-validated server-side (the client rules in
+ *    src/features/challengeValidation.ts are instant feedback, never the trust
+ *    boundary), and createdAt/updatedAt/createdBy are stamped here.
+ *
+ * The role is read from the Firebase ID-token custom claims set by
+ * authenticateTelegram (AUTH-03) — never from client-supplied data. The
+ * request shape mirrors AdminChallengeMutationRequest in
+ * src/features/challenges.ts:
+ *   { operation: "create" | "update", challengeId?, payload: { ... } }
+ */
+
+/** Challenge kinds supported by the app (src/features/challenges.ts). */
+type ChallengeType = "single_game_score" | "games_played";
+
+/** Raw payload as it arrives from the callable (every field unvalidated). */
+interface AdminChallengePayload {
+  title?: unknown;
+  description?: unknown;
+  type?: unknown;
+  targetValue?: unknown;
+  /** ISO 8601 string — the callable transport is JSON. */
+  startDate?: unknown;
+  endDate?: unknown;
+}
+
+interface AdminChallengeMutationData {
+  operation?: unknown;
+  challengeId?: unknown;
+  payload?: unknown;
+}
+
+/** Validated challenge fields, ready to persist. */
+interface ValidatedChallenge {
+  title: string;
+  description: string;
+  type: ChallengeType;
+  targetValue: number;
+  startDate: Date;
+  endDate: Date;
+}
+
+/** Validation bounds — MUST mirror src/features/challengeValidation.ts. */
+export const CHALLENGE_TITLE_MIN = 3;
+export const CHALLENGE_TITLE_MAX = 80;
+export const CHALLENGE_DESCRIPTION_MIN = 10;
+export const CHALLENGE_DESCRIPTION_MAX = 500;
+export const CHALLENGE_TARGET_MAX = 1_000_000;
+
+/** ISO 8601 string → Date; throws invalid-argument for missing/corrupt values. */
+function parseIsoDate(value: unknown, field: string): Date {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("invalid-argument", `${field} is required.`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be a valid ISO 8601 date.`,
+    );
+  }
+  return date;
+}
+
+/**
+ * Server-side re-validation of the admin payload (the trust boundary).
+ * Same rules as validateChallengeForm in src/features/challengeValidation.ts:
+ * title 3–80, description 10–500, a known type, whole-number target 1–1 000 000,
+ * and endDate on or after startDate. Everything is trimmed like the form does.
+ */
+export function validateChallengePayload(payload: unknown): ValidatedChallenge {
+  if (payload === null || typeof payload !== "object") {
+    throw new HttpsError("invalid-argument", "Missing challenge payload.");
+  }
+  const p = payload as AdminChallengePayload;
+
+  const title = typeof p.title === "string" ? p.title.trim() : "";
+  if (title.length < CHALLENGE_TITLE_MIN || title.length > CHALLENGE_TITLE_MAX) {
+    throw new HttpsError(
+      "invalid-argument",
+      `title must be ${CHALLENGE_TITLE_MIN}-${CHALLENGE_TITLE_MAX} characters.`,
+    );
+  }
+
+  const description =
+    typeof p.description === "string" ? p.description.trim() : "";
+  if (
+    description.length < CHALLENGE_DESCRIPTION_MIN ||
+    description.length > CHALLENGE_DESCRIPTION_MAX
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `description must be ${CHALLENGE_DESCRIPTION_MIN}-` +
+        `${CHALLENGE_DESCRIPTION_MAX} characters.`,
+    );
+  }
+
+  const type = p.type;
+  if (type !== "single_game_score" && type !== "games_played") {
+    throw new HttpsError(
+      "invalid-argument",
+      "type must be single_game_score or games_played.",
+    );
+  }
+
+  const targetValue = p.targetValue;
+  if (
+    typeof targetValue !== "number" ||
+    !Number.isInteger(targetValue) ||
+    targetValue <= 0 ||
+    targetValue > CHALLENGE_TARGET_MAX
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `targetValue must be a whole number between 1 and ${CHALLENGE_TARGET_MAX}.`,
+    );
+  }
+
+  const startDate = parseIsoDate(p.startDate, "startDate");
+  const endDate = parseIsoDate(p.endDate, "endDate");
+  if (endDate.getTime() < startDate.getTime()) {
+    throw new HttpsError(
+      "invalid-argument",
+      "endDate must be on or after startDate.",
+    );
+  }
+
+  return {title, description, type, targetValue, startDate, endDate};
+}
+
+export const adminChallengeMutation = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<{ok: boolean; challengeId: string}> => {
+    // ADM-01 DoD: no session → unauthenticated; a non-admin role → forbidden.
+    // The role comes from the ID-token custom claim (AUTH-03).
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in as an administrator to manage challenges.",
+      );
+    }
+    if (request.auth.token.role !== "admin") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only administrators may change challenges.",
+      );
+    }
+
+    const data = (request.data ?? {}) as AdminChallengeMutationData;
+    const operation = data.operation;
+    if (operation !== "create" && operation !== "update") {
+      throw new HttpsError(
+        "invalid-argument",
+        "operation must be create or update.",
+      );
+    }
+
+    const validated = validateChallengePayload(data.payload);
+    const fields = {
+      title: validated.title,
+      description: validated.description,
+      type: validated.type,
+      targetValue: validated.targetValue,
+      startDate: validated.startDate,
+      endDate: validated.endDate,
+    };
+
+    const db = getFirestore();
+    const now = new Date();
+
+    try {
+      if (operation === "create") {
+        // Server-generated id; the Challenges screen sorts by startDate, so no
+        // extra index is needed for the list read.
+        const ref = db.collection("challenges").doc();
+        await ref.set({
+          ...fields,
+          createdBy: request.auth.uid,
+          createdAt: now,
+          updatedAt: now,
+        });
+        logger.info("Challenge created", {
+          challengeId: ref.id,
+          uid: request.auth.uid,
+        });
+        return {ok: true, challengeId: ref.id};
+      }
+
+      // update — challengeId identifies an existing doc; createdAt/createdBy
+      // are stamped once on create and stay immutable, only updatedAt moves.
+      const challengeId = data.challengeId;
+      if (typeof challengeId !== "string" || challengeId.trim().length === 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          "challengeId is required to update a challenge.",
+        );
+      }
+      const ref = db.collection("challenges").doc(challengeId);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) {
+          throw new HttpsError("not-found", "Challenge not found.");
+        }
+        tx.update(ref, {...fields, updatedAt: now});
+      });
+      logger.info("Challenge updated", {
+        challengeId,
+        uid: request.auth.uid,
+      });
+      return {ok: true, challengeId};
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("adminChallengeMutation failed", error);
+      throw new HttpsError("internal", "Could not save the challenge.");
+    }
+  },
+);
