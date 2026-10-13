@@ -84,6 +84,31 @@ const GAP_TOP_MIN = 60
 export type GamePhase = 'ready' | 'playing' | 'dead' | 'game-over'
 
 /**
+ * AUDIO — feedback the engine reports to the wrapper. `flap`/`score` fire
+ * while playing, `hit` on the collision that ends the run and `die` when the
+ * bird touches down. The engine stays DOM-free: it queues DATA, never sound —
+ * GameCanvas drains these into the audio layer.
+ */
+export type GameEvent = 'flap' | 'score' | 'hit' | 'die'
+
+/**
+ * C — the active challenge as the Game Over panel shows it. GamePage resolves
+ * it from the challenge list + this player's runs; the wrapper decides whether
+ * this run is the one that completed it (`celebrate`).
+ */
+export interface GameChallengeView {
+  id: string
+  title: string
+  /** Best score in the window, or games played — the challenge's own measure. */
+  value: number
+  target: number
+  /** True only for the game-over right after the target was reached. */
+  celebrate: boolean
+  /** s.time when `celebrate` was set — the banner pulses, then goes static. */
+  celebrateAt: number
+}
+
+/**
  * A corpse left on the map after the death animation finished (frontend
  * memory only — never written to Firestore or localStorage). x is the
  * WORLD-space left edge of the 48x48 sprite box (worldX = scroll at death +
@@ -109,14 +134,54 @@ export interface DeadBird {
 }
 
 /**
- * Every bird that died during this page session, in death order.
- * Module-level frontend memory: it survives Play Again restarts and screen
- * navigation within the session, and a full page reload re-evaluates this
- * module, which starts the array empty again (req: reload = clean map).
- * The renderer draws these BEFORE the active bird.
+ * Corpses left behind by this page session (frontend memory only — never
+ * written to Firestore or localStorage).
+ *
+ * It survives Play Again restarts and screen navigation within the session;
+ * a full page reload re-evaluates this module, which starts empty again.
+ *
+ * This used to be a bare module-level array plus a counter — it worked, but it
+ * hid its own rules (who assigns ids, how a corpse is re-glued to the ground)
+ * and could not be reset from a test. As a store it owns that bookkeeping and
+ * only hands out a readonly view of the birds.
  */
-export const deadBirds: DeadBird[] = []
-let deadBirdSeq = 0
+export class DeadBirdStore {
+  private birds: DeadBird[] = []
+  private sequence = 0
+
+  /** Every bird that died, in death order. The renderer draws these first. */
+  all(): readonly DeadBird[] {
+    return this.birds
+  }
+
+  get size(): number {
+    return this.birds.length
+  }
+
+  /** Records a landing and returns the stored snapshot (with its id). */
+  add(bird: Omit<DeadBird, 'id'>): DeadBird {
+    this.sequence += 1
+    const recorded: DeadBird = {id: `dead-${this.sequence}`, ...bird}
+    this.birds.push(recorded)
+    return recorded
+  }
+
+  /**
+   * Re-glues every corpse to a ground line after a resize/reflow: corpses rest
+   * ON the ground by construction, and the view height is what moves.
+   */
+  restOn(floorTopY: number): void {
+    for (const bird of this.birds) bird.y = floorTopY - bird.height / 2
+  }
+
+  /** Drops everything — a full reload does this by construction. */
+  clear(): void {
+    this.birds = []
+  }
+}
+
+/** The session's corpses — one store instance, shared by engine and renderer. */
+export const deadBirds = new DeadBirdStore()
 
 export interface BirdState {
   /** Vertical center of the bird in logical px. */
@@ -174,6 +239,12 @@ export interface GameState {
    *  colorSwapAt = -1 means “no fade in progress”). */
   previousPipeColorIndex: number
   colorSwapAt: number
+  /** AUDIO — queued events, drained once per frame (see drainEvents). */
+  events: GameEvent[]
+  /** C — the player's real (server) personal best; 0 until it has loaded. */
+  serverBest: number
+  /** C — the active challenge, when one is running (resolved by GamePage). */
+  challenge: GameChallengeView | null
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -209,6 +280,9 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     lastPipeColorChangeScore: 0,
     previousPipeColorIndex: 0,
     colorSwapAt: -1,
+    events: [],
+    serverBest: 0,
+    challenge: null,
   }
 }
 
@@ -224,11 +298,17 @@ export function resetGame(s: GameState): void {
   const backgroundIndex = s.backgroundIndex
   const groundIndex = s.groundIndex
   const skinIndex = s.skinIndex
+  const serverBest = s.serverBest
+  const challenge = s.challenge
   Object.assign(s, createGameState(s.viewH))
   s.best = best
   s.backgroundIndex = backgroundIndex
   s.groundIndex = groundIndex
   s.skinIndex = skinIndex
+  // C — the best and the active challenge are fetched once and must survive
+  // "Play Again" too; only the run's own numbers start over.
+  s.serverBest = serverBest
+  s.challenge = challenge
   s.currentPipeColorIndex = 0
   s.lastPipeColorChangeScore = 0
 }
@@ -250,6 +330,7 @@ function endRun(s: GameState): void {
   s.bird.vy = DEATH_HOP_VELOCITY // small jump on impact
   s.deathStartAngle = s.bird.angle
   s.deathApexY = s.bird.y
+  s.events.push('hit')
 }
 
 /**
@@ -264,6 +345,29 @@ export function runResult(s: GameState): RunResult {
   }
 }
 
+/**
+ * AUDIO — takes the queued events and clears the queue, so each one is
+ * reported exactly once. Called by the wrapper once per frame.
+ */
+export function drainEvents(s: GameState): GameEvent[] {
+  if (s.events.length === 0) return []
+  const events = s.events
+  s.events = []
+  return events
+}
+
+/**
+ * C — true while the challenge-completion banner should still pulse. The Game
+ * Over scene is otherwise drawn once and left alone (see GameCanvas), so the
+ * renderer and the wrapper both gate the animation on this.
+ */
+export function isCelebrating(s: GameState): boolean {
+  const challenge = s.challenge
+  return (
+    challenge !== null && challenge.celebrate && s.time - challenge.celebrateAt < 3
+  )
+}
+
 /** Begin a run from the ready screen. The starting tap counts as flap #1. */
 export function startGame(s: GameState): void {
   s.phase = 'playing'
@@ -275,6 +379,7 @@ export function startGame(s: GameState): void {
   s.score = 0
   s.runTime = 0
   s.jumpCount = 1
+  s.events.push('flap') // the starting tap counts as a jump (and a sound)
 }
 
 /**
@@ -289,6 +394,7 @@ export function flap(s: GameState): void {
     s.bird.vy = FLAP_VELOCITY
     s.bird.frameTime = 0
     s.jumpCount++
+    s.events.push('flap')
   }
 }
 
@@ -374,8 +480,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
       s.bird.vy = 0
       s.bird.angle = -Math.PI // exactly -180° — the corpse keeps this forever
       const size = BIRD_BOX
-      deadBirds.push({
-        id: `dead-${++deadBirdSeq}`,
+      deadBirds.add({
         x: s.scroll + BIRD_X - size / 2, // world coords — where it died
         y: landY - size / 2,
         rotation: -Math.PI,
@@ -385,6 +490,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
         frame: birdFrame(s),
         animationFinished: true,
       })
+      s.events.push('die')
       s.phase = 'game-over'
     }
     return
@@ -432,6 +538,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
     if (!p.passed && p.x + capW < BIRD_X - BIRD_R) {
       p.passed = true
       s.score++
+      s.events.push('score')
     }
   }
 }
@@ -459,30 +566,55 @@ export const PIPE_COLOR_SCORE_STEP = 20
  * first PIPE_COLOR_SCORE_STEP points, then the next color in pipeColorUrls
  * order, wrapping after the last one.
  */
-export function pipeColorIndex(s: GameState, colorCount: number): number {
-  if (colorCount <= 0) return 0
-  
-  // Determine which 20-point bracket we're currently in
-  const currentBracket = Math.floor(s.score / PIPE_COLOR_SCORE_STEP)
-  const lastBracket = Math.floor(s.lastPipeColorChangeScore / PIPE_COLOR_SCORE_STEP)
-  
-  // Only randomize when we enter a NEW bracket (not every frame at score 20, 40, etc.)
-  if (currentBracket > lastBracket) {
-    // Pick a random color different from current (if more than 1 color available)
-    let newIndex: number
-    do {
-      newIndex = Math.floor(Math.random() * colorCount)
-    } while (newIndex === s.currentPipeColorIndex && colorCount > 1)
-    s.lastPipeColorChangeScore = s.score
-    // Remember the outgoing palette + swap time so the renderer can
-    // cross-fade the pipes smoothly (fade in of the new colors) instead of
-    // popping to them instantly.
-    s.previousPipeColorIndex = s.currentPipeColorIndex ?? 0
-    s.currentPipeColorIndex = newIndex
-    s.colorSwapAt = s.time
-  }
-  
-  return s.currentPipeColorIndex ?? 0
+/**
+ * G — a palette index that differs from the current one (when there is more
+ * than one to pick from). Pure: the randomness is an ARGUMENT, so tests can
+ * pin the outcome and the draw path never rolls dice.
+ */
+export function pickPipePalette(
+  current: number,
+  count: number,
+  random: () => number = Math.random,
+): number {
+  if (count <= 1) return 0
+  const first = Math.floor(random() * count)
+  return first === current ? (first + 1) % count : first
+}
+
+/**
+ * GAME-05 — advances the pipe palette when the score enters a new
+ * PIPE_COLOR_SCORE_STEP bracket, remembering the outgoing palette and the
+ * swap time so the renderer can cross-fade instead of popping.
+ *
+ * G — this used to run INSIDE drawPipes(), where every repaint re-rolled the
+ * colour (a render call was mutating game state with Math.random()). It now
+ * runs once per frame from the engine loop (see GameCanvas) and the renderer
+ * only reads the result through pipePalette().
+ */
+export function advancePipePalette(
+  s: GameState,
+  colorCount: number,
+  random: () => number = Math.random,
+): void {
+  if (s.phase !== 'playing' || colorCount <= 0) return
+  const bracket = Math.floor(s.score / PIPE_COLOR_SCORE_STEP)
+  const last = Math.floor(s.lastPipeColorChangeScore / PIPE_COLOR_SCORE_STEP)
+  if (bracket <= last) return
+
+  const previous = s.currentPipeColorIndex ?? 0
+  s.previousPipeColorIndex = previous
+  s.currentPipeColorIndex = pickPipePalette(previous, colorCount, random)
+  s.lastPipeColorChangeScore = s.score
+  s.colorSwapAt = s.time
+}
+
+/**
+ * The palette the renderer draws — read-only, and clamped to what actually
+ * exists, so a removed pipe set can never turn into an undefined drawImage.
+ */
+export function pipePalette(s: GameState, colorCount: number): number {
+  const index = s.currentPipeColorIndex ?? 0
+  return index >= 0 && index < colorCount ? index : 0
 }
 
 

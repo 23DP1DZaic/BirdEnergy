@@ -17,6 +17,7 @@ import {
   type GameSpriteImages,
   type PipeSetImages,
 } from './sprites'
+import { t } from '../../i18n'
 import {
   BIRD_X,
   deadBirds,
@@ -26,7 +27,8 @@ import {
   PIPE_GAP,
   SPRITE_SCALE,
   birdFrame,
-  pipeColorIndex,
+  isCelebrating,
+  pipePalette,
   type GameState,
 } from './engine'
 
@@ -164,7 +166,7 @@ function drawPipes(
   s: GameState,
 ): void {
   const pipeSets = sprites.pipeSets
-  const toIdx = pipeColorIndex(s, pipeSets.length)
+  const toIdx = pipePalette(s, pipeSets.length)
   // Fade progress of the current palette swap (1 = settled, no double draw).
   const t = Math.min(1, Math.max(0, (s.time - s.colorSwapAt) / PIPE_COLOR_FADE_S))
   const fromIdx =
@@ -296,7 +298,7 @@ function drawDeadBirds(
   sprites: GameSpriteImages,
   s: GameState,
 ): void {
-  for (const d of deadBirds) {
+  for (const d of deadBirds.all()) {
     const drawX = d.x - s.scroll
     if (drawX + d.width < 0 || drawX > LOGICAL_W) continue // off-screen
     const sheet = sprites.birdSkins[Number(d.skinId)] ?? sprites.birdSkins[0]
@@ -337,8 +339,9 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
 
   if (s.phase === 'ready') {
     ctx.font = `14px ${PIXEL_FONT}`
-    ctx.strokeText('Tap to flap', LOGICAL_W / 2, 52)
-    ctx.fillText('Tap to flap', LOGICAL_W / 2, 52)
+    const tapToFlap = t('canvas.tapToFlap')
+    ctx.strokeText(tapToFlap, LOGICAL_W / 2, 52)
+    ctx.fillText(tapToFlap, LOGICAL_W / 2, 52)
     return
   }
 
@@ -352,15 +355,20 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
     return
   }
 
-  // Game Over panel
+  // C — Game Over panel: score, the real (server) personal best and, when one
+  // is running, the active challenge's progress. The panel grows to fit the
+  // challenge block.
   const isNewBest = s.score > 0 && s.score >= s.best && s.best === s.score
+  const challenge = s.challenge
   const panelW = 320
-  const panelH = 168
+  const panelH = challenge ? 208 : 168
   const panelX = (LOGICAL_W - panelW) / 2
-  const panelY = s.viewH / 2 - panelH
+  // Clamped: the challenge block makes the panel taller, and on a short view
+  // half the panel would otherwise slide off the top of the screen.
+  const panelY = Math.max(8, s.viewH / 2 - panelH)
 
   ctx.fillStyle = 'rgba(90, 30, 5, 0.82)'
-  ctx.strokeStyle = '#ffd23f'
+  ctx.strokeStyle = isCelebrating(s) ? '#8bf08b' : '#ffd23f'
   ctx.lineWidth = 3
   roundRect(ctx, panelX, panelY, panelW, panelH, 14)
   ctx.fill()
@@ -369,23 +377,70 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
   ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = '#ffd23f'
   ctx.font = `16px ${PIXEL_FONT}`
-  ctx.fillText('Game Over', LOGICAL_W / 2, panelY + 44)
+  ctx.fillText(t('canvas.gameOver'), LOGICAL_W / 2, panelY + 40)
 
   ctx.font = `40px ${PIXEL_FONT}`
-  ctx.strokeText(String(s.score), LOGICAL_W / 2, panelY + 102)
-  ctx.fillText(String(s.score), LOGICAL_W / 2, panelY + 102)
+  ctx.strokeText(String(s.score), LOGICAL_W / 2, panelY + 92)
+  ctx.fillText(String(s.score), LOGICAL_W / 2, panelY + 92)
 
   // Press Start 2P glyphs are 1em wide — long lines must use small sizes to
   // stay inside the 320px panel.
   ctx.font = `8px ${PIXEL_FONT}`
   ctx.fillStyle = '#fff4d6'
+  // The server best is the one that matters (it survives reloads and is what
+  // the leaderboard shows); the session best covers the first run.
+  const best = s.serverBest > 0 ? s.serverBest : s.best
   ctx.fillText(
-    isNewBest ? `NEW BEST! (${s.best})` : `BEST THIS RUN: ${s.best}`,
+    isNewBest ? t('canvas.newBest', { best }) : t('canvas.best', { best }),
     LOGICAL_W / 2,
-    panelY + 130,
+    panelY + 114,
   )
+
+  if (challenge) {
+    const done = challenge.value >= challenge.target
+    ctx.fillStyle = done ? '#8bf08b' : '#fff4d6'
+    ctx.fillText(
+      `${fitChallengeTitle(challenge.title)} ${challenge.value}/${challenge.target}`,
+      LOGICAL_W / 2,
+      panelY + 136,
+    )
+
+    // Progress bar — always visible, gold until the target is reached.
+    const barW = 260
+    const barH = 10
+    const barX = (LOGICAL_W - barW) / 2
+    const barY = panelY + 146
+    ctx.fillStyle = 'rgba(255, 244, 214, 0.25)'
+    roundRect(ctx, barX, barY, barW, barH, barH / 2)
+    ctx.fill()
+    const pct = Math.min(1, challenge.value / challenge.target)
+    if (pct > 0) {
+      ctx.fillStyle = done ? '#8bf08b' : '#ffd23f'
+      roundRect(ctx, barX, barY, Math.max(barH, barW * pct), barH, barH / 2)
+      ctx.fill()
+    }
+
+    // One-off banner on the run that finished the challenge: it pulses for a
+    // few seconds, then the panel goes static again (see isCelebrating).
+    if (isCelebrating(s)) {
+      ctx.fillStyle = `rgba(139, 240, 139, ${0.6 + 0.4 * Math.sin(s.time * 8)})`
+      ctx.font = `12px ${PIXEL_FONT}`
+      ctx.fillText(t('canvas.challengeDone'), LOGICAL_W / 2, panelY + 174)
+    }
+  }
+
   ctx.fillStyle = 'rgba(255, 244, 214, 0.75)'
-  ctx.fillText('TAP TO PLAY AGAIN', LOGICAL_W / 2, panelY + 152)
+  ctx.font = `8px ${PIXEL_FONT}`
+  ctx.fillText(t('canvas.playAgain'), LOGICAL_W / 2, panelY + panelH - 16)
+}
+
+/**
+ * Press Start 2P glyphs are 1em wide, so at 8px a title has to stay short for
+ * the `${value}/${target}` suffix to fit inside the 320px panel.
+ */
+function fitChallengeTitle(title: string): string {
+  const max = 20
+  return title.length > max ? `${title.slice(0, max - 2)}..` : title
 }
 
 /** Rounded-rect path helper (ctx.roundRect is missing on older Telegram webviews). */
