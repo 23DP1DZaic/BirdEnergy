@@ -1018,3 +1018,186 @@ a.btn {
   font-size: 10px;
   color: #5a1e05;
 }
+
+/* ------------------------------------------------------------------ */
+/* CH-03 — Admin Panel: the validated challenge form + edit list.      */
+/* ------------------------------------------------------------------ */
+
+/* Mirrors .challenges-screen: the panel scrolls, and the bottom padding
+   keeps the last row clear of the floating nav. */
+.admin-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.admin-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.admin-title {
+  margin: 0;
+  font-size: 12px;
+  color: #5a1e05;
+}
+
+.challenge-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Two fields side by side (type/target, start/end); they wrap on narrow
+   screens instead of squeezing the pixel font. */
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.form-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Only inside a .form-row do fields share the width; as a direct child of the
+   column form a flex-basis would be read as a minimum HEIGHT. */
+.form-row > .form-field {
+  flex: 1 1 180px;
+}
+
+.form-label {
+  font-size: 10px;
+  color: #a5420c;
+}
+
+/* Same field look as .challenge-search / .profile-name-input. */
+.form-input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #fff8e1;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: 2px solid #ffd23f;
+  outline-offset: 1px;
+}
+
+textarea.form-input {
+  min-height: 74px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.form-input::placeholder {
+  color: #8a6a4a;
+}
+
+/* Invalid state: red border + pale red fill, so a bad field is visible even
+   before its message is read. */
+.form-input-invalid,
+.form-input-invalid:focus {
+  border-color: #c62828;
+  background: #fff3f2;
+}
+
+/* The message under an invalid field. */
+.form-error {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #c62828;
+}
+
+/* "Nothing was saved — 3 fields need fixing." / backend failures. */
+.form-error-general {
+  padding: 8px 10px;
+  font-size: 10px;
+  background: rgba(198, 40, 40, 0.12);
+  border: 2px solid #c62828;
+  border-radius: 10px;
+}
+
+.form-saved {
+  margin: 0;
+  font-size: 10px;
+  color: #2e7d32;
+  text-align: center;
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.7;
+  color: #8a6a4a;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-challenge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-challenge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 210, 63, 0.16);
+  border: 2px solid #ffd23f;
+  border-radius: 10px;
+}
+
+.admin-challenge-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-challenge-title {
+  font-size: 10px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.admin-challenge-meta {
+  font-size: 8px;
+  color: #a5420c;
+}

@@ -18,6 +18,11 @@
 // CH-02 — search + filter: the whole list is already in memory, so the search
 // box (title substring, case-insensitive) and the All/Active/Finished filter
 // are pure client-side predicates here — typing never triggers a refetch.
+//
+// CH-03 / ADM-01 — writes: the admin form validates locally (challengeForm.ts)
+// and then calls adminChallengeMutation, the ONE writer for challenges (the
+// rules deny client writes). The shape below is the spec's callable contract,
+// so ADM-01 only has to implement the other side.
 import {
   collection,
   getDocs,
@@ -26,7 +31,8 @@ import {
   where,
   type DocumentData,
 } from 'firebase/firestore'
-import { db } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions } from '../firebase'
 
 export type ChallengeType = 'single_game_score' | 'games_played'
 
@@ -47,6 +53,20 @@ export interface GameRun {
 }
 
 export type ChallengeStatus = 'upcoming' | 'active' | 'finished'
+
+/**
+ * CH-03 — the validated challenge values the admin form produces, and the
+ * challenge fields ADM-01 persists (createdAt/updatedAt/createdBy are added
+ * server-side).
+ */
+export interface ChallengeInput {
+  title: string
+  description: string
+  type: ChallengeType
+  targetValue: number
+  startDate: Date
+  endDate: Date
+}
 
 /** CH-02 — the filter tabs. 'all' is the default (everything, any status). */
 export type ChallengeFilter = 'all' | 'active' | 'finished'
@@ -216,6 +236,85 @@ export function filterChallengeRows(
     (row) =>
       matchesTitle(row.challenge, query) && matchesFilter(row.status, filter),
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* ADM-01 — the admin write path (client half).                        */
+/* ------------------------------------------------------------------ */
+
+export type ChallengeOperation = 'create' | 'update'
+
+/** ADM-01's request shape, per the spec's backend interface section. */
+interface AdminChallengeMutationRequest {
+  operation: ChallengeOperation
+  /** Required for 'update' (and for ADM-02's 'delete'). */
+  challengeId?: string
+  payload: {
+    title: string
+    description: string
+    type: ChallengeType
+    targetValue: number
+    /** ISO 8601 — the callable transport is JSON, so dates travel as strings. */
+    startDate: string
+    endDate: string
+  }
+}
+
+/** Turns a failed call into something the admin can act on. */
+function describeMutationError(err: unknown): string {
+  const code =
+    err !== null && typeof err === 'object' && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : ''
+  const detail = err instanceof Error ? err.message : String(err)
+  if (
+    code === 'functions/not-found' ||
+    code === 'functions/unimplemented' ||
+    // A callable that is not deployed anywhere answers with a failing
+    // preflight, which the SDK surfaces as a bare "internal [N]" — say what
+    // actually went wrong instead of repeating that.
+    (code === 'functions/internal' && /^internal \[\d+\]$/.test(detail))
+  ) {
+    return 'Validation passed, but the adminChallengeMutation Cloud Function (ADM-01) could not be reached — nothing was saved.'
+  }
+  if (code === 'functions/permission-denied') {
+    return `Only administrators may change challenges — ${detail}`
+  }
+  return detail
+}
+
+/**
+ * ADM-01 — create or update one challenge. The Cloud Function checks the
+ * admin role, re-validates the payload and stamps createdBy/updatedAt. This
+ * wrapper ships already-validated values only (see toChallengeInput); it
+ * rejects on failure so the form can keep the entered values and show why.
+ */
+export async function adminChallengeMutation(
+  operation: ChallengeOperation,
+  payload: ChallengeInput,
+  challengeId?: string,
+): Promise<void> {
+  const mutate = httpsCallable<AdminChallengeMutationRequest, { ok: boolean }>(
+    functions,
+    'adminChallengeMutation',
+  )
+  try {
+    await mutate({
+      operation,
+      ...(challengeId ? { challengeId } : {}),
+      payload: {
+        title: payload.title,
+        description: payload.description,
+        type: payload.type,
+        targetValue: payload.targetValue,
+        startDate: payload.startDate.toISOString(),
+        endDate: payload.endDate.toISOString(),
+      },
+    })
+  } catch (err) {
+    // Readable message for the form; the original error stays attached.
+    throw new Error(describeMutationError(err), { cause: err })
+  }
 }
 
 /** Compact date range: "3–10 Aug 2026", "28 Sep – 4 Oct 2026". */
