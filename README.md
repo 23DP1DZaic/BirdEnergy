@@ -114,6 +114,25 @@ Lai projekts būtu reāli pabeidzams noteiktajā laikā, tajā netiks īstenotas
 
 Galvenais princips ir izveidot pēc iespējas vienkāršāku sistēmu, kas pilnībā atbilst projekta prasībām.
 
+## Testi
+
+Cloud Functions un validācijas testi atrodas `functions/test/`. Tie neprasa
+emulatoru vai Firebase akreditāciju — Firestore un Auth tiek aizstāti ar
+vienkāršiem in-memory dubultniekiem, tāpēc testus var palaist lokāli bez
+papildu iestatīšanas:
+
+```bash
+cd functions
+npm test
+```
+
+Testi pārklāj gan derīgus, gan nederīgus ievaddatus: Telegram `initData`
+pārbaudi (AUTH-02), lomu noteikšanu (AUTH-03), challenge formas un spēlētāja
+vārda noteikumus, kā arī katras Cloud Function uzņemšanos ar tiesībām un bez
+tām. `adminChallengeMutation` testi pierāda, ka lietotājs bez administratora
+lomas tiek noraidīts (`permission-denied`) un ka create/update izmaiņas nonāk
+datubāzē.
+
 ## Local development without Telegram (dev login)
 
 Normally the app can only sign in inside Telegram, because `authenticateTelegram`

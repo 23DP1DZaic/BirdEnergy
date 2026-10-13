@@ -9,7 +9,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "predeploy": "npm run build"
+    "predeploy": "npm run build",
+    "test": "tsc -p tsconfig.test.json && node --test \"lib-test/test/**/*.test.js\""
   },
   "engines": {
     "node": "24"
