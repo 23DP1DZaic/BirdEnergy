@@ -133,6 +133,23 @@ tām. `adminChallengeMutation` testi pierāda, ka lietotājs bez administratora
 lomas tiek noraidīts (`permission-denied`) un ka create/update izmaiņas nonāk
 datubāzē.
 
+Spēles loģikas testi atrodas `src/features/game/engine.test.ts`. `engine.ts`
+apzināti nesatur DOM kodu, tāpēc visu spēles gaitu var vadīt kadru pa kadram no
+Node — bez pārlūka, emulatora un papildu atkarībām (iebūvētais `node:test`;
+nepieciešams Node 22.18+):
+
+```bash
+cd birdenergy
+npm test
+```
+
+`npm test` vispirms pārbauda testu tipus (`tsc -p tsconfig.test.json`, jo
+`tsconfig.app.json` ir pārlūka konfigurācija bez Node tipiem) un pēc tam palaiž
+testus. Tie pārklāj gravitāciju un kritiena ātruma ierobežojumu, lēciena
+impulsu, sadursmes ar zemi, griestiem un caurulēm, punktu skaitīšanu, nāves
+animāciju un Play Again atiestatīšanu, kā arī `runResult` datus, ko nosūta
+`submitGameResult`.
+
 ## Local development without Telegram (dev login)
 
 Normally the app can only sign in inside Telegram, because `authenticateTelegram`
