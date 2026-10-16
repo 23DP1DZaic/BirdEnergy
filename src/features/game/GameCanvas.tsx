@@ -39,6 +39,7 @@ import {
 // until something is dropped into src/assets/Sound (see features/audio.ts).
 import { loadAudioAssets, playMusic, playSfx, stopMusic } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
+import { prefersReducedMotion } from '../reducedMotion'
 import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
 import './game.css'
 
@@ -46,6 +47,13 @@ type LoadState =
   | { kind: 'loading' }
   | { kind: 'ready'; sprites: GameSpriteImages }
   | { kind: 'error'; message: string }
+
+/**
+ * C — how long the challenge-completion banner pulses after a run ends. It is
+ * measured in real time in the frame loop, because the run's own clock
+ * (state.time) stops the moment the game-over screen appears.
+ */
+const CELEBRATE_PULSE_MS = 3000
 
 /**
  * C — copies the newest best/challenge into the engine's frozen state. A
@@ -258,6 +266,8 @@ export function GameCanvas({
     // change or a skin/background/ground event sets redrawPending to repaint.
     let drawnPhase: GamePhase | null = null
     let redrawPending = true
+    // C — real-time end of the completion banner's pulse (0 = not pulsing).
+    let celebrateUntil = 0
 
     // --- DEV perf overlay (mirrored to window.__birdPerf) ---------------
     // Top-left under `npm run dev` only — stripped from production builds.
@@ -397,6 +407,22 @@ export function GameCanvas({
         }
       }
 
+      // C — the completion banner pulses for a few seconds after a run ends.
+      // s.time is frozen on the game-over screen, so the window is measured in
+      // real time — which also BOUNDS the repaint to those seconds instead of
+      // redrawing the frozen frame every rAF until the player taps.
+      const celebrating = isCelebrating(state)
+      if (!celebrating) {
+        celebrateUntil = 0
+        state.celebrateAlpha = 1
+      } else {
+        if (celebrateUntil === 0) celebrateUntil = now + CELEBRATE_PULSE_MS
+        state.celebrateAlpha =
+          now < celebrateUntil && !prefersReducedMotion()
+            ? 0.6 + 0.4 * Math.sin(now / 125)
+            : 1
+      }
+
       // Rate-limit draws on panels faster than 60 Hz (see meanDelta above);
       // the engine still steps every rAF, and the game-over freeze still
       // paints its single frame immediately.
@@ -406,8 +432,9 @@ export function GameCanvas({
       } else if (
         drawnPhase !== state.phase ||
         redrawPending ||
-        // C — keep drawing while the completion banner is still pulsing.
-        isCelebrating(state)
+        // C — keep drawing only while the banner actually pulses; under
+        // reduced motion it is drawn once and stays still.
+        (celebrateUntil > now && !prefersReducedMotion())
       ) {
         drawFrame(now)
       }

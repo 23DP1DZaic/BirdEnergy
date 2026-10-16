@@ -245,6 +245,12 @@ export interface GameState {
   serverBest: number
   /** C — the active challenge, when one is running (resolved by GamePage). */
   challenge: GameChallengeView | null
+  /**
+   * C — alpha of the completion banner for THIS frame. The wrapper drives it
+   * from real time (see GameCanvas): s.time stops advancing once the run is
+   * over, so the engine itself cannot animate the pulse.
+   */
+  celebrateAlpha: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -283,6 +289,7 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     events: [],
     serverBest: 0,
     challenge: null,
+    celebrateAlpha: 1,
   }
 }
 

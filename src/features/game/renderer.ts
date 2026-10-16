@@ -18,6 +18,7 @@ import {
   type PipeSetImages,
 } from './sprites'
 import { t } from '../../i18n'
+import { prefersReducedMotion } from '../reducedMotion'
 import {
   BIRD_X,
   deadBirds,
@@ -235,7 +236,10 @@ function drawPipes(
   const pipeSets = sprites.pipeSets
   const toIdx = pipePalette(s, pipeSets.length)
   // Fade progress of the current palette swap (1 = settled, no double draw).
-  const t = Math.min(1, Math.max(0, (s.time - s.colorSwapAt) / PIPE_COLOR_FADE_S))
+  // Reduced motion: the swap is instant (t = 1), so only one palette is drawn.
+  const t = prefersReducedMotion()
+    ? 1
+    : Math.min(1, Math.max(0, (s.time - s.colorSwapAt) / PIPE_COLOR_FADE_S))
   const fromIdx =
     t < 1 && s.previousPipeColorIndex !== toIdx
       ? s.previousPipeColorIndex
@@ -523,9 +527,12 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
     }
 
     // One-off banner on the run that finished the challenge: it pulses for a
-    // few seconds, then the panel goes static again (see isCelebrating).
+    // few seconds, then the panel goes static again (see isCelebrating). The
+    // pulse alpha comes from the wrapper (s.celebrateAlpha) because s.time is
+    // frozen here; a steady 1 means no animation (reduced motion, or it is
+    // over — and then the wrapper stops repainting the frozen frame).
     if (isCelebrating(s)) {
-      ctx.fillStyle = `rgba(139, 240, 139, ${0.6 + 0.4 * Math.sin(s.time * 8)})`
+      ctx.fillStyle = `rgba(139, 240, 139, ${s.celebrateAlpha})`
       ctx.font = `12px ${PIXEL_FONT}`
       ctx.fillText(t('canvas.challengeDone'), LOGICAL_W / 2, panelY + 174)
     }
