@@ -31,6 +31,7 @@ import {
   isTelegramEnvironment,
 } from '../telegram'
 import { useSoundSettings } from './soundSettings'
+import { LOCALES, LOCALE_LABEL, setLocale, useT } from '../i18n'
 import type { Screen } from '../navigation'
 import '../App.css'
 
@@ -55,6 +56,7 @@ interface HomePageProps {
  * Escape and whenever an entry is chosen.
  */
 function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
+  const { t, locale } = useT()
   const [open, setOpen] = useState(false)
   const { music, sfx, toggleMusic, toggleSfx } = useSoundSettings()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -88,7 +90,11 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
       </button>
 
       {open && (
-        <div className="settings-menu" role="menu" aria-label="Settings">
+        <div
+          className="settings-menu"
+          role="menu"
+          aria-label={t('home.settings')}
+        >
           <button
             type="button"
             role="menuitemcheckbox"
@@ -96,7 +102,7 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
             className="settings-item"
             onClick={toggleMusic}
           >
-            Music: {music ? 'On' : 'Off'}
+            {t('home.music', { state: t(music ? 'state.on' : 'state.off') })}
           </button>
           <button
             type="button"
@@ -105,7 +111,18 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
             className="settings-item"
             onClick={toggleSfx}
           >
-            Sound effects: {sfx ? 'On' : 'Off'}
+            {t('home.sfx', { state: t(sfx ? 'state.on' : 'state.off') })}
+          </button>
+          {/* i18n — one tap cycles the language; the choice is remembered. */}
+          <button
+            type="button"
+            role="menuitem"
+            className="settings-item"
+            onClick={() =>
+              setLocale(LOCALES[(LOCALES.indexOf(locale) + 1) % LOCALES.length])
+            }
+          >
+            {t('home.language', { name: LOCALE_LABEL[locale] })}
           </button>
           <button
             type="button"
@@ -116,7 +133,7 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
               onOpenTutorial()
             }}
           >
-            Info
+            {t('home.info')}
           </button>
         </div>
       )}
@@ -133,6 +150,7 @@ export function HomePage({
   onOpenGame,
   onNavigate,
 }: HomePageProps) {
+  const { t } = useT()
   // Index into the sky tiles in src/sprites.ts (UI-07: background switcher,
   // shared with the Game canvas via homeBackground.ts).
   const [backgroundIndex] = useBackgroundIndex(backgrounds.length)
@@ -163,12 +181,15 @@ export function HomePage({
       <div className="content">
         <img className="logo logo-float" src={logo} alt="Bird Energy" />
         <p className="hello">
-          Hello, {session?.user.firstName ?? tgUser?.first_name ?? 'player'}!
+          {t('home.hello', {
+            name:
+              session?.user.firstName ?? tgUser?.first_name ?? t('profile.player'),
+          })}
         </p>
 
         {!signedIn && devTelegramId !== null && (
           <p className="auth-status">
-            DEV login: Telegram id {devTelegramId} via the Functions emulator
+            {t('home.devLogin', { id: devTelegramId })}
           </p>
         )}
 
@@ -177,7 +198,7 @@ export function HomePage({
             /* Signed in: Play is the only action that still makes sense. */
             <>
               <button type="button" className="btn" onClick={onOpenGame}>
-                ▶ Play
+                {t('home.play')}
               </button>
               {role === 'admin' && (
                 <button
@@ -185,7 +206,7 @@ export function HomePage({
                   className="btn btn-small"
                   onClick={() => onNavigate('admin')}
                 >
-                  Admin Panel
+                  {t('nav.admin')}
                 </button>
               )}
             </>
@@ -193,7 +214,7 @@ export function HomePage({
             /* Inside Telegram (or DEV login): the one thing left is signing in. */
             <>
               <button type="button" className="btn" onClick={onSignIn}>
-                Sign in with Telegram
+                {t('sign.signIn')}
               </button>
               {authStatus && <p className="auth-status">{authStatus}</p>}
             </>
@@ -201,7 +222,7 @@ export function HomePage({
             /* Plain browser: no initData to sign in with, so point the visitor
                at the bot, which opens the Mini App properly. */
             <a className="btn" href={getTelegramBotLink()}>
-              Open Telegram Bot
+              {t('home.openBot')}
             </a>
           )}
         </div>

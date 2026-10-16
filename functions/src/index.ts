@@ -516,6 +516,13 @@ interface SubmitGameResultData {
   score?: unknown;
   durationMs?: unknown;
   jumpCount?: unknown;
+  /**
+   * E — optional client-generated id. The offline queue in
+   * src/features/pendingRuns.ts resends a run after a network failure, and the
+   * same id makes that retry land on the SAME document so the score is never
+   * counted twice. Old builds do not send one, so it stays optional.
+   */
+  runId?: unknown;
 }
 
 /** Server-side range validation — the client is never trusted (card DoD). */
@@ -559,7 +566,14 @@ export const submitGameResult = onCall(
       throw new HttpsError("unauthenticated", "Sign in to submit results.");
     }
 
-    const run = validateRunData((request.data ?? {}) as SubmitGameResultData);
+    const data = (request.data ?? {}) as SubmitGameResultData;
+    const run = validateRunData(data);
+    // E — only a plain token is accepted, and a malformed one is treated as
+    // "no id": a broken id must never fail a run the player already played.
+    const runId =
+      typeof data.runId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.runId)
+        ? data.runId
+        : null;
     const uid = request.auth.uid;
     const db = getFirestore();
     const userDoc = db.collection("users").doc(uid);
@@ -578,7 +592,25 @@ export const submitGameResult = onCall(
         const newBest = run.score > prevBest;
 
         // One attempt document per finished run (never updated afterwards).
-        const resultRef = db.collection("gameResults").doc();
+        // E — a retry carries the same runId, so it resolves to the same
+        // document id and this check stops it from being counted twice.
+        const resultId = runId
+          ? `${uid}-${runId}`
+          : db.collection("gameResults").doc().id;
+        const resultRef = db.collection("gameResults").doc(resultId);
+        const alreadyStored = await tx.get(resultRef);
+        if (alreadyStored.exists) {
+          logger.info("Duplicate run ignored (retry)", {uid, resultId});
+          return {
+            bestScore: prevBest,
+            totalGames:
+              typeof prev.totalGames === "number" ? prev.totalGames : 0,
+            totalScore:
+              typeof prev.totalScore === "number" ? prev.totalScore : 0,
+            newBest: false,
+          };
+        }
+
         tx.set(resultRef, {
           uid,
           score: run.score,

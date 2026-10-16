@@ -23,9 +23,11 @@ import {
   type ChallengeFormValues,
 } from './challengeValidation'
 import { ChallengeForm } from './ChallengeForm'
+import { useT } from '../i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export function AdminPage() {
+  const { t } = useT()
   const [challenges, setChallenges] = useState<Challenge[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -67,9 +69,7 @@ export function AdminPage() {
   const save = async (input: ChallengeInput) => {
     await adminChallengeMutation(editing ? 'update' : 'create', input, editing?.id)
     setStatusMessage(
-      editing
-        ? `Updated “${input.title}”.`
-        : `Created “${input.title}”.`,
+      t(editing ? 'admin.updated' : 'admin.created', { title: input.title }),
     )
     setEditing(null)
     setFormVersion((v) => v + 1)
@@ -99,7 +99,7 @@ export function AdminPage() {
     setDeleteError(null)
     try {
       await deleteChallenge(target.id)
-      setStatusMessage(`Deleted “${target.title}”.`)
+      setStatusMessage(t('admin.deleted', { title: target.title }))
       // Editing a challenge that no longer exists would leave the form pointed
       // at a missing doc; a half-typed CREATE form is deliberately left alone.
       if (editing?.id === target.id) {
@@ -126,7 +126,7 @@ export function AdminPage() {
     <div className="admin-screen">
       <section className="admin-panel">
         <h2 className="admin-title">
-          {mode === 'update' ? 'Edit challenge' : 'New challenge'}
+          {t(mode === 'update' ? 'admin.editTitle' : 'admin.newTitle')}
         </h2>
         <ChallengeForm
           key={`${mode}:${editing?.id ?? 'new'}:${formVersion}`}
@@ -147,19 +147,19 @@ export function AdminPage() {
       )}
 
       <section className="admin-panel">
-        <h2 className="admin-title">Existing challenges</h2>
+        <h2 className="admin-title">{t('admin.existing')}</h2>
         {loading ? (
-          <p className="board-status">Loading…</p>
+          <p className="board-status">{t('common.loading')}</p>
         ) : listError ? (
           <div className="guard">
-            <p className="guard-text">Could not load challenges.</p>
+            <p className="guard-text">{t('challenges.error')}</p>
             <p className="placeholder-note">{listError}</p>
             <button
               type="button"
               className="btn btn-small"
               onClick={() => void load()}
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         ) : challenges && challenges.length > 0 ? (
@@ -179,18 +179,18 @@ export function AdminPage() {
                   <button
                     type="button"
                     className="btn btn-small"
-                    aria-label={`Edit ${challenge.title}`}
+                    aria-label={t('admin.editAria', { title: challenge.title })}
                     onClick={() => {
                       setEditing(challenge)
                       setStatusMessage(null)
                     }}
                   >
-                    Edit
+                    {t('admin.edit')}
                   </button>
                   <button
                     type="button"
                     className="btn btn-small btn-danger"
-                    aria-label={`Delete ${challenge.title}`}
+                    aria-label={t('admin.deleteAria', { title: challenge.title })}
                     onClick={(event) => {
                       // Remember the trigger for focus restoration on close.
                       deleteTrigger.current = event.currentTarget
@@ -199,7 +199,7 @@ export function AdminPage() {
                       setPendingDelete(challenge)
                     }}
                   >
-                    Delete
+                    {t('admin.delete')}
                   </button>
                 </div>
               </li>
@@ -207,27 +207,20 @@ export function AdminPage() {
           </ul>
         ) : (
           <p className="board-status">
-            No challenges yet — the form above creates the first one.
+            {t('admin.empty')}
           </p>
         )}
         <p className="placeholder-note">
-          Deleting is permanent for every player, so it always asks for
-          confirmation first.
+          {t('admin.deleteNote')}
         </p>
       </section>
 
       {pendingDelete && (
         <ConfirmDialog
-          title="Delete this challenge?"
-          message={
-            <>
-              “{pendingDelete.title}” will be removed for every player and
-              cannot be brought back. Progress already earned stays in the
-              players' game results.
-            </>
-          }
-          confirmLabel="Delete"
-          busyLabel="Deleting…"
+          title={t('admin.confirmTitle')}
+          message={t('admin.confirmMessage', { title: pendingDelete.title })}
+          confirmLabel={t('admin.confirmDelete')}
+          busyLabel={t('admin.deleting')}
           busy={deleteBusy}
           error={deleteError}
           onConfirm={() => void confirmDelete()}

@@ -14,6 +14,8 @@
 // (key), which is also how a fresh form is handed out after a save.
 import { useRef, useState, type FormEvent } from 'react'
 import type { ChallengeFormMode, ChallengeInput } from './challenges'
+import { LOCALE_CODE, getLocale, useT } from '../i18n'
+import type { ChallengeFormError } from './challengeValidation'
 import {
   CHALLENGE_DESCRIPTION_MAX,
   CHALLENGE_DESCRIPTION_MIN,
@@ -41,12 +43,22 @@ interface ChallengeFormProps {
   onCancel?: () => void
 }
 
-/** The message under one field — always rendered under its own input. */
-function FieldError({ id, message }: { id: string; message?: string }) {
-  if (!message) return null
+/**
+ * The message under one field — always rendered under its own input.
+ * Errors arrive as i18n keys, so the wording is resolved here, in render.
+ */
+function FieldError({
+  id,
+  error,
+}: {
+  id: string
+  error?: ChallengeFormError
+}) {
+  const { t } = useT()
+  if (!error) return null
   return (
     <p className="form-error" id={id} role="alert">
-      {message}
+      {t(error.key, error.params)}
     </p>
   )
 }
@@ -57,6 +69,7 @@ export function ChallengeForm({
   onSubmit,
   onCancel,
 }: ChallengeFormProps) {
+  const { t, tn } = useT()
   const [values, setValues] = useState<ChallengeFormValues>(
     initialValues ?? EMPTY_CHALLENGE_FORM,
   )
@@ -135,14 +148,17 @@ export function ChallengeForm({
     >
       <div className="form-field">
         <label className="form-label" htmlFor="challenge-title">
-          Title
+          {t('form.title')}
         </label>
         <input
           id="challenge-title"
           type="text"
           className={inputClass('title')}
           maxLength={CHALLENGE_TITLE_MAX}
-          placeholder={`${CHALLENGE_TITLE_MIN}–${CHALLENGE_TITLE_MAX} characters`}
+          placeholder={t('form.range', {
+            min: CHALLENGE_TITLE_MIN,
+            max: CHALLENGE_TITLE_MAX,
+          })}
           autoComplete="off"
           spellCheck={false}
           value={values.title}
@@ -150,31 +166,34 @@ export function ChallengeForm({
           aria-describedby={ariaDescribedBy('title')}
           onChange={(e) => change('title', e.target.value)}
         />
-        <FieldError id="challenge-title-error" message={errors.title} />
+        <FieldError id="challenge-title-error" error={errors.title} />
       </div>
 
       <div className="form-field">
         <label className="form-label" htmlFor="challenge-description">
-          Description
+          {t('form.description')}
         </label>
         <textarea
           id="challenge-description"
           className={inputClass('description')}
           rows={3}
           maxLength={CHALLENGE_DESCRIPTION_MAX}
-          placeholder={`${CHALLENGE_DESCRIPTION_MIN}–${CHALLENGE_DESCRIPTION_MAX} characters`}
+          placeholder={t('form.range', {
+            min: CHALLENGE_DESCRIPTION_MIN,
+            max: CHALLENGE_DESCRIPTION_MAX,
+          })}
           value={values.description}
           aria-invalid={ariaInvalid('description')}
           aria-describedby={ariaDescribedBy('description')}
           onChange={(e) => change('description', e.target.value)}
         />
-        <FieldError id="challenge-description-error" message={errors.description} />
+        <FieldError id="challenge-description-error" error={errors.description} />
       </div>
 
       <div className="form-row">
         <div className="form-field">
           <label className="form-label" htmlFor="challenge-type">
-            Type
+            {t('form.type')}
           </label>
           <select
             id="challenge-type"
@@ -184,16 +203,16 @@ export function ChallengeForm({
             aria-describedby={ariaDescribedBy('type')}
             onChange={(e) => change('type', e.target.value)}
           >
-            <option value="">Choose a type…</option>
-            <option value="single_game_score">Best single-game score</option>
-            <option value="games_played">Games played</option>
+            <option value="">{t('form.typePlaceholder')}</option>
+            <option value="single_game_score">{t('form.typeScore')}</option>
+            <option value="games_played">{t('form.typeGames')}</option>
           </select>
-          <FieldError id="challenge-type-error" message={errors.type} />
+          <FieldError id="challenge-type-error" error={errors.type} />
         </div>
 
         <div className="form-field">
           <label className="form-label" htmlFor="challenge-targetValue">
-            Target
+            {t('form.target')}
           </label>
           <input
             id="challenge-targetValue"
@@ -203,19 +222,19 @@ export function ChallengeForm({
             max={CHALLENGE_TARGET_MAX}
             step={1}
             inputMode="numeric"
-            placeholder="e.g. 100"
+            placeholder={t('form.targetPlaceholder')}
             value={values.targetValue}
             aria-invalid={ariaInvalid('targetValue')}
             aria-describedby={ariaDescribedBy('targetValue')}
             onChange={(e) => change('targetValue', e.target.value)}
           />
-          <FieldError id="challenge-targetValue-error" message={errors.targetValue} />
+          <FieldError id="challenge-targetValue-error" error={errors.targetValue} />
           <p className="form-hint">
             {values.type === 'games_played'
-              ? 'Completed runs inside the window.'
+              ? t('form.hintGames')
               : values.type === 'single_game_score'
-                ? 'Best single-run score inside the window.'
-                : 'Pick a type first — points or games.'}
+                ? t('form.hintScore')
+                : t('form.hintPickType')}
           </p>
         </div>
       </div>
@@ -223,7 +242,7 @@ export function ChallengeForm({
       <div className="form-row">
         <div className="form-field">
           <label className="form-label" htmlFor="challenge-startDate">
-            Start date
+            {t('form.startDate')}
           </label>
           <input
             id="challenge-startDate"
@@ -234,12 +253,12 @@ export function ChallengeForm({
             aria-describedby={ariaDescribedBy('startDate')}
             onChange={(e) => change('startDate', e.target.value)}
           />
-          <FieldError id="challenge-startDate-error" message={errors.startDate} />
+          <FieldError id="challenge-startDate-error" error={errors.startDate} />
         </div>
 
         <div className="form-field">
           <label className="form-label" htmlFor="challenge-endDate">
-            End date
+            {t('form.endDate')}
           </label>
           <input
             id="challenge-endDate"
@@ -250,15 +269,13 @@ export function ChallengeForm({
             aria-describedby={ariaDescribedBy('endDate')}
             onChange={(e) => change('endDate', e.target.value)}
           />
-          <FieldError id="challenge-endDate-error" message={errors.endDate} />
+          <FieldError id="challenge-endDate-error" error={errors.endDate} />
         </div>
       </div>
 
       {blocked && (
         <p className="form-error form-error-general" role="alert">
-          {invalidFields.length === 1
-            ? 'Nothing was saved — 1 field needs fixing.'
-            : `Nothing was saved — ${invalidFields.length} fields need fixing.`}
+          {tn('form.blocked', invalidFields.length)}
         </p>
       )}
       {submitError && (
@@ -268,17 +285,17 @@ export function ChallengeForm({
       )}
       {saved && (
         <p className="form-saved" role="status">
-          Saved.
+          {t('form.saved')}
         </p>
       )}
 
       <div className="form-actions">
         <button type="submit" className="btn btn-small" disabled={busy}>
           {busy
-            ? 'Saving…'
+            ? t('common.saving')
             : mode === 'create'
-              ? 'Create challenge'
-              : 'Save changes'}
+              ? t('form.create')
+              : t('form.saveChanges')}
         </button>
         {mode === 'update' && onCancel && (
           <button
@@ -287,16 +304,21 @@ export function ChallengeForm({
             disabled={busy}
             onClick={onCancel}
           >
-            Cancel
+            {t('form.cancel')}
           </button>
         )}
       </div>
 
       <p className="placeholder-note">
-        Title 3–{CHALLENGE_TITLE_MAX}, description {CHALLENGE_DESCRIPTION_MIN}–
-        {CHALLENGE_DESCRIPTION_MAX}, whole-number target 1–
-        {CHALLENGE_TARGET_MAX.toLocaleString('en-GB')}, end date on or after the
-        start date.
+        {t('form.rules', {
+          titleMin: CHALLENGE_TITLE_MIN,
+          titleMax: CHALLENGE_TITLE_MAX,
+          descMin: CHALLENGE_DESCRIPTION_MIN,
+          descMax: CHALLENGE_DESCRIPTION_MAX,
+          targetMax: CHALLENGE_TARGET_MAX.toLocaleString(
+            LOCALE_CODE[getLocale()],
+          ),
+        })}
       </p>
     </form>
   )

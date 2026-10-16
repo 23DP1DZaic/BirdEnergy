@@ -32,8 +32,9 @@ import {
   createGameState,
   deadBirds,
   flap,
+  advancePipePalette,
   floorTop,
-  pipeColorIndex,
+  pipePalette,
   resetGame,
   rotationForVelocity,
   runResult,
@@ -128,10 +129,10 @@ function finishedRun(): GameState {
   return s
 }
 
-// deadBirds is module-level session memory (survives Play Again by design), so
-// each test starts from an empty map.
+// The corpse store is module-level session memory (survives Play Again by
+// design), so each test starts from an empty one.
 beforeEach(() => {
-  deadBirds.length = 0
+  deadBirds.clear()
 })
 
 describe('createGameState / resetGame — start and restart', () => {
@@ -604,8 +605,8 @@ describe('death animation and game over — GAME-03 / GAME-04', () => {
     assert.equal(s.bird.angle, -Math.PI, 'exactly -180°')
     assert.equal(s.bird.vy, 0)
 
-    assert.equal(deadBirds.length, 1)
-    const corpse = deadBirds[0]
+    assert.equal(deadBirds.size, 1)
+    const corpse = deadBirds.all()[0]
     assert.equal(corpse.skinId, '4', 'the corpse keeps the skin it died with')
     assert.equal(corpse.rotation, -Math.PI)
     assert.equal(corpse.animationFinished, true)
@@ -634,24 +635,24 @@ describe('death animation and game over — GAME-03 / GAME-04', () => {
     assert.equal(s.score, frozen.score)
     assert.deepEqual(s.pipes.map((p) => p.x), frozen.pipes)
     assert.deepEqual({...s.bird}, frozen.bird)
-    assert.equal(deadBirds.length, 1, 'one death animation, one corpse')
+    assert.equal(deadBirds.size, 1, 'one death animation, one corpse')
   })
 
   it('remembers earlier corpses across Play Again', () => {
     const first = finishedRun()
-    assert.equal(deadBirds.length, 1)
+    assert.equal(deadBirds.size, 1)
 
     resetGame(first)
     assert.equal(first.phase, 'ready')
-    assert.equal(deadBirds.length, 1, 'the map is not swept on restart')
+    assert.equal(deadBirds.size, 1, 'the map is not swept on restart')
 
     flap(first)
     crashIntoGround(first)
     run(first, 120)
 
     assert.equal(first.phase, 'game-over')
-    assert.equal(deadBirds.length, 2, 'corpses accumulate within the session')
-    assert.notEqual(deadBirds[0].id, deadBirds[1].id)
+    assert.equal(deadBirds.size, 2, 'corpses accumulate within the session')
+    assert.notEqual(deadBirds.all()[0].id, deadBirds.all()[1].id)
   })
 })
 
@@ -737,60 +738,67 @@ describe('birdFrame — the four-frame flap cycle', () => {
   })
 })
 
-describe('pipeColorIndex — GAME-05 palette rotation', () => {
+describe('pipe palette — GAME-05 palette rotation', () => {
   it('stays on the first palette without any palettes to rotate to', () => {
-    const s = createGameState()
+    const s = playing()
     s.score = PIPE_COLOR_SCORE_STEP * 3
 
-    assert.equal(pipeColorIndex(s, 0), 0)
+    advancePipePalette(s, 0)
+
+    assert.equal(pipePalette(s, 0), 0)
   })
 
   it('does not rotate inside the same score bracket', () => {
-    const s = createGameState()
+    const s = playing()
     s.score = PIPE_COLOR_SCORE_STEP - 1
     const lastChange = s.lastPipeColorChangeScore
 
-    assert.equal(pipeColorIndex(s, 4), 0)
+    advancePipePalette(s, 4)
+
+    assert.equal(pipePalette(s, 4), 0)
     assert.equal(s.currentPipeColorIndex, 0)
     assert.equal(s.lastPipeColorChangeScore, lastChange)
   })
 
   it('rotates once when the score enters a new bracket', (t) => {
-    const s = createGameState()
+    const s = playing()
     s.time = 5
-    let call = 0
-    // First draw repeats the palette on screen (0.25 → index 1 of 4), so a
-    // correct implementation must draw again instead of re-using it.
-    t.mock.method(Math, 'random', () => (call++ === 0 ? 0.25 : 0.75))
+    // The draw lands on the palette already on screen (0.25 → index 1 of 4),
+    // so a correct rotation moves to the next one instead of re-using it.
+    t.mock.method(Math, 'random', () => 0.25)
 
     s.currentPipeColorIndex = 1
     s.score = PIPE_COLOR_SCORE_STEP
 
-    assert.equal(pipeColorIndex(s, 4), 3)
-    assert.equal(call, 2, 'the palette in use is never picked again')
-    assert.equal(s.currentPipeColorIndex, 3)
+    advancePipePalette(s, 4)
+
+    assert.equal(pipePalette(s, 4), 2)
+    assert.equal(s.currentPipeColorIndex, 2)
     assert.equal(s.previousPipeColorIndex, 1, 'the outgoing palette is remembered')
     assert.equal(s.colorSwapAt, 5, 'so the renderer can cross-fade from it')
     assert.equal(s.lastPipeColorChangeScore, s.score)
   })
 
   it('does not rotate again while the bracket stays the same', (t) => {
-    const s = createGameState()
+    const s = playing()
     t.mock.method(Math, 'random', () => 0.75)
     s.score = PIPE_COLOR_SCORE_STEP
 
-    const first = pipeColorIndex(s, 4)
-    s.lastPipeColorChangeScore = s.score
-    const second = pipeColorIndex(s, 4)
+    advancePipePalette(s, 4)
+    const first = pipePalette(s, 4)
+    advancePipePalette(s, 4)
+    const second = pipePalette(s, 4)
 
     assert.equal(second, first)
   })
 
   it('has nothing to rotate to with a single palette', () => {
-    const s = createGameState()
+    const s = playing()
     s.score = PIPE_COLOR_SCORE_STEP * 2
 
-    assert.equal(pipeColorIndex(s, 1), 0)
+    advancePipePalette(s, 1)
+
+    assert.equal(pipePalette(s, 1), 0)
   })
 })
 

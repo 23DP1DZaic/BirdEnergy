@@ -7,16 +7,27 @@
 // Cloud Function (creates the Firestore doc), then the game mounts. The
 // profile is only re-checked when the uid changes, so navigating away and
 // back doesn't re-read Firestore on every visit.
-import { useCallback, useEffect, useState } from 'react'
-import type { GamePhase, RunResult } from './game/engine'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { GameChallengeView, GamePhase, RunResult } from './game/engine'
 import { GameCanvas } from './game/GameCanvas'
 import { PlaceholderPage } from './PlaceholderPage'
 import {
+  computeProgress,
+  deriveStatus,
+  fetchChallenges,
+  fetchMyGameResults,
+  type Challenge,
+  type GameRun,
+} from './challenges'
+import {
   acceptDataProcessing,
   checkProfileConsent,
-  submitGameResult,
   type ProfileCheck,
 } from './userProfile'
+// E — finished runs go through the offline queue, so a network blip can never
+// lose a score: a failed submit is replayed once the connection is back.
+import { flushPendingRuns, submitRun } from './pendingRuns'
+import { useT } from '../i18n'
 
 interface GamePageProps {
   signedInUid: string | null
@@ -33,19 +44,62 @@ export function GamePage({
   onDecline,
   onPhaseChange,
 }: GamePageProps) {
+  const { t } = useT()
   const [profile, setProfile] = useState<ProfileCheck | null>(null)
   const [consentBusy, setConsentBusy] = useState(false)
   const [consentError, setConsentError] = useState('')
+  // C — what the Game Over panel shows: the real (server) personal best and
+  // the active challenge's progress, resolved once per visit.
+  const [submittedBest, setSubmittedBest] = useState<number | null>(null)
+  const [challengeView, setChallengeView] = useState<GameChallengeView | null>(
+    null,
+  )
+  const challengeRef = useRef<{ challenge: Challenge; runs: GameRun[] } | null>(
+    null,
+  )
+
+  // C — advance the active challenge with the run that just ended. The runs
+  // list is already in memory, so the new progress shows instantly and costs
+  // no extra reads.
+  const advanceChallenge = useCallback((run: RunResult) => {
+    const pending = challengeRef.current
+    if (!pending) return
+    const runs = [...pending.runs, { score: run.score, createdAt: new Date() }]
+    pending.runs = runs
+    setChallengeView({
+      id: pending.challenge.id,
+      title: pending.challenge.title,
+      value: computeProgress(pending.challenge, runs).value,
+      target: pending.challenge.targetValue,
+      celebrate: false,
+      celebrateAt: 0,
+    })
+  }, [])
 
   // Stable identity so GameCanvas's engine effect never re-runs (which would
   // reset the game) — DATA-01: persist every finished run. Failures (offline,
   // validation) must never disturb the game-over screen; they surface in console.
   // Declared before the early returns: hooks must run on every render.
-  const handleRunEnd = useCallback((run: RunResult) => {
-    submitGameResult(run).catch((err: unknown) => {
-      console.warn('submitGameResult failed', run, err)
-    })
-  }, [])
+  // C — the response carries the authoritative best score, and the challenge
+  // progress advances with the same run.
+  const handleRunEnd = useCallback(
+    (run: RunResult) => {
+      // submitRun never rejects: a failure is queued (see pendingRuns.ts), and
+      // only a real server response updates the personal best on the panel.
+      void submitRun(run).then((response) => {
+        if (!response) return
+        setSubmittedBest(response.bestScore)
+        advanceChallenge(run)
+      })
+    },
+    [advanceChallenge],
+  )
+
+  // E — any runs that could not be submitted last time are replayed as soon as
+  // there is a session to authenticate with.
+  useEffect(() => {
+    void flushPendingRuns()
+  }, [signedInUid])
 
   useEffect(() => {
     if (!signedInUid) return
@@ -59,16 +113,52 @@ export function GamePage({
     }
   }, [signedInUid])
 
+  // C — the active challenge (if one is running), measured against this
+  // player's runs, plus the personal best from the profile DATA-01 loaded.
+  // Decorative: a failure here must never stop someone from playing.
+  useEffect(() => {
+    if (!signedInUid || profile === null || profile.kind !== 'consented') return
+    let cancelled = false
+    Promise.all([fetchChallenges(), fetchMyGameResults(signedInUid)])
+      .then(([challenges, runs]) => {
+        if (cancelled) return
+        const now = new Date()
+        const active =
+          challenges.find((c) => deriveStatus(c, now) === 'active') ?? null
+        if (!active) return
+        challengeRef.current = { challenge: active, runs }
+        setChallengeView({
+          id: active.id,
+          title: active.title,
+          value: computeProgress(active, runs).value,
+          target: active.targetValue,
+          celebrate: false,
+          celebrateAt: 0,
+        })
+      })
+      .catch((err: unknown) => {
+        console.warn('challenge progress unavailable', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [signedInUid, profile])
+
+  // C — the personal best the panel shows: the latest submitted run's result
+  // as soon as there is one, otherwise the stored best from the profile.
+  const serverBest =
+    submittedBest ??
+    (profile !== null && profile.kind === 'consented'
+      ? profile.profile.bestScore ?? 0
+      : 0)
+
   if (!signedInUid) {
     return (
       <PlaceholderPage card="GAME-01">
         <div className="guard">
-          <p className="guard-text">
-            Playing needs a Telegram session. Sign in from the Home screen
-            (inside Telegram, or with the dev login).
-          </p>
+          <p className="guard-text">{t('game.guard')}</p>
           <button type="button" className="btn" onClick={onSignIn}>
-            Sign in with Telegram
+            {t('sign.signIn')}
           </button>
         </div>
       </PlaceholderPage>
@@ -79,7 +169,7 @@ export function GamePage({
   if (profile === null) {
     return (
       <PlaceholderPage card="GAME-01">
-        <p className="guard-text">Checking your player profile…</p>
+        <p className="guard-text">{t('game.checking')}</p>
       </PlaceholderPage>
     )
   }
@@ -89,7 +179,7 @@ export function GamePage({
       <PlaceholderPage card="GAME-01">
         <div className="guard">
           <p className="guard-text">
-            Could not load your player profile: {profile.message}
+            {t('game.profileError', { message: profile.message })}
           </p>
         </div>
       </PlaceholderPage>
@@ -116,15 +206,10 @@ export function GamePage({
     return (
       <PlaceholderPage card="GAME-01">
         <div className="consent">
-          <h2 className="consent-title">Before you play</h2>
-          <p className="consent-text">
-            Is it okay to use your Telegram data for the game — your name on
-            the leaderboard and your scores in your profile?
-          </p>
+          <h2 className="consent-title">{t('game.beforeYouPlay')}</h2>
+          <p className="consent-text">{t('game.consent')}</p>
           <p className="consent-text consent-fineprint">
-            We store your Telegram id and username only to identify your
-            scores. Nothing is shared publicly except the name you see on the
-            leaderboard.
+            {t('game.consentFineprint')}
           </p>
           {consentError && (
             <p className="consent-error" role="alert">
@@ -138,7 +223,7 @@ export function GamePage({
               onClick={accept}
               disabled={consentBusy}
             >
-              {consentBusy ? 'Saving…' : 'Agree and play'}
+              {consentBusy ? t('common.saving') : t('game.agree')}
             </button>
             <button
               type="button"
@@ -146,7 +231,7 @@ export function GamePage({
               onClick={onDecline}
               disabled={consentBusy}
             >
-              No thanks
+              {t('game.decline')}
             </button>
           </div>
         </div>
@@ -158,6 +243,8 @@ export function GamePage({
     <GameCanvas
       onPhaseChange={onPhaseChange}
       onRunEnd={handleRunEnd}
+      serverBest={serverBest}
+      challenge={challengeView}
     />
   )
 }

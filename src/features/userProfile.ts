@@ -121,6 +121,8 @@ export interface SubmitRunInput {
   score: number
   durationMs: number
   jumpCount: number
+  /** E — client id that makes an offline-queue retry idempotent server-side. */
+  runId?: string
 }
 
 export interface SubmitRunResponse {

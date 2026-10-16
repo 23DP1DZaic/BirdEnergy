@@ -2,6 +2,7 @@
 // and the Game canvas: one index, persisted, broadcast via a window event so
 // the canvas updates live while Home cycles it.
 import { useEffect, useState } from 'react'
+import { backgrounds } from '../sprites'
 
 const STORAGE_KEY = 'birdenergy.background'
 
@@ -10,7 +11,11 @@ export const BACKGROUND_CHANGE_EVENT = 'birdenergy:background-change'
 export function getStoredBackgroundIndex(): number {
   const raw = localStorage.getItem(STORAGE_KEY)
   const n = raw === null ? NaN : Number(raw)
-  return Number.isInteger(n) && n >= 0 ? n : 0
+  // H — the index must stay inside the list, exactly like birdSkin.ts and
+  // groundTile.ts already do. Without the upper bound a stale or corrupt value
+  // made backgrounds[n] undefined and left the Home sky blank (the switcher
+  // only self-heals once the player presses it).
+  return Number.isInteger(n) && n >= 0 && n < backgrounds.length ? n : 0
 }
 
 

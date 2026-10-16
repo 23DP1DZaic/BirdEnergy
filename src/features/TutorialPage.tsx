@@ -6,18 +6,21 @@
 // <img className="tutorial-media" src={tutorialGif} alt="" /> — the box is
 // already square (aspect-ratio 1/1), so nothing else has to change.
 //
+import { useT } from '../i18n'
+
 // Not part of the bottom nav: it is a sub-page of Home, reached from the
 // settings menu's Info button (see navigation.ts / App.tsx).
 export function TutorialPage() {
+  const { t } = useT()
   return (
     <div className="tutorial-screen">
-      <h2 className="tutorial-title">How to play</h2>
-      <p className="tutorial-text">Tap to jump. Don&rsquo;t touch the obstacles.</p>
+      <h2 className="tutorial-title">{t('tutorial.title')}</h2>
+      <p className="tutorial-text">{t('tutorial.text')}</p>
 
       {/* Square placeholder for the tutorial GIF (kept 1:1 so the real asset
           drops straight in). */}
       <div className="tutorial-media">
-        <span className="tutorial-media-note">Tutorial GIF</span>
+        <span className="tutorial-media-note">{t('tutorial.gif')}</span>
       </div>
     </div>
   )
