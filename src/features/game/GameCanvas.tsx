@@ -86,21 +86,29 @@ function resizeCanvas(
   wrap: HTMLDivElement,
   ctx: CanvasRenderingContext2D,
   state: GameState,
+  /** Max backing-store scale for this step of the adaptive ladder — always
+   *  additionally clamped by the live devicePixelRatio. */
+  scale: number,
 ): void {
   const rect = wrap.getBoundingClientRect()
   if (rect.width < 1 || rect.height < 1) return
-  // Cap at 2× — every frame repaints the whole backing store and this is
+  // Never above 2× — every frame repaints the whole backing store and this is
   // pixel art upscaled nearest-neighbour: above 2× the extra pixels are
   // invisible, but on 3× phones they triple the fill cost (the main frame-lag
-  // source on high-DPR devices; 3× → 2× is 55% fewer pixels per frame).
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  // source on high-DPR devices; 3× → 2× is 55% fewer pixels per frame). The
+  // adaptive ladder in the loop below lowers `scale` further (1.5×, 1×) when
+  // the device can't hold 60 fps — see applyScale.
+  const dpr = Math.min(window.devicePixelRatio || 1, scale)
   const w = Math.max(1, Math.round(rect.width * dpr))
   const h = Math.max(1, Math.round(rect.height * dpr))
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w
     canvas.height = h
-    configureCanvas(ctx) // resizing resets ctx settings
   }
+  // Resizing resets ctx settings (incl. imageSmoothingEnabled); restoring
+  // them also hands the renderer the current backing-store scale, which its
+  // cached score-HUD layer is rasterized at (1:1 blit, no resampling).
+  configureCanvas(ctx, canvas.width / LOGICAL_W)
   // Logical world: 480 wide, height follows the container aspect.
   const newViewH = Math.max(320, Math.round((rect.height / rect.width) * 480))
   state.viewH = newViewH
@@ -141,6 +149,8 @@ export function GameCanvas({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+  /** DEV-only perf overlay (game.css `.perf-hud`); see the loop below. */
+  const hudRef = useRef<HTMLDivElement>(null)
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' })
   // C — the engine keeps its OWN copy of these (it owns a frozen object), so a
   // new best or a new progress value must never restart the run: the frame
@@ -228,23 +238,20 @@ export function GameCanvas({
     }
     reportPhase()
 
-    const reflow = () => resizeCanvas(canvas, wrap, ctx, state)
+    // --- adaptive resolution ladder (mobile perf) -----------------------
+    // Backing-store scale steps, highest first, capped by the device DPR: a
+    // 3× phone starts at the 2× cap and may fall to 1.5× / 1×, a 1.5× device
+    // to 1×, and a 1× device has no steps (it is already at the floor).
+    // Pixels painted per frame dominate the cost on mid-range Android GPUs;
+    // physics and collision run in logical coordinates and are untouched, so
+    // a step only changes sharpness — never gameplay, scoring or hitboxes.
+    const deviceCap = Math.min(window.devicePixelRatio || 1, 2)
+    const scaleSteps = [deviceCap, ...[2, 1.5, 1].filter((v) => v < deviceCap)]
+    let scaleStep = 0
+
+    const reflow = () =>
+      resizeCanvas(canvas, wrap, ctx, state, scaleSteps[scaleStep])
     reflow()
-    // First frame before any rAF fires (hidden tab, throttling).
-    drawGame(ctx, sprites, state)
-
-    // Resizing clears the backing store — with alpha:false that clear is
-    // opaque black, so repaint in the same callback instead of waiting for
-    // the next rAF tick (no black flash on rotate/resize).
-    const observer = new ResizeObserver(() => {
-      reflow()
-      drawGame(ctx, sprites, state)
-    })
-    observer.observe(wrap)
-
-    let raf = 0
-    let last = performance.now()
-    let running = !document.hidden
 
     // The game-over scene is frozen (stepGame returns immediately), so paint
     // it once and then stop redrawing a static frame at display rate. A phase
@@ -252,8 +259,88 @@ export function GameCanvas({
     let drawnPhase: GamePhase | null = null
     let redrawPending = true
 
+    // --- DEV perf overlay (mirrored to window.__birdPerf) ---------------
+    // Top-left under `npm run dev` only — stripped from production builds.
+    // The numbers are also written to window.__birdPerf so they can be read
+    // off a phone from a remote console. Refreshed 4×/s, never per frame.
+    const devHud = import.meta.env.DEV
+    const hudEl = devHud ? hudRef.current : null
+    let drawMs = 0
+    let fps = 0
+    let hudLast = 0
+    let draws = 0 // paints since page load — makes the draw-rate cap observable
+
+    // Every paint goes through here: the game-over freeze bookkeeping, the
+    // draw-time sample and the rate-limit timestamp stay consistent.
+    let lastDraw = 0
+    const drawFrame = (now: number) => {
+      if (devHud) {
+        const t0 = performance.now()
+        drawGame(ctx, sprites, state)
+        const dtDraw = performance.now() - t0
+        drawMs = drawMs === 0 ? dtDraw : drawMs * 0.9 + dtDraw * 0.1
+      } else {
+        drawGame(ctx, sprites, state)
+      }
+      if (devHud) draws++
+      drawnPhase = state.phase
+      redrawPending = false
+      lastDraw = now
+    }
+
+    // First frame before any rAF fires (hidden tab, throttling).
+    drawGame(ctx, sprites, state)
+
+    // Resizing clears the backing store — with alpha:false that clear is
+    // opaque black, so repaint in the same callback instead of waiting for
+    // the next rAF tick (no black flash on rotate/resize). A ladder step
+    // takes the same route through applyScale below.
+    const observer = new ResizeObserver(() => {
+      reflow()
+      drawFrame(performance.now())
+    })
+    observer.observe(wrap)
+
+    // --- frame-time sampling for the ladder -----------------------------
+    // A ring of the last 60 rAF deltas; deltas over 500 ms (tab switches,
+    // heavy throttling) are dropped instead of being read as jank.
+    const SAMPLES = 60
+    const SLOW_MS = 25 // a frame this long is a visible drop under ~40 fps
+    const SLOW_LIMIT = 8 // 8 of the last 60 slow → the device can't hold 60
+    const RECOVERY_FRAMES = 240 // clean frames before trying a higher scale
+    const deltas = new Float64Array(SAMPLES)
+    let deltaIdx = 0
+    let deltaCount = 0
+    let slowCount = 0
+    let cleanStreak = 0
+
+    const resetSampler = () => {
+      deltaCount = 0
+      slowCount = 0
+      cleanStreak = 0
+    }
+
+    // A ladder step repaints immediately in the same tick (resizing clears the
+    // backing store — the same no-black-flash rule as the observer above).
+    const applyScale = () => {
+      resetSampler()
+      reflow()
+      drawFrame(performance.now())
+    }
+
+    let raf = 0
+    let last = performance.now()
+    let running = !document.hidden
+
+    // Running mean of the rAF delta: a panel measurably faster than 60 Hz
+    // (mean < 15 ms) may have its draws rate-limited below, a 60 Hz or
+    // stuttering one never does — the limiter can only skip frames the panel
+    // would not have shown anyway.
+    let meanDelta = 0
+
     const frame = (now: number) => {
-      const dt = (now - last) / 1000
+      const deltaMs = now - last
+      const dt = deltaMs / 1000
       last = now
       if (running) stepGame(state, dt)
       // G — the pipe palette advances HERE (once per frame, in the engine
@@ -266,24 +353,100 @@ export function GameCanvas({
       // banner belongs to the run that reached the target, so the same
       // challenge id keeps its celebration state until a new one appears.
       syncChallenge(state, latest.current)
-      if (
-        state.phase !== 'game-over' ||
+
+      if (deltaMs > 0 && deltaMs <= 500) {
+        meanDelta =
+          meanDelta === 0 ? deltaMs : meanDelta * 0.95 + deltaMs * 0.05
+      }
+
+      // Ladder sampling — only meaningful while frames keep flowing.
+      if (running && deltaMs > 0 && deltaMs <= 500) {
+        if (deltaCount === SAMPLES) {
+          if (deltas[deltaIdx] > SLOW_MS) slowCount--
+        } else {
+          deltaCount++
+        }
+        const slow = deltaMs > SLOW_MS
+        deltas[deltaIdx] = deltaMs
+        deltaIdx = (deltaIdx + 1) % SAMPLES
+        if (slow) {
+          slowCount++
+          cleanStreak = 0
+        } else {
+          cleanStreak++
+        }
+
+        if (scaleSteps.length > 1) {
+          if (deltaCount === SAMPLES && slowCount >= SLOW_LIMIT) {
+            if (scaleStep < scaleSteps.length - 1) {
+              scaleStep++
+              applyScale() // one step; the fresh window decides the next
+            }
+          } else if (
+            scaleStep > 0 &&
+            cleanStreak >= RECOVERY_FRAMES &&
+            // Recovery only OUTSIDE a run — neither while playing nor
+            // during the death animation: a resolution change mid-flight is
+            // a needless distraction at the moment the player needs focus,
+            // and it stops a borderline device oscillating between scales.
+            state.phase !== 'playing' && state.phase !== 'dead'
+          ) {
+            scaleStep--
+            applyScale()
+          }
+        }
+      }
+
+      // Rate-limit draws on panels faster than 60 Hz (see meanDelta above);
+      // the engine still steps every rAF, and the game-over freeze still
+      // paints its single frame immediately.
+      const fastPanel = meanDelta > 0 && meanDelta < 15
+      if (state.phase !== 'game-over') {
+        if (!fastPanel || now - lastDraw >= 14) drawFrame(now)
+      } else if (
         drawnPhase !== state.phase ||
         redrawPending ||
         // C — keep drawing while the completion banner is still pulsing.
         isCelebrating(state)
       ) {
-        drawGame(ctx, sprites, state)
-        drawnPhase = state.phase
-        redrawPending = false
+        drawFrame(now)
       }
+
+      if (devHud) {
+        const instFps = 1000 / Math.max(deltaMs, 0.1)
+        fps = fps === 0 ? instFps : fps * 0.9 + instFps * 0.1
+        if (now - hudLast >= 250) {
+          hudLast = now
+          const perf = {
+            fps: Math.round(fps),
+            frameMs: meanDelta,
+            drawMs,
+            draws,
+            scale: scaleSteps[scaleStep],
+            scaleStep,
+            scaleSteps: scaleSteps.length,
+            slow: slowCount,
+            samples: deltaCount,
+          }
+          ;(window as unknown as { __birdPerf?: typeof perf }).__birdPerf = perf
+          if (hudEl) {
+            hudEl.textContent =
+              `${perf.fps} fps  ${meanDelta.toFixed(1)}ms frame  ${drawMs.toFixed(1)}ms draw\n` +
+              `scale \u00d7${perf.scale} (step ${scaleStep + 1}/${scaleSteps.length})  slow ${slowCount}/${deltaCount}`
+          }
+        }
+      }
+
       raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
 
     const onVisibility = () => {
       running = !document.hidden
-      if (running) last = performance.now()
+      if (running) {
+        last = performance.now()
+        resetSampler() // the resume gap must not count as jank
+      }
     }
 
     // DEV-only: run N fixed engine steps synchronously (deterministic checks
@@ -297,6 +460,20 @@ export function GameCanvas({
         for (let i = 0; i < steps; i++) stepGame(state, dt)
         reportPhase()
         drawGame(ctx, sprites, state)
+      }
+
+      // DEV-only: force an adaptive-resolution step (renders 1.5×/1× without
+      // needing a device that can't hold 60 fps; index into scaleSteps).
+      ;(
+        window as unknown as { __birdSetScaleStep?: (step: number) => void }
+      ).__birdSetScaleStep = (step) => {
+        const next = Math.max(
+          0,
+          Math.min(scaleSteps.length - 1, Math.round(step)),
+        )
+        if (next === scaleStep) return
+        scaleStep = next
+        applyScale()
       }
     }
 
@@ -355,6 +532,30 @@ export function GameCanvas({
   return (
     <div className="game-wrap" ref={wrapRef}>
       <canvas ref={canvasRef} className="game-canvas" aria-label="Bird Energy game" />
+      {/* DEV-only perf overlay — see the frame loop. Inline styles on
+          purpose: a game.css rule would still ship in the production CSS
+          (only the JSX is stripped by the DEV flag), so keeping them here
+          leaves the built bundle with no trace of the overlay. */}
+      {import.meta.env.DEV && (
+        <div
+          ref={hudRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 4,
+            left: 4,
+            zIndex: 10,
+            padding: '4px 6px',
+            borderRadius: 4,
+            background: 'rgba(0, 0, 0, 0.55)',
+            color: '#eaffea',
+            font: '10px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            whiteSpace: 'pre',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        />
+      )}
       {load.kind === 'loading' && <p className="game-status">Loading…</p>}
       {load.kind === 'error' && (
         <p className="game-status game-status-error">{load.message}</p>

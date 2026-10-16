@@ -797,16 +797,20 @@ export const getLeaderboard = onCall(
 // ------------------------------------------------------------------ ADM-01 ---
 
 /**
- * ADM-01 — adminChallengeMutation: the ONE writer for the challenges/ collection.
+ * ADM-01 / ADM-02 — adminChallengeMutation: the ONE writer for the
+ * challenges/ collection.
  *
  * Called from the Admin Panel form (src/features/AdminPage.tsx via
  * src/features/challenges.ts). Firestore rules (SEC-01) deny all client writes
- * to challenges/, so create/update can only happen here, with the Admin SDK.
+ * to challenges/, so create/update/delete can only happen here, with the Admin
+ * SDK.
  *
  * DoD:
  *  - requests without the admin role are rejected with permission-denied;
  *  - create and update persist to Firestore (and are visible to the Challenges
  *    screen, which reads challenges/ ordered by startDate desc);
+ *  - delete (ADM-02) irreversibly removes the doc, and reports not-found for
+ *    an id that is already gone instead of silently succeeding;
  *  - the payload is re-validated server-side (the client rules in
  *    src/features/challengeValidation.ts are instant feedback, never the trust
  *    boundary), and createdAt/updatedAt/createdBy are stamped here.
@@ -815,7 +819,15 @@ export const getLeaderboard = onCall(
  * authenticateTelegram (AUTH-03) — never from client-supplied data. The
  * request shape mirrors AdminChallengeMutationRequest in
  * src/features/challenges.ts:
- *   { operation: "create" | "update", challengeId?, payload: { ... } }
+ *   {
+ *     operation: "create" | "update" | "delete",
+ *     challengeId?: string,
+ *     payload?: { title, description, type, targetValue, startDate, endDate }
+ *   }
+ *
+ * The Admin Panel's confirmation dialog is UX only — this function performs its
+ * own authorisation and existence checks and never trusts that a dialog was
+ * shown (spec: "Backends nedrīkst paļauties uz šo logu autorizācijai").
  */
 
 /** Challenge kinds supported by the app (src/features/challenges.ts). */
@@ -936,6 +948,18 @@ export function validateChallengePayload(payload: unknown): ValidatedChallenge {
   return {title, description, type, targetValue, startDate, endDate};
 }
 
+/** The four stored challenge fields, copied from the validated payload. */
+function challengeFields(validated: ValidatedChallenge) {
+  return {
+    title: validated.title,
+    description: validated.description,
+    type: validated.type,
+    targetValue: validated.targetValue,
+    startDate: validated.startDate,
+    endDate: validated.endDate,
+  };
+}
+
 export const adminChallengeMutation = onCall(
   {
     region: "europe-north1",
@@ -960,33 +984,28 @@ export const adminChallengeMutation = onCall(
 
     const data = (request.data ?? {}) as AdminChallengeMutationData;
     const operation = data.operation;
-    if (operation !== "create" && operation !== "update") {
+    if (
+      operation !== "create" &&
+      operation !== "update" &&
+      operation !== "delete"
+    ) {
       throw new HttpsError(
         "invalid-argument",
-        "operation must be create or update.",
+        "operation must be create, update or delete.",
       );
     }
-
-    const validated = validateChallengePayload(data.payload);
-    const fields = {
-      title: validated.title,
-      description: validated.description,
-      type: validated.type,
-      targetValue: validated.targetValue,
-      startDate: validated.startDate,
-      endDate: validated.endDate,
-    };
 
     const db = getFirestore();
     const now = new Date();
 
     try {
       if (operation === "create") {
+        const validated = validateChallengePayload(data.payload);
         // Server-generated id; the Challenges screen sorts by startDate, so no
         // extra index is needed for the list read.
         const ref = db.collection("challenges").doc();
         await ref.set({
-          ...fields,
+          ...challengeFields(validated),
           createdBy: request.auth.uid,
           createdAt: now,
           updatedAt: now,
@@ -998,16 +1017,37 @@ export const adminChallengeMutation = onCall(
         return {ok: true, challengeId: ref.id};
       }
 
-      // update — challengeId identifies an existing doc; createdAt/createdBy
-      // are stamped once on create and stay immutable, only updatedAt moves.
+      // update/delete — challengeId identifies an existing doc; createdAt/
+      // createdBy are stamped once on create and stay immutable.
       const challengeId = data.challengeId;
       if (typeof challengeId !== "string" || challengeId.trim().length === 0) {
         throw new HttpsError(
           "invalid-argument",
-          "challengeId is required to update a challenge.",
+          `challengeId is required to ${operation} a challenge.`,
         );
       }
       const ref = db.collection("challenges").doc(challengeId);
+
+      if (operation === "delete") {
+        // ADM-02 — permanent removal. The transaction keeps "is it there?"
+        // and "remove it" one decision, so a challenge deleted in the meantime
+        // answers not-found rather than reporting a false success.
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) {
+            throw new HttpsError("not-found", "Challenge not found.");
+          }
+          tx.delete(ref);
+        });
+        logger.info("Challenge deleted", {
+          challengeId,
+          uid: request.auth.uid,
+        });
+        return {ok: true, challengeId};
+      }
+
+      const validated = validateChallengePayload(data.payload);
+      const fields = challengeFields(validated);
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists) {

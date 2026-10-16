@@ -19,10 +19,11 @@
 // box (title substring, case-insensitive) and the All/Active/Finished filter
 // are pure client-side predicates here — typing never triggers a refetch.
 //
-// CH-03 / ADM-01 — writes: the admin form validates locally (challengeForm.ts)
-// and then calls adminChallengeMutation, the ONE writer for challenges (the
-// rules deny client writes). The shape below is the spec's callable contract,
-// so ADM-01 only has to implement the other side.
+// CH-03 / ADM-01 / ADM-02 — writes: the admin form validates locally
+// (challengeValidation.ts), the delete path confirms in a modal first (see
+// AdminPage.tsx), and both then call adminChallengeMutation — the ONE writer
+// for challenges (the rules deny client writes). The shape below is the spec's
+// callable contract.
 import {
   collection,
   getDocs,
@@ -243,14 +244,18 @@ export function filterChallengeRows(
 /* ADM-01 — the admin write path (client half).                        */
 /* ------------------------------------------------------------------ */
 
-export type ChallengeOperation = 'create' | 'update'
+export type ChallengeOperation = 'create' | 'update' | 'delete'
 
-/** ADM-01's request shape, per the spec's backend interface section. */
+/** The two operations that carry a payload — the Admin Panel form's modes. */
+export type ChallengeFormMode = 'create' | 'update'
+
+/** The callable's request shape, per the spec's backend interface section. */
 interface AdminChallengeMutationRequest {
   operation: ChallengeOperation
-  /** Required for 'update' (and for ADM-02's 'delete'). */
+  /** Required for 'update' and 'delete'; create gets a server-side id. */
   challengeId?: string
-  payload: {
+  /** create/update only — a delete identifies its target by id alone. */
+  payload?: {
     title: string
     description: string
     type: ChallengeType
@@ -267,21 +272,54 @@ function describeMutationError(err: unknown): string {
     err !== null && typeof err === 'object' && 'code' in err
       ? String((err as { code: unknown }).code)
       : ''
-  const detail = err instanceof Error ? err.message : String(err)
-  if (
-    code === 'functions/not-found' ||
+  const raw = err instanceof Error ? err.message : String(err)
+  // The callable SDK appends the HTTP status to a server-supplied message
+  // ("Challenge not found. [404]"); that number is noise for the admin.
+  const detail = raw.replace(/\s*\[\d+\]$/, '').trim()
+
+  // A callable that is not deployed anywhere answers either with the SDK's
+  // generic NOT_FOUND (no such route) or, against the emulator, with a failing
+  // preflight that surfaces as a bare "internal [N]". Both are checked on the
+  // raw message, before the status suffix is stripped.
+  const unreachable =
     code === 'functions/unimplemented' ||
-    // A callable that is not deployed anywhere answers with a failing
-    // preflight, which the SDK surfaces as a bare "internal [N]" — say what
-    // actually went wrong instead of repeating that.
-    (code === 'functions/internal' && /^internal \[\d+\]$/.test(detail))
-  ) {
-    return 'Validation passed, but the adminChallengeMutation Cloud Function (ADM-01) could not be reached — nothing was saved.'
+    (code === 'functions/not-found' && raw.trim().toUpperCase() === 'NOT_FOUND') ||
+    (code === 'functions/internal' && /^internal \[\d+\]$/.test(raw.trim()))
+  if (unreachable) {
+    return 'The adminChallengeMutation Cloud Function (ADM-01) could not be reached — nothing was changed.'
   }
-  if (code === 'functions/permission-denied') {
-    return `Only administrators may change challenges — ${detail}`
+
+  switch (code) {
+    case 'functions/permission-denied':
+      return `Only administrators may change challenges — ${detail}`
+    case 'functions/unauthenticated':
+      return 'Sign in again as an administrator to change challenges.'
+    case 'functions/not-found':
+      // ADM-02: the challenge was removed elsewhere (or by an earlier click),
+      // so the admin list is simply out of date.
+      return 'That challenge no longer exists — it may have been deleted on another device. Reload the list and try again.'
+    case 'functions/unavailable':
+      return 'The admin service is unreachable right now — nothing was changed. Check your connection and try again.'
+    default:
+      // invalid-argument messages are already written for a human.
+      return detail || 'Something went wrong and nothing was changed.'
   }
-  return detail
+}
+
+/** The one place the callable is invoked; both wrappers go through it. */
+async function invokeAdminMutation(
+  request: AdminChallengeMutationRequest,
+): Promise<void> {
+  const mutate = httpsCallable<AdminChallengeMutationRequest, { ok: boolean }>(
+    functions,
+    'adminChallengeMutation',
+  )
+  try {
+    await mutate(request)
+  } catch (err) {
+    // Readable message for the caller; the original error stays attached.
+    throw new Error(describeMutationError(err), { cause: err })
+  }
 }
 
 /**
@@ -291,31 +329,33 @@ function describeMutationError(err: unknown): string {
  * rejects on failure so the form can keep the entered values and show why.
  */
 export async function adminChallengeMutation(
-  operation: ChallengeOperation,
+  operation: ChallengeFormMode,
   payload: ChallengeInput,
   challengeId?: string,
 ): Promise<void> {
-  const mutate = httpsCallable<AdminChallengeMutationRequest, { ok: boolean }>(
-    functions,
-    'adminChallengeMutation',
-  )
-  try {
-    await mutate({
-      operation,
-      ...(challengeId ? { challengeId } : {}),
-      payload: {
-        title: payload.title,
-        description: payload.description,
-        type: payload.type,
-        targetValue: payload.targetValue,
-        startDate: payload.startDate.toISOString(),
-        endDate: payload.endDate.toISOString(),
-      },
-    })
-  } catch (err) {
-    // Readable message for the form; the original error stays attached.
-    throw new Error(describeMutationError(err), { cause: err })
-  }
+  await invokeAdminMutation({
+    operation,
+    ...(challengeId ? { challengeId } : {}),
+    payload: {
+      title: payload.title,
+      description: payload.description,
+      type: payload.type,
+      targetValue: payload.targetValue,
+      startDate: payload.startDate.toISOString(),
+      endDate: payload.endDate.toISOString(),
+    },
+  })
+}
+
+/**
+ * ADM-02 — permanently delete one challenge. Same callable, `delete`
+ * operation: the server re-checks the admin role and that the id exists, so a
+ * stale list cannot delete something that is already gone. The confirmation
+ * dialog in the Admin Panel is UX only — this call is never made without an
+ * explicit confirmation (see AdminPage.tsx).
+ */
+export async function deleteChallenge(challengeId: string): Promise<void> {
+  await invokeAdminMutation({ operation: 'delete', challengeId })
 }
 
 /** Compact date range: "3–10 Aug 2026", "28 Sep – 4 Oct 2026". */
