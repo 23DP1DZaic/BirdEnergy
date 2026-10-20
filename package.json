@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "tsc -p tsconfig.test.json && node --test \"src/**/*.test.ts\"",
-    "test:rules": "npx --yes firebase-tools emulators:exec --only firestore --project birdenergy-f1405 \"node --test test/firestore.rules.test.ts\"",
+    "test:rules": "node scripts/run-rules-tests.mjs",
+    "setup:test-tools": "node scripts/setup-firestore-tools.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
