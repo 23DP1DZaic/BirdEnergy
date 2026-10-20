@@ -20,8 +20,8 @@
 // form calls t(err.key, err.params) at render time, so a message follows the
 // language switch without re-validating.
 
-import type { Challenge, ChallengeInput, ChallengeType } from './challenges'
-import { LOCALE_CODE, getLocale } from '../i18n'
+import type { Challenge, ChallengeInput, ChallengeType } from './challenges.ts'
+import { LOCALE_CODE, getLocale } from '../i18n.ts'
 
 export type ChallengeFormField =
   | 'title'

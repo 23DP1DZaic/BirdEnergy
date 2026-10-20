@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Local toolchain installed by `npm run setup:test-tools` (JRE for the
+# Firestore emulator) — reproducible, never committed.
+.tools/
+
+# Locally rendered PDF/PNG previews of the generated documents.
+.preview/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
