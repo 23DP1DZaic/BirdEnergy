@@ -17,7 +17,9 @@
     "erasableSyntaxOnly": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
+    /* "vite/client" brings import.meta.env, which the modules under test
+     * (challengeValidation → challenges → firebase → devAuth) refer to. */
+    "types": ["node", "vite/client"],
 
     /* Linting */
     "strict": true,
@@ -25,5 +27,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*.test.ts"]
+  "include": ["src/**/*.test.ts", "test/**/*.test.ts"]
 }

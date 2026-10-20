@@ -35,6 +35,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { LOCALE_CODE, getLocale, t } from '../i18n'
+import { describeMutationError } from './adminErrors.ts'
 
 export type ChallengeType = 'single_game_score' | 'games_played'
 
@@ -263,46 +264,6 @@ interface AdminChallengeMutationRequest {
     /** ISO 8601 — the callable transport is JSON, so dates travel as strings. */
     startDate: string
     endDate: string
-  }
-}
-
-/** Turns a failed call into something the admin can act on. */
-function describeMutationError(err: unknown): string {
-  const code =
-    err !== null && typeof err === 'object' && 'code' in err
-      ? String((err as { code: unknown }).code)
-      : ''
-  const raw = err instanceof Error ? err.message : String(err)
-  // The callable SDK appends the HTTP status to a server-supplied message
-  // ("Challenge not found. [404]"); that number is noise for the admin.
-  const detail = raw.replace(/\s*\[\d+\]$/, '').trim()
-
-  // A callable that is not deployed anywhere answers either with the SDK's
-  // generic NOT_FOUND (no such route) or, against the emulator, with a failing
-  // preflight that surfaces as a bare "internal [N]". Both are checked on the
-  // raw message, before the status suffix is stripped.
-  const unreachable =
-    code === 'functions/unimplemented' ||
-    (code === 'functions/not-found' && raw.trim().toUpperCase() === 'NOT_FOUND') ||
-    (code === 'functions/internal' && /^internal \[\d+\]$/.test(raw.trim()))
-  if (unreachable) {
-    return 'The adminChallengeMutation Cloud Function (ADM-01) could not be reached — nothing was changed.'
-  }
-
-  switch (code) {
-    case 'functions/permission-denied':
-      return `Only administrators may change challenges — ${detail}`
-    case 'functions/unauthenticated':
-      return 'Sign in again as an administrator to change challenges.'
-    case 'functions/not-found':
-      // ADM-02: the challenge was removed elsewhere (or by an earlier click),
-      // so the admin list is simply out of date.
-      return 'That challenge no longer exists — it may have been deleted on another device. Reload the list and try again.'
-    case 'functions/unavailable':
-      return 'The admin service is unreachable right now — nothing was changed. Check your connection and try again.'
-    default:
-      // invalid-argument messages are already written for a human.
-      return detail || 'Something went wrong and nothing was changed.'
   }
 }
 

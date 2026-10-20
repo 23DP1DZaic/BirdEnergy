@@ -150,6 +150,84 @@ impulsu, sadursmes ar zemi, griestiem un caurulēm, punktu skaitīšanu, nāves
 animāciju un Play Again atiestatīšanu, kā arī `runResult` datus, ko nosūta
 `submitGameResult`.
 
+### Firestore drošības noteikumu testi (SEC-01)
+
+`firestore.rules` tiek pārbaudīti pret īsto Firestore emulatoru ar
+`@firebase/rules-unit-testing`. Testi atrodas `test/firestore.rules.test.ts`
+un palaiž noteikumus trīs klienta stāvokļos: **viesis** (bez sesijas),
+**spēlētājs** (`role: 'user'`) un **administrators** (`role: 'admin'`).
+
+```bash
+npm run test:rules
+```
+
+Skripts pats palaiž un aptur emulatoru
+(`firebase emulators:exec --only firestore`). Nepieciešama **Java 17+**
+(Firestore emulators ir Java lietotne) un pieejams `firebase-tools` — skripts
+izmanto `npx firebase-tools`, tāpēc atsevišķa instalācija nav vajadzīga.
+`npm test` pārbauda arī šo testu tipus (`tsc -p tsconfig.test.json`).
+
+Ja datorā nav Java, to var uzstādīt projekta iekšienē (`.tools/`, gitignored):
+
+```bash
+npm run setup:test-tools   # Temurin JRE 21 priekš šīs OS/arhitektūras
+```
+
+`npm run test:rules` vispirms meklē `.tools/jre`, tad `JAVA_HOME`, tad `java`
+uz `PATH`, tāpēc pēc šīs komandas nekas cits nav jākonfigurē. Skripti ir
+krustplatformu Node skripti (`scripts/*.mjs`), tāpēc strādā arī uz Windows:
+`setup:test-tools` izvēlas arhīva formātu pēc OS (Adoptium Windows vidē
+piegādā ZIP, citur `.tar.gz`) un izmanto sistēmas `tar` (`%SystemRoot%`
+`\System32\tar.exe` mēdz būt bsdtar, kas prot arī ZIP; rezerves variants ir
+PowerShell `Expand-Archive`).
+
+Testi pierāda, ka:
+
+* neviens no trim stāvokļiem nevar tieši rakstīt `users`, `gameResults` vai
+  `challenges` kolekcijās — arī ne paša profila īpašnieks, ne administrators
+  (rakstīšana notiek tikai Cloud Functions ar Admin SDK, kas šos noteikumus
+  apiet pēc konstrukcijas);
+* viesim nav lasīšanas tiesību nekur;
+* spēlētājs lasa tikai savu `users/{uid}` profilu un tikai savus
+  `gameResults` ierakstus — vaicājumam jābūt ierobežotam ar `uid`, un
+  nefiltrēti, cita lietotāja, diapazona (`>=`) un `in` vaicājumi tiek noraidīti;
+* `users` saraksts nav lasāms (līderu tabulu apkalpo `getLeaderboard`), bet
+  `challenges` sarakstu var lasīt jebkurš pierakstīts lietotājs;
+* jebkurš cits ceļš, arī apakškolekcijas, ir aizliegts.
+
+### Kļūdu testēšanas protokols
+
+Negatīvo scenāriju (nederīga ievade, nepilnvarota piekļuve, servisa kļūdas)
+rezultāti apkopoti `docs/kludu-testesana/`. Dokumentu ģenerē
+`python docs/kludu-testesana/build.py` (vajadzīgs `python-docx`), tāpēc tas
+vienmēr atbilst palaistajiem testiem, nevis manuāli pārrakstītiem skaitļiem.
+Rodas divi dokumenti ar vienu un to pašu datu avotu:
+
+* `Kludu_testesanas_protokols.docx` — pilnais protokols (vide, klasifikācija,
+  kopsavilkums, visi testu protokoli, manuālie testi, secinājumi);
+* `Programmatura_lietojamibas_testsana.docx` — tā pati pārbaude studiju
+  programmas parauga formātā kā 7. nodaļa ar tabulām 7.1 (testēšanas dati),
+  7.2 (detalizētie kļūdu testa gadījumi) un 7.3 (identificēto kļūdu
+  novēršana un atkārtota testēšana).
+
+Abiem blakus tiek rakstīts tas pats saturs kā Markdown (`*.md`).
+
+### Noteikumu izvietošana
+
+`firestore.rules` ir izvietoti projektā `birdenergy-f1405`, tāpēc emulatora
+testi un produkcija izmanto vienu un to pašu failu:
+
+```bash
+npx firebase-tools login                                  # vienreiz, ar pārlūku
+npx firebase-tools deploy --only firestore:rules --project birdenergy-f1405
+```
+
+Izvietotais ruleset (`releases/cloud.firestore`) pēc izvietošanas tika
+nolasīts atpakaļ no Firebase Rules API un salīdzināts ar `firestore.rules` —
+69 rindas, saturs sakrīt 1:1. Bez pārlūka (piem., CI) login var veikt
+neinteraktīvi: `firebase login --non-interactive` izdrukā saiti un saglabā
+sesiju, bet `firebase login <kods>` to pabeidz.
+
 ## Veiktspēja mobilajās ierīcēs
 
 Spēles ekrāns no jauna zīmē visu ainu katrā `requestAnimationFrame` kadru, tāpēc
