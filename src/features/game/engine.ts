@@ -93,8 +93,9 @@ export type GameEvent = 'flap' | 'score' | 'hit' | 'die'
 
 /**
  * C — the active challenge as the Game Over panel shows it. GamePage resolves
- * it from the challenge list + this player's runs; the wrapper decides whether
- * this run is the one that completed it (`celebrate`).
+ * it from the challenge list + this player's runs (always with celebrate:
+ * false — the ENGINE derives the completion celebration from the values
+ * themselves, see syncChallenge).
  */
 export interface GameChallengeView {
   id: string
@@ -313,9 +314,14 @@ export function resetGame(s: GameState): void {
   s.groundIndex = groundIndex
   s.skinIndex = skinIndex
   // C — the best and the active challenge are fetched once and must survive
-  // "Play Again" too; only the run's own numbers start over.
+  // "Play Again" too; only the run's own numbers start over. The completion
+  // celebration belongs to the game-over it happened on, so a fresh run
+  // starts with the numbers but no banner.
   s.serverBest = serverBest
-  s.challenge = challenge
+  s.challenge =
+    challenge === null
+      ? null
+      : { ...challenge, celebrate: false, celebrateAt: 0 }
   s.currentPipeColorIndex = 0
   s.lastPipeColorChangeScore = 0
 }
@@ -364,15 +370,58 @@ export function drainEvents(s: GameState): GameEvent[] {
 }
 
 /**
- * C — true while the challenge-completion banner should still pulse. The Game
- * Over scene is otherwise drawn once and left alone (see GameCanvas), so the
- * renderer and the wrapper both gate the animation on this.
+ * C — true for the whole game-over the challenge was completed on. The Game
+ * Over scene is otherwise drawn once and left alone (see GameCanvas); the
+ * renderer gates the banner on this, and the wrapper bounds the VISIBLE pulse
+ * to a few real seconds on top of it ("pulses, then goes static"). The flag
+ * is cleared by resetGame — the only way off that screen — so the world
+ * clock ticking at game-over can never expire a celebration early.
  */
 export function isCelebrating(s: GameState): boolean {
-  const challenge = s.challenge
-  return (
-    challenge !== null && challenge.celebrate && s.time - challenge.celebrateAt < 3
-  )
+  return s.challenge !== null && s.challenge.celebrate
+}
+
+/**
+ * C — copies the newest best/challenge view into the engine's frozen state.
+ * The completion celebration is derived HERE, from the values themselves: the
+ * update that takes `value` from below `target` to >= target is the one that
+ * completed the challenge, and it starts pulsing on that game-over. Reading
+ * the crossing off the numbers (instead of trusting a flag in the view) makes
+ * it a one-shot — a view that keeps a stale flag, a reload with an
+ * already-finished challenge or "Play Again" can never re-fire it, and
+ * resetGame ends it for the next run.
+ */
+export function syncChallenge(
+  state: GameState,
+  view: { serverBest: number; challenge: GameChallengeView | null },
+): void {
+  state.serverBest = view.serverBest
+  if (!view.challenge) {
+    state.challenge = null
+    return
+  }
+  const current = state.challenge
+  if (current === null || current.id !== view.challenge.id) {
+    // First sighting of this challenge: show the numbers, never celebrate —
+    // arriving with value >= target only means it was finished earlier.
+    state.challenge = { ...view.challenge, celebrate: false, celebrateAt: 0 }
+    return
+  }
+  const crossed =
+    current.value < current.target &&
+    view.challenge.value >= view.challenge.target
+  const celebrate = current.celebrate || crossed
+  state.challenge = {
+    ...current,
+    title: view.challenge.title,
+    value: view.challenge.value,
+    target: view.challenge.target,
+    celebrate,
+    // Bookkeeping: when the celebration started. resetGame ends it for
+    // the next run (isCelebrating).
+    celebrateAt:
+      crossed && !current.celebrate ? state.time : current.celebrateAt,
+  }
 }
 
 /** Begin a run from the ready screen. The starting tap counts as flap #1. */

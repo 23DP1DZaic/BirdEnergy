@@ -23,6 +23,7 @@ import {
   resetGame,
   runResult,
   stepGame,
+  syncChallenge,
   type DeadBird,
   type GameChallengeView,
   type GamePhase,
@@ -54,39 +55,6 @@ type LoadState =
  * (state.time) stops the moment the game-over screen appears.
  */
 const CELEBRATE_PULSE_MS = 3000
-
-/**
- * C — copies the newest best/challenge into the engine's frozen state. A
- * challenge that just reached its target is the one that celebrates, and it
- * keeps celebrating for that game-over only (its numbers move on afterwards).
- */
-function syncChallenge(
-  state: GameState,
-  view: { serverBest: number; challenge: GameChallengeView | null },
-): void {
-  state.serverBest = view.serverBest
-  if (!view.challenge) {
-    state.challenge = null
-    return
-  }
-  const current = state.challenge
-  if (current === null || current.id !== view.challenge.id) {
-    const done = view.challenge.value >= view.challenge.target
-    state.challenge = {
-      ...view.challenge,
-      celebrate: done,
-      celebrateAt: done ? state.time : 0,
-    }
-    return
-  }
-  // Same challenge: refresh the numbers, keep the celebration state.
-  state.challenge = {
-    ...current,
-    title: view.challenge.title,
-    value: view.challenge.value,
-    target: view.challenge.target,
-  }
-}
 
 /** Resize the canvas backing store to the container and map logical px onto it. */
 function resizeCanvas(
@@ -163,9 +131,11 @@ export function GameCanvas({
   // C — the engine keeps its OWN copy of these (it owns a frozen object), so a
   // new best or a new progress value must never restart the run: the frame
   // loop copies them through this ref instead of reading the props.
-  const latest = useRef({ serverBest, challenge })
+  // C — seq counts these prop updates; the frame loop repaints the frozen
+  // game-over panel once per late-arriving value (see syncedSeq there).
+  const latest = useRef({ serverBest, challenge, seq: 0 })
   useEffect(() => {
-    latest.current = { serverBest, challenge }
+    latest.current = { serverBest, challenge, seq: latest.current.seq + 1 }
   }, [serverBest, challenge])
 
   useEffect(() => {
@@ -266,6 +236,9 @@ export function GameCanvas({
     // change or a skin/background/ground event sets redrawPending to repaint.
     let drawnPhase: GamePhase | null = null
     let redrawPending = true
+    // C — last `seq` of the best/challenge props copied into the engine
+    // state; a bump schedules one repaint of the frozen game-over panel.
+    let syncedSeq = 0
     // C — real-time end of the completion banner's pulse (0 = not pulsing).
     let celebrateUntil = 0
 
@@ -359,10 +332,18 @@ export function GameCanvas({
       reportPhase()
       // AUDIO — the engine queues events as data; this is where sound happens.
       for (const event of drainEvents(state)) playSfx(event)
-      // C — refresh the personal best and the challenge block; the completion
-      // banner belongs to the run that reached the target, so the same
-      // challenge id keeps its celebration state until a new one appears.
+      // C — refresh the personal best and the challenge block. The engine
+      // derives the completion celebration from the values themselves.
       syncChallenge(state, latest.current)
+      // C — the best/progress values land asynchronously (the submit
+      // response, the challenge fetch), i.e. always AFTER the game-over
+      // frame was first painted. The scene is frozen, so a value change must
+      // schedule a repaint — otherwise the panel keeps the numbers from the
+      // moment of death forever.
+      if (latest.current.seq !== syncedSeq) {
+        syncedSeq = latest.current.seq
+        redrawPending = true
+      }
 
       if (deltaMs > 0 && deltaMs <= 500) {
         meanDelta =

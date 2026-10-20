@@ -35,24 +35,24 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { LOCALE_CODE, getLocale, t } from '../i18n'
+import type {
+  Challenge,
+  ChallengeProgress,
+  ChallengeType,
+  GameRun,
+} from './challengeProgress'
 
-export type ChallengeType = 'single_game_score' | 'games_played'
-
-export interface Challenge {
-  id: string
-  title: string
-  description: string
-  type: ChallengeType
-  targetValue: number
-  startDate: Date
-  endDate: Date
-}
-
-/** One of my finished runs — everything progress needs. */
-export interface GameRun {
-  score: number
-  createdAt: Date
-}
+// CH-01 progress layer: the pure computation (value capped at the target —
+// a finished challenge reads 2/2, never 4/2) lives in challengeProgress.ts
+// so it can be unit-tested from Node; re-exported here so every caller keeps
+// importing from this module.
+export { computeProgress } from './challengeProgress'
+export type {
+  ChallengeType,
+  Challenge,
+  GameRun,
+  ChallengeProgress,
+} from './challengeProgress'
 
 export type ChallengeStatus = 'upcoming' | 'active' | 'finished'
 
@@ -78,16 +78,6 @@ export interface ChallengeRow {
   challenge: Challenge
   status: ChallengeStatus
   progress: ChallengeProgress
-}
-
-export interface ChallengeProgress {
-  /** Best score / games played inside the challenge window. */
-  value: number
-  target: number
-  /** Percent of target, capped at 100 (the bar never overshoots). */
-  pct: number
-  /** Goal reached: value >= target. */
-  done: boolean
 }
 
 /**
@@ -185,25 +175,6 @@ export function deriveStatus(challenge: Challenge, now: Date): ChallengeStatus {
   if (now.getTime() < challenge.startDate.getTime()) return 'upcoming'
   if (now.getTime() > challenge.endDate.getTime()) return 'finished'
   return 'active'
-}
-
-/** Progress from my runs inside [startDate, endDate] (CH-01 DoD). */
-export function computeProgress(
-  challenge: Challenge,
-  runs: GameRun[],
-): ChallengeProgress {
-  const start = challenge.startDate.getTime()
-  const end = challenge.endDate.getTime()
-  let value = 0
-  for (const run of runs) {
-    const t = run.createdAt.getTime()
-    if (t < start || t > end) continue
-    if (challenge.type === 'games_played') value += 1
-    else if (run.score > value) value = run.score
-  }
-  const target = challenge.targetValue
-  const pct = Math.min(100, Math.round((value / target) * 100))
-  return { value, target, pct, done: value >= target }
 }
 
 /**

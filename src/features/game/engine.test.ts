@@ -32,6 +32,7 @@ import {
   createGameState,
   deadBirds,
   flap,
+  isCelebrating,
   advancePipePalette,
   floorTop,
   pipePalette,
@@ -40,6 +41,8 @@ import {
   runResult,
   startGame,
   stepGame,
+  syncChallenge,
+  type GameChallengeView,
   type GameState,
   type PipePair,
 } from './engine.ts'
@@ -827,5 +830,85 @@ describe('rotationForVelocity — the visual tilt', () => {
     assert.equal(rotationForVelocity(impulse - 1000), rotationForVelocity(impulse))
     assert.equal(rotationForVelocity(1e6), rotationForVelocity(1e5))
     assert.ok(rotationForVelocity(100) < rotationForVelocity(500))
+  })
+})
+
+describe('syncChallenge — best/progress copy + the completion banner (C)', () => {
+  /** A GamePage view of one active challenge with the given progress. */
+  const viewAt = (
+    value: number,
+    target: number,
+    serverBest = 0,
+  ): { serverBest: number; challenge: GameChallengeView } => ({
+    serverBest,
+    challenge: {
+      id: 'c1',
+      title: 'Score 10',
+      value,
+      target,
+      // GamePage never claims a celebration — the engine derives it.
+      celebrate: false,
+      celebrateAt: 0,
+    },
+  })
+
+  it('copies the best and the challenge numbers into the frozen state', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(4, 10, 13))
+    assert.equal(s.serverBest, 13)
+    assert.equal(s.challenge?.value, 4)
+    assert.equal(s.challenge?.target, 10)
+    assert.equal(s.challenge?.celebrate, false)
+  })
+
+  it('clears the block when the view has no challenge', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(4, 10))
+    syncChallenge(s, { serverBest: 13, challenge: null })
+    assert.equal(s.challenge, null)
+    assert.equal(s.serverBest, 13)
+  })
+
+  it('does not celebrate a challenge that arrives already finished', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(10, 10))
+    assert.equal(s.challenge?.celebrate, false)
+    assert.equal(isCelebrating(s), false)
+  })
+
+  it('celebrates exactly the update that crosses the target', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(9, 10))
+    s.time = 42 // the frozen game-over clock
+    syncChallenge(s, viewAt(10, 10))
+    assert.equal(s.challenge?.celebrate, true)
+    assert.equal(s.challenge?.celebrateAt, 42)
+    assert.equal(isCelebrating(s), true)
+    // Later refreshes of the same, finished challenge keep the state.
+    syncChallenge(s, viewAt(11, 10))
+    assert.equal(s.challenge?.value, 11)
+    assert.equal(s.challenge?.celebrate, true)
+    assert.equal(s.challenge?.celebrateAt, 42)
+  })
+
+  it('ends the celebration for the next run — "Play Again" keeps the numbers', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(9, 10))
+    syncChallenge(s, viewAt(10, 10))
+    assert.equal(isCelebrating(s), true)
+    resetGame(s)
+    assert.equal(s.challenge?.value, 10)
+    assert.equal(s.challenge?.celebrate, false)
+    assert.equal(isCelebrating(s), false)
+  })
+
+  it('a new challenge id starts fresh, with no banner', () => {
+    const s = createGameState()
+    syncChallenge(s, viewAt(10, 10))
+    const next = viewAt(10, 10)
+    next.challenge = { ...next.challenge, id: 'c2', title: 'Play 5 games' }
+    syncChallenge(s, next)
+    assert.equal(s.challenge?.id, 'c2')
+    assert.equal(s.challenge?.celebrate, false)
   })
 })

@@ -1,8 +1,9 @@
 // Bird skin selection — same sharing pattern as homeBackground.ts: one index,
 // persisted in localStorage, broadcast via a window event so the Game canvas
-// swaps the sprite live while Home cycles it. The skins are the seven
-// Bird2-N.png sheets in src/assets/Player (each 64x16 = 4 frames of 16x16,
-// identical geometry, so the game renderer needs no changes to swap them).
+// swaps the sprite live while Home cycles it. The skins are the sheets listed
+// in birdSkinUrls (game/sprites.ts): classic 64x16, meme birds ~320x80 and
+// Redbird 368x92 — identical 4-frame layout, and the renderer reads each
+// sheet's own geometry, so no game code changes when a skin is added.
 import { useEffect, useState } from 'react'
 import { birdSkinUrls } from './game/sprites'
 

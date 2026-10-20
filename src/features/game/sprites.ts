@@ -8,6 +8,8 @@
 //   Bird2-1.png        64x16  → 4 frames of 16x16, x = i*16, y = 0
 //   KirkBird/LitvinBird 320x80 → 4 frames of 80x80 (MellBird is 316x81 —
 //                         frame width is naturalWidth/4, read from the sheet)
+//   Redbird.png        1480x370 → source strip for skin 11; RedbirdSmall.png
+//                         (368x92) is the pre-scaled sheet actually loaded
 //   BackgroundN.png    256x256 → seamless sky tile (one of the 9 Home skies)
 //   Pipe/Green-top     32x20  → bottom-pipe cap: lip at the TOP (rows 0-15
 //                                are 32px wide, rows 16-19 are 28px)
@@ -34,6 +36,10 @@ import birdSkin7Url from '../../assets/Player/Bird2-7.png'
 import birdSkin8Url from '../../assets/Player/KirkBird.png'
 import birdSkin9Url from '../../assets/Player/LitvinBird.png'
 import birdSkin10Url from '../../assets/Player/MellBird.png'
+// Skin 11 — Redbird: the source art is a 1480x370 strip (4 frames of 370x370),
+// far larger than the 48px draw box; RedbirdSmall.png is the same four frames
+// pre-scaled (LANCZOS) to 92x92 so the no-smoothing canvas doesn't alias it.
+import birdSkin11Url from '../../assets/Player/RedbirdSmall.png'
 import background1Url from '../../assets/Background/Background1.png'
 import background2Url from '../../assets/Background/Background2.png'
 import background3Url from '../../assets/Background/Background3.png'
@@ -101,8 +107,12 @@ export const gameBackgroundUrls = [
   background10Url,
 ] as const
 
-/** The selectable bird skins; index-matched to birdSkin.ts. The first seven
- *  are the classic 16x16 sheets, the last three the 80x80 meme birds. */
+/**
+ * The selectable bird skins; index-matched to birdSkin.ts. The first seven
+ * are the classic 16x16 sheets, the next three the 80x80 meme birds and the
+ * last the 92x92 Redbird — the renderer reads frame geometry from the sheet
+ * itself (naturalWidth / BIRD_FRAMES), so every size works unchanged.
+ */
 export const birdSkinUrls = [
   birdSkin1Url,
   birdSkin2Url,
@@ -114,6 +124,7 @@ export const birdSkinUrls = [
   birdSkin8Url,
   birdSkin9Url,
   birdSkin10Url,
+  birdSkin11Url,
 ] as const
 
 /** The ground strips (Default, Snow), index-matched to features/groundTile.ts. */
