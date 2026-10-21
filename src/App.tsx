@@ -21,6 +21,7 @@ import { applyStoredGroundIndex } from './features/groundTile'
 import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
 import { NAV_ITEMS, type Screen } from './navigation.ts'
+import { PixelIcon } from './features/ui/PixelIcon'
 import { t, useT } from './i18n'
 import { useAuthRole } from './useAuthRole.ts'
 import type { GamePhase } from './features/game/engine'
@@ -220,7 +221,13 @@ function App() {
               aria-current={screen === item.screen ? 'page' : undefined}
               onClick={() => navigate(item.screen)}
             >
-              {t(item.labelKey)}
+              <PixelIcon
+                name={item.icon}
+                size={24}
+                pressed={screen === item.screen}
+                className="navlink-icon"
+              />
+              <span className="navlink-label">{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>

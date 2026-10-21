@@ -51,6 +51,7 @@ import {
 } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
+import { PixelIcon } from '../ui/PixelIcon'
 import {
   SOUND_SETTINGS_CHANGE_EVENT,
   isSfxEnabled,
@@ -732,7 +733,7 @@ export function GameCanvas({
           title={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
           onClick={() => setSfxEnabled(!sfxOn)}
         >
-          {sfxOn ? '🔊' : '🔇'}
+          <PixelIcon name={sfxOn ? 'soundOn' : 'soundOff'} size={32} />
         </button>
         {uiPhase === 'playing' && (
           <button
@@ -742,7 +743,7 @@ export function GameCanvas({
             title={t('pause.open')}
             onClick={() => actionsRef.current?.pause()}
           >
-            ❚❚
+            <PixelIcon name="pause" size={32} />
           </button>
         )}
       </div>
@@ -769,6 +770,7 @@ export function GameCanvas({
                 actionsRef.current?.resume()
               }}
             >
+              <PixelIcon name="play" size={22} />
               {t('pause.resume')}
             </button>
             <button
@@ -779,6 +781,7 @@ export function GameCanvas({
                 actionsRef.current?.replay()
               }}
             >
+              <PixelIcon name="refresh" size={22} />
               {t('pause.playAgain')}
             </button>
           </div>

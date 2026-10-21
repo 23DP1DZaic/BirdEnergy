@@ -32,6 +32,7 @@ import {
 } from '../telegram'
 import { useSoundSettings } from './soundSettings'
 import { useHapticsSetting } from './haptics'
+import { PixelIcon } from './ui/PixelIcon'
 import { LOCALES, LOCALE_LABEL, setLocale, useT } from '../i18n'
 import type { Screen } from '../navigation'
 import '../App.css'
@@ -50,11 +51,14 @@ interface HomePageProps {
 }
 
 /**
- * Home's settings button (top-right) + its dropdown. Text labels only for
- * now: "Music: On", "Sound effects: Off", "Info" — icons are a later pass, so
- * the state lives in the label itself. The menu extends to the LEFT of the
- * button (the button sits in the corner), and closes on outside click, on
- * Escape and whenever an entry is chosen.
+ * Home's settings button (top-right) + its dropdown.
+ *
+ * The trigger is the gear SPRITE alone — no word — so the corner stays quiet.
+ * The menu opens with the three things worth one tap (music, sound effects,
+ * info) as icon buttons from the shared sheet; the two settings the sheet has
+ * no symbol for (vibration, language) stay as text rows underneath. State is
+ * carried by aria-checked (and the sound icon itself swaps), so the buttons do
+ * not need labels on screen.
  */
 function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
   const { t, locale } = useT()
@@ -90,9 +94,11 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
         className="settings-button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={t('home.settings')}
+        title={t('home.settings')}
         onClick={() => setOpen((wasOpen) => !wasOpen)}
       >
-        Settings
+        <PixelIcon name="settings" size={34} pressed={open} />
       </button>
 
       {open && (
@@ -101,24 +107,54 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
           role="menu"
           aria-label={t('home.settings')}
         >
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={music}
-            className="settings-item"
-            onClick={toggleMusic}
-          >
-            {t('home.music', { state: t(music ? 'state.on' : 'state.off') })}
-          </button>
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={sfx}
-            className="settings-item"
-            onClick={toggleSfx}
-          >
-            {t('home.sfx', { state: t(sfx ? 'state.on' : 'state.off') })}
-          </button>
+          <div className="settings-icons">
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={music}
+              className="settings-icon-button"
+              aria-label={t('home.music', {
+                state: t(music ? 'state.on' : 'state.off'),
+              })}
+              title={t('home.music', {
+                state: t(music ? 'state.on' : 'state.off'),
+              })}
+              onClick={toggleMusic}
+            >
+              <PixelIcon name={music ? 'music' : 'musicOff'} size={30} />
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={sfx}
+              className="settings-icon-button"
+              aria-label={t('home.sfx', {
+                state: t(sfx ? 'state.on' : 'state.off'),
+              })}
+              title={t('home.sfx', {
+                state: t(sfx ? 'state.on' : 'state.off'),
+              })}
+              onClick={toggleSfx}
+            >
+              <PixelIcon
+                name={sfx ? 'soundOn' : 'soundOff'}
+                size={30}
+              />
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="settings-icon-button"
+              aria-label={t('home.info')}
+              title={t('home.info')}
+              onClick={() => {
+                setOpen(false)
+                onOpenTutorial()
+              }}
+            >
+              <PixelIcon name="info" size={30} />
+            </button>
+          </div>
           {/* Haptics only shows where the device can vibrate — a switch that
               can never do anything is worse than no switch. */}
           {hapticsSupported && (
@@ -144,17 +180,6 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
             }
           >
             {t('home.language', { name: LOCALE_LABEL[locale] })}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="settings-item"
-            onClick={() => {
-              setOpen(false)
-              onOpenTutorial()
-            }}
-          >
-            {t('home.info')}
           </button>
         </div>
       )}

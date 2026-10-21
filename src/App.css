@@ -158,25 +158,29 @@
   z-index: 2;
 }
 
-/* Text-only for now ("Settings"); the icon pass will shrink this to a square
-   glyph button, so the menu is positioned from this box, not the label. */
+/* The gear key alone: no word, no plate around it — the sprite IS the button,
+   so the corner shows one physical key instead of a key inside a box. */
 .settings-button {
-  font-family: var(--sans);
-  font-size: 10px;
-  color: #ffd23f;
-  background: rgba(90, 30, 5, 0.45);
-  border: 2px solid rgba(255, 210, 63, 0.6);
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: 0;
   border-radius: 8px;
-  padding: 8px 10px;
   cursor: pointer;
-  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.45));
+  -webkit-tap-highlight-color: transparent;
 }
 
-.settings-button[aria-expanded='true'] {
-  background: #ffd23f;
-  color: #5a1e05;
-  border-color: #a5420c;
-  text-shadow: none;
+.settings-button:active {
+  transform: translateY(1px);
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid #fff4d6;
+  outline-offset: 3px;
 }
 
 /* Anchored to the button's right edge and growing LEFTWARD, so it stays on
@@ -193,6 +197,37 @@
   border: 3px solid #a5420c;
   border-radius: 10px;
   box-shadow: 0 4px 0 #a5420c;
+}
+
+/* The three one-tap settings, as sprite glyph buttons. The gear row is the
+   menu's headline; the two text rows below it are the switches the sheet has
+   no symbol for. */
+.settings-icons {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-icon-button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.35));
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-icon-button:focus-visible {
+  outline: 2px solid #5a1e05;
+  outline-offset: 2px;
+}
+
+.settings-icon-button:active {
+  transform: translateY(1px);
 }
 
 .settings-item {
@@ -280,6 +315,12 @@
   cursor: pointer;
   box-shadow: 0 4px 0 #a5420c;
   transition: transform 0.05s ease, box-shadow 0.05s ease;
+  /* Sprite glyphs sit inside most buttons now, so the box is a centred row:
+     label-only buttons look exactly as before, icon buttons line up. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .btn:active {
@@ -341,47 +382,64 @@ a.btn {
   font-family: var(--sans);
   font-size: 11px;
   font-weight: 400;
-  color: #ffd23f;
+  color: #fff4d6;
   background: transparent;
   border: none;
   border-radius: 8px;
   padding: 8px 14px;
   cursor: pointer;
+  /* Halo instead of a chip: the labels sit straight on the art (brick, ground
+     or a pale settings page), and a tight dark glow keeps them legible on
+     all three without drawing a second border around the button. */
+  text-shadow:
+    0 1px 0 rgba(90, 30, 5, 0.9),
+    0 0 3px rgba(90, 30, 5, 0.8);
+  /* Pixel sprite above the word: the sprite is the button face, the label is
+     its caption — the nav reads like a row of arcade keys. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
 }
 
+.navlink-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* No chip, no frame, no second border: the key IS the button. The selected
+   screen is simply its key held down (pressed sheet) plus a gold caption, so
+   the nav speaks the same two-state language as every other sprite button. */
 .navlink-active {
-  background: #ffd23f;
-  color: #5a1e05;
-  box-shadow: 0 2px 0 #a5420c;
+  color: #ffd23f;
 }
 
-/* Floating bottom-nav buttons: light translucent chips (no bar behind them)
-   with a text shadow so they stay readable on top of the ground art. They
-   flex to fill the row — tighter padding/font than the desktop links so all
-   five labels fit without horizontal overflow. */
 .bottomnav .navlink {
   flex: 1 1 auto;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   text-align: center;
-  padding: 8px 6px;
+  padding: 5px 4px 6px;
   font-size: 10px;
-  background: rgba(90, 30, 5, 0.3);
-  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
 }
 
-@media (max-width: 359.98px) {
+/* Phones: six pixel-font labels plus icons do not fit above ~480px, so the
+   caption drops to 8px and the padding tightens — the icons carry the
+   recognition, the words stay readable underneath. */
+@media (max-width: 479.98px) {
   .bottomnav .navlink {
-    padding: 8px 3px;
+    padding: 4px 2px 5px;
     font-size: 8px;
+  }
+
+  .bottomnav {
+    gap: 1px;
   }
 }
 
-.bottomnav .navlink-active {
-  text-shadow: none;
-}
 
 /* DATA-01 — consent dialog on the Game screen (inside a placeholder page). */
 .consent {
@@ -632,7 +690,6 @@ a.btn {
 }
 
 .profile-card,
-.profile-name-editor,
 .profile-appearance {
   width: 100%;
   display: flex;
@@ -642,6 +699,18 @@ a.btn {
   background: rgba(255, 210, 63, 0.12);
   border: 2px solid #ffd23f;
   border-radius: 14px;
+  box-sizing: border-box;
+}
+
+/* The in-game name editor is part of the identity card now (no second panel):
+   a divider above it, then label, field and Edit/Save on one row. */
+.profile-name-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(255, 210, 63, 0.3);
   box-sizing: border-box;
 }
 
@@ -722,6 +791,53 @@ a.btn {
   grid-template-columns: 1fr auto;
 }
 
+/* Last-used look under the scores: skin, sky and ground in the order they are
+   chosen, with the way into the wardrobe right after them. */
+.profile-look {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(255, 210, 63, 0.3);
+}
+
+.profile-look-thumbs {
+  display: flex;
+  gap: 8px;
+}
+
+.look-thumb {
+  width: 42px;
+  height: 42px;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  background-color: rgba(90, 30, 5, 0.15);
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* Same crops as the wardrobe tiles (see .appearance-grid-*). */
+.look-thumb-skin {
+  background-size: 400% auto;
+  background-position: left center;
+}
+
+.look-thumb-background {
+  background-size: cover;
+  background-position: center;
+}
+
+.look-thumb-ground {
+  background-size: cover;
+  background-position: center 30%;
+}
+
+.profile-wardrobe {
+  gap: 6px;
+}
+
 /* In-game name editor. */
 .profile-name-label {
   font-size: 10px;
@@ -751,6 +867,17 @@ a.btn {
 .profile-name-input:focus {
   outline: 2px solid #ffd23f;
   outline-offset: 1px;
+}
+
+/* Read-only until Edit: same field, quieter ink, so the state is visible. */
+.profile-name-input[readonly] {
+  background: rgba(255, 248, 225, 0.55);
+  color: #7a4a2a;
+  cursor: default;
+}
+
+.profile-name-action {
+  white-space: nowrap;
 }
 
 .profile-name-error,

@@ -54,30 +54,35 @@
   gap: 6px;
 }
 
+/* Sprite buttons: the art IS the button (32px = the 16px cell at 2x), so the
+   control adds no chrome of its own — just a tap target big enough to trust
+   and a hard shadow that lifts it off the scene. */
 .game-control {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   display: grid;
   place-items: center;
-  font-size: 13px;
-  line-height: 1;
   cursor: pointer;
-  color: #fff4d6;
-  background: rgba(90, 30, 5, 0.82);
-  border: 2px solid #ffd23f;
-  border-radius: 10px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.5));
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Muted speaker keeps the corner readable without shouting "muted". */
-.game-control[aria-pressed='false'] {
-  border-color: rgba(255, 244, 214, 0.45);
-  opacity: 0.85;
+/* Muted speaker stays legible but steps back: the corner is informational. */
+.game-control[aria-pressed='false'] .pixel-icon {
+  opacity: 0.78;
 }
 
 .game-control:active {
   transform: translateY(1px);
+}
+
+.game-control:focus-visible {
+  outline: 2px solid #ffd23f;
+  outline-offset: 2px;
 }
 
 /* The pause menu sits on the frozen run — same panel language as Game Over. */
@@ -124,6 +129,12 @@
 
 .game-modal-actions .btn {
   width: 100%;
+  /* Glyph + label on one line: the icon inherits the button's ink, so the
+     sprite set reads as part of the button, not as a sticker on it. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .game-modal-hint {

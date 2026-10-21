@@ -18,7 +18,7 @@
 // case points at the Game screen, where the consent dialog lives. Load state
 // is derived (uid vs loadedUid) so the effect only sets state in async
 // callbacks — no cascading synchronous renders.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import {
@@ -39,6 +39,7 @@ import {
 import { backgrounds, groundUrls } from '../sprites'
 import { useT, type t as TFn } from '../i18n'
 import { PlaceholderPage } from './PlaceholderPage'
+import { PixelIcon } from './ui/PixelIcon'
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
 const birdAvatarUrl = birdSkinUrls[0]
@@ -81,11 +82,15 @@ export function ProfilePage({
   const [loadedUid, setLoadedUid] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // In-game name editor state.
+  // In-game name editor state. The field is read-only until Edit is pressed —
+  // tapping Edit turns the SAME field editable and the button into Save, with
+  // no dialog and no section opening (UI-04 rev).
   const [nameDraft, setNameDraft] = useState('')
   const [nameBusy, setNameBusy] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
   const [nameSaved, setNameSaved] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
   // Appearance picker (UI-04 rev): one shared index per kind, live in
   // localStorage; the three tabs switch which grid is shown below them.
@@ -94,6 +99,9 @@ export function ProfilePage({
   const [groundIndex] = useGroundIndex()
   const [appearanceTab, setAppearanceTab] = useState<AppearanceTab>('skin')
   const [prefError, setPrefError] = useState<string | null>(null)
+  // The one collapsible section on this screen: the wardrobe pickers stay
+  // closed until the player asks for them.
+  const [showAppearance, setShowAppearance] = useState(false)
 
   useEffect(() => {
     if (!signedInUid) return
@@ -165,7 +173,6 @@ export function ProfilePage({
   }
 
   const displayName = profileDisplayName(profile, t)
-  const nameTouched = nameDraft.trim() !== (profile.inGameName ?? '')
 
   // The active grid's data: preview urls, the current pick, and the shared
   // setter (applyStored* validates, stores and broadcasts via window event).
@@ -217,26 +224,43 @@ export function ProfilePage({
     })
   }
 
-  const saveName = async () => {
-    const candidate = nameDraft.trim()
+  const nameRule = t('profile.nameRule', {
+    min: IN_GAME_NAME_MIN,
+    max: IN_GAME_NAME_MAX,
+  })
+  const nameValid = isValidInGameName(nameDraft)
+  const nameChanged = nameDraft.trim() !== (profile.inGameName ?? '')
+
+  /** Edit → the same field becomes editable, focused, and the button is Save. */
+  const startEditingName = () => {
     setNameError(null)
     setNameSaved(false)
+    setEditingName(true)
+    // Focus after the readOnly flip lands, so mobile keyboards open at once.
+    requestAnimationFrame(() => nameInputRef.current?.focus())
+  }
+
+  const saveName = async () => {
+    const candidate = nameDraft.trim()
+    setNameSaved(false)
+    // Validation lives in one place (shared with the server's rules); the
+    // button is disabled while invalid, so this is the belt to that brace.
     if (!isValidInGameName(candidate)) {
-      setNameError(
-        t('profile.nameRule', {
-          min: IN_GAME_NAME_MIN,
-          max: IN_GAME_NAME_MAX,
-        }),
-      )
+      setNameError(nameRule)
       return
     }
-    if (candidate === (profile.inGameName ?? '')) return
+    setNameError(null)
+    if (candidate === (profile.inGameName ?? '')) {
+      setEditingName(false)
+      return
+    }
     setNameBusy(true)
     try {
       const result = await updateProfile({ username: candidate })
       setProfile((p) => (p ? { ...p, inGameName: result.inGameName } : p))
       setNameDraft(result.inGameName)
       setNameSaved(true)
+      setEditingName(false)
     } catch (err) {
       setNameError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -274,6 +298,90 @@ export function ProfilePage({
           </div>
         </div>
 
+        <form
+          className="profile-name-editor"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void saveName()
+          }}
+        >
+          <label className="profile-name-label" htmlFor="in-game-name">
+            {t('profile.inGameName')}
+          </label>
+          <div className="profile-name-row">
+            <input
+              ref={nameInputRef}
+              id="in-game-name"
+              className={`profile-name-input${
+                editingName ? ' profile-name-input-editing' : ''
+              }`}
+              type="text"
+              value={nameDraft}
+              maxLength={IN_GAME_NAME_MAX}
+              readOnly={!editingName}
+              aria-readonly={!editingName}
+              onChange={(e) => {
+                setNameDraft(e.target.value)
+                setNameSaved(false)
+                setNameError(null)
+              }}
+              onKeyDown={(e) => {
+                // Escape leaves edit mode without saving; the value rolls back.
+                if (e.key === 'Escape' && editingName) {
+                  setNameDraft(profile.inGameName ?? '')
+                  setNameError(null)
+                  setEditingName(false)
+                }
+              }}
+              placeholder={t('profile.chars', {
+                min: IN_GAME_NAME_MIN,
+                max: IN_GAME_NAME_MAX,
+              })}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {editingName ? (
+              <button
+                type="submit"
+                className="btn btn-small profile-name-action"
+                disabled={nameBusy || !nameValid || !nameChanged}
+              >
+                <PixelIcon name="check" size={20} />
+                {nameBusy ? t('common.saving') : t('profile.save')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-small profile-name-action"
+                onClick={startEditingName}
+              >
+                <PixelIcon name="settings" size={20} />
+                {t('profile.edit')}
+              </button>
+            )}
+          </div>
+          {/* Live rule check while typing: an invalid draft says why before the
+              player presses Save (the button is disabled meanwhile). */}
+          {editingName && nameDraft.length > 0 && !nameValid && (
+            <p className="profile-name-error" role="alert">
+              {nameRule}
+            </p>
+          )}
+          {nameError && (
+            <p className="profile-name-error" role="alert">
+              {nameError}
+            </p>
+          )}
+          {nameSaved && (
+            <p className="profile-name-saved" role="status">
+              {t('profile.nameSaved')}
+            </p>
+          )}
+          <p className="placeholder-note">
+            {t('profile.nameHint')}
+          </p>
+        </form>
+
         <ul className="profile-stats">
           <li className="lrow">
             <span className="lrow-name">{t('profile.best')}</span>
@@ -288,65 +396,53 @@ export function ProfilePage({
             <span className="lrow-score">{profile.totalScore ?? 0}</span>
           </li>
         </ul>
-      </div>
 
-      <form
-        className="profile-name-editor"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void saveName()
-        }}
-      >
-        <label className="profile-name-label" htmlFor="in-game-name">
-          {t('profile.inGameName')}
-        </label>
-        <div className="profile-name-row">
-          <input
-            id="in-game-name"
-            className="profile-name-input"
-            type="text"
-            value={nameDraft}
-            maxLength={IN_GAME_NAME_MAX}
-            onChange={(e) => {
-              setNameDraft(e.target.value)
-              setNameSaved(false)
-              setNameError(null)
-            }}
-            placeholder={t('profile.chars', {
-              min: IN_GAME_NAME_MIN,
-              max: IN_GAME_NAME_MAX,
-            })}
-            autoComplete="off"
-            spellCheck={false}
-          />
+        {/* Last-used look, right under the scores: the three picks in the
+            order they are chosen, then the way into the wardrobe. */}
+        <div className="profile-look">
+          <div className="profile-look-thumbs">
+            <span
+              className="look-thumb look-thumb-skin"
+              style={{ backgroundImage: `url(${birdSkinUrls[skinIndex]})` }}
+              title={t('profile.opt.skin')}
+              aria-label={t('profile.opt.skin')}
+              role="img"
+            />
+            <span
+              className="look-thumb look-thumb-background"
+              style={{ backgroundImage: `url(${backgrounds[backgroundIndex]})` }}
+              title={t('profile.opt.background')}
+              aria-label={t('profile.opt.background')}
+              role="img"
+            />
+            <span
+              className="look-thumb look-thumb-ground"
+              style={{ backgroundImage: `url(${groundUrls[groundIndex]})` }}
+              title={t('profile.opt.ground')}
+              aria-label={t('profile.opt.ground')}
+              role="img"
+            />
+          </div>
           <button
-            type="submit"
-            className="btn btn-small"
-            disabled={
-              nameBusy ||
-              !nameTouched ||
-              nameDraft.trim() === (profile.inGameName ?? '')
-            }
+            type="button"
+            className="btn btn-small profile-wardrobe"
+            aria-expanded={showAppearance}
+            aria-controls="profile-appearance"
+            onClick={() => setShowAppearance((open) => !open)}
           >
-            {nameBusy ? t('common.saving') : t('profile.save')}
+            {t('profile.wardrobe')}
+            <PixelIcon name="hanger" size={20} pressed={showAppearance} />
           </button>
         </div>
-        {nameError && (
-          <p className="profile-name-error" role="alert">
-            {nameError}
-          </p>
-        )}
-        {nameSaved && (
-          <p className="profile-name-saved" role="status">
-            {t('profile.nameSaved')}
-          </p>
-        )}
-        <p className="placeholder-note">
-          {t('profile.nameHint')}
-        </p>
-      </form>
+      </div>
 
-      <section className="profile-appearance">
+
+      {/* The one collapsible section: closed until the wardrobe button (or the
+          chevron in this header) asks for it. */}
+      {showAppearance && (
+      <section className="profile-appearance" id="profile-appearance">
+        {/* No second collapse control here: the wardrobe button above already
+            shows the section's state and closes it. */}
         <p className="profile-name-label">{t('profile.appearance')}</p>
         <div
           className="appearance-tabs"
@@ -404,6 +500,7 @@ export function ProfilePage({
           {t('profile.appearanceHint')}
         </p>
       </section>
+      )}
     </div>
   )
 }

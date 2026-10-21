@@ -25,6 +25,7 @@ import {
 import { ChallengeForm } from './ChallengeForm'
 import { useT } from '../i18n'
 import { ConfirmDialog } from './ConfirmDialog'
+import { PixelIcon } from './ui/PixelIcon'
 
 export function AdminPage() {
   const { t } = useT()
@@ -185,6 +186,7 @@ export function AdminPage() {
                       setStatusMessage(null)
                     }}
                   >
+                    <PixelIcon name="settings" size={18} />
                     {t('admin.edit')}
                   </button>
                   <button
@@ -199,6 +201,7 @@ export function AdminPage() {
                       setPendingDelete(challenge)
                     }}
                   >
+                    <PixelIcon name="trash" size={18} />
                     {t('admin.delete')}
                   </button>
                 </div>

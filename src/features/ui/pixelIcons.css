@@ -1,0 +1,30 @@
+/* Shared pixel-button sprite (see pixelIcons.ts): one 5x6 sheet of 16px
+   buttons, plus its pressed twin for hover/active/selected. */
+
+.pixel-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  background-image: url('../../assets/Buttons/Grey_buttons.png');
+  background-repeat: no-repeat;
+  background-size: var(--icon-sheet);
+  background-position: var(--icon-offset);
+  image-rendering: pixelated;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Hover and press use the second sheet: the same 30 cells drawn one step lower,
+   so the button appears to sink under the pointer. */
+button:hover .pixel-icon:not(.pixel-icon--pressed),
+button:active .pixel-icon:not(.pixel-icon--pressed),
+a:hover .pixel-icon:not(.pixel-icon--pressed),
+a:active .pixel-icon:not(.pixel-icon--pressed) {
+  background-image: url('../../assets/Buttons/Grey_buttons_pressed.png');
+}
+
+/* Permanent pressed state: the selected nav item, the open settings menu, a
+   switch that is off. No opacity, no tint — the same two-sheet language. */
+.pixel-icon.pixel-icon--pressed {
+  background-image: url('../../assets/Buttons/Grey_buttons_pressed.png');
+}
