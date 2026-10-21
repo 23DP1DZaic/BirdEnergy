@@ -26,17 +26,22 @@ import {
   PIPE_GAP,
   PIPE_SPACING,
   PIPE_SPEED,
+  RESUME_COUNTDOWN_S,
   SPRITE_SCALE,
   birdFrame,
   birdHitsPipe,
   createGameState,
   deadBirds,
+  drainEvents,
   flap,
   isCelebrating,
   advancePipePalette,
   floorTop,
+  pauseGame,
   pipePalette,
+  replayGame,
   resetGame,
+  resumeGame,
   rotationForVelocity,
   runResult,
   startGame,
@@ -910,5 +915,173 @@ describe('syncChallenge — best/progress copy + the completion banner (C)', () 
     syncChallenge(s, next)
     assert.equal(s.challenge?.id, 'c2')
     assert.equal(s.challenge?.celebrate, false)
+  })
+})
+
+describe('pause / resume countdown / play again — PAUSE', () => {
+  /**
+   * A live run, airborne, with a pipe ahead and a score on the board. The pipe
+   * is placed by hand instead of waiting for a real spawn: the pause tests need
+   * a world that is guaranteed NOT to be mid-collision when they start, and a
+   * far-away pipe never overlaps the bird.
+   */
+  function liveRun(): GameState {
+    const s = createGameState()
+    flap(s) // ready → playing
+    run(s, 20) // half a second in — still climbing, nothing in the way
+    assert.equal(s.phase, 'playing')
+    s.pipes = [{ x: 340, gapTop: 120, passed: false }]
+    s.score = 4
+    return s
+  }
+
+  it('freezes the whole run — bird, pipes, clock and score', () => {
+    const s = liveRun()
+    drainEvents(s) // the starting flap, already reported before the pause
+    const frozen = {
+      y: s.bird.y,
+      vy: s.bird.vy,
+      angle: s.bird.angle,
+      score: s.score,
+      runTime: s.runTime,
+      pipes: s.pipes.map((p) => ({ x: p.x, gapTop: p.gapTop })),
+    }
+    pauseGame(s)
+    assert.equal(s.phase, 'paused')
+    run(s, 120) // two seconds of frames
+    assert.equal(s.bird.y, frozen.y)
+    assert.equal(s.bird.vy, frozen.vy)
+    assert.equal(s.bird.angle, frozen.angle)
+    assert.equal(s.score, frozen.score)
+    assert.equal(s.runTime, frozen.runTime)
+    assert.deepEqual(
+      s.pipes.map((p) => ({ x: p.x, gapTop: p.gapTop })),
+      frozen.pipes,
+    )
+    // Nothing that happened while paused is reported as a sound.
+    assert.deepEqual(drainEvents(s), [])
+  })
+
+  it('ignores pause outside a live run', () => {
+    const ready = createGameState()
+    pauseGame(ready)
+    assert.equal(ready.phase, 'ready')
+
+    const over = liveRun()
+    startGame(over)
+    over.phase = 'game-over'
+    pauseGame(over)
+    assert.equal(over.phase, 'game-over')
+
+    const dying = liveRun()
+    dying.phase = 'dead'
+    pauseGame(dying)
+    assert.equal(dying.phase, 'dead')
+  })
+
+  it('goes through a 3-2-1 countdown before the run continues', () => {
+    const s = liveRun()
+    const frozenY = s.bird.y
+    const frozenScore = s.score
+    const frozenTime = s.runTime
+    const frozenPipes = s.pipes.map((p) => p.x)
+    pauseGame(s)
+    resumeGame(s)
+    assert.equal(s.phase, 'countdown')
+    closeTo(s.countdownLeft, RESUME_COUNTDOWN_S, 1e-9)
+
+    // One frame in: the countdown ticks, the world does not.
+    run(s, 1)
+    assert.equal(s.phase, 'countdown')
+    closeTo(s.countdownLeft, RESUME_COUNTDOWN_S - FRAME, 1e-6)
+    assert.equal(s.bird.y, frozenY)
+    assert.equal(s.score, frozenScore)
+
+    // Count almost the whole window: 3 s of frames, not one pixel of movement.
+    run(s, Math.round(RESUME_COUNTDOWN_S / FRAME) - 10)
+    assert.equal(s.phase, 'countdown')
+    assert.equal(s.bird.y, frozenY)
+    assert.equal(s.score, frozenScore)
+    assert.deepEqual(
+      s.pipes.map((p) => p.x),
+      frozenPipes,
+    )
+    assert.equal(s.runTime, frozenTime)
+
+    // The last frames flip back to the SAME run — nothing was reset. Stepped
+    // one at a time because the tick accumulates float error.
+    let guard = 40
+    while (s.phase === 'countdown' && guard-- > 0) run(s, 1)
+    assert.equal(s.phase, 'playing')
+    assert.equal(s.score, frozenScore)
+    assert.equal(s.runTime, frozenTime)
+
+    // …and gravity is back: the bird moves on the next frame.
+    run(s, 1)
+    assert.notEqual(s.bird.y, frozenY)
+  })
+
+  it('ignores flap input while paused and during the countdown', () => {
+    const s = liveRun()
+    pauseGame(s)
+    const vy = s.bird.vy
+    flap(s)
+    assert.equal(s.bird.vy, vy)
+    resumeGame(s)
+    flap(s)
+    assert.equal(s.bird.vy, vy)
+    assert.equal(s.phase, 'countdown')
+  })
+
+  it('resumeGame only exits the pause screen', () => {
+    const s = liveRun()
+    resumeGame(s) // still playing — no countdown from mid-air
+    assert.equal(s.phase, 'playing')
+    pauseGame(s)
+    resumeGame(s)
+    assert.equal(s.phase, 'countdown')
+    resumeGame(s) // a second press cannot restart the countdown window
+    assert.equal(s.phase, 'countdown')
+  })
+
+  it('Play again starts a FRESH run after the countdown', () => {
+    const s = liveRun()
+    s.score = 7
+    s.runTime = 12
+    pauseGame(s)
+    replayGame(s)
+    assert.equal(s.phase, 'countdown')
+    assert.equal(s.score, 0) // reset immediately, shown behind the 3-2-1
+    assert.deepEqual(s.pipes, [])
+
+    run(s, Math.round(RESUME_COUNTDOWN_S / FRAME) + 1)
+    assert.equal(s.phase, 'playing')
+    assert.equal(s.score, 0)
+    assert.equal(s.runTime, 0)
+    // The starting flap is part of the reset run (same as a first tap).
+    assert.ok(drainEvents(s).includes('flap'))
+  })
+
+  it('replayGame only works from the pause screen', () => {
+    const ready = createGameState()
+    replayGame(ready)
+    assert.equal(ready.phase, 'ready')
+    const s = liveRun()
+    const score = s.score
+    replayGame(s) // mid-air: ignored
+    assert.equal(s.phase, 'playing')
+    assert.equal(s.score, score)
+  })
+
+  it('the countdown gives no run result and no death', () => {
+    const s = liveRun()
+    pauseGame(s)
+    resumeGame(s)
+    s.bird.y = floorTop(s) + 100 // even buried in the ground…
+    run(s, Math.round(RESUME_COUNTDOWN_S / FRAME) - 2)
+    assert.equal(s.phase, 'countdown') // …nothing collides during the countdown
+    s.bird.y = s.viewH / 2 // put it back before play resumes
+    run(s, 4)
+    assert.equal(s.phase, 'playing')
   })
 })

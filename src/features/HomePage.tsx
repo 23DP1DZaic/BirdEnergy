@@ -31,6 +31,7 @@ import {
   isTelegramEnvironment,
 } from '../telegram'
 import { useSoundSettings } from './soundSettings'
+import { useHapticsSetting } from './haptics'
 import { LOCALES, LOCALE_LABEL, setLocale, useT } from '../i18n'
 import type { Screen } from '../navigation'
 import '../App.css'
@@ -59,6 +60,11 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
   const { t, locale } = useT()
   const [open, setOpen] = useState(false)
   const { music, sfx, toggleMusic, toggleSfx } = useSoundSettings()
+  const {
+    haptics,
+    supported: hapticsSupported,
+    toggleHaptics,
+  } = useHapticsSetting()
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -113,6 +119,21 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
           >
             {t('home.sfx', { state: t(sfx ? 'state.on' : 'state.off') })}
           </button>
+          {/* Haptics only shows where the device can vibrate — a switch that
+              can never do anything is worse than no switch. */}
+          {hapticsSupported && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={haptics}
+              className="settings-item"
+              onClick={toggleHaptics}
+            >
+              {t('home.haptics', {
+                state: t(haptics ? 'state.on' : 'state.off'),
+              })}
+            </button>
+          )}
           {/* i18n — one tap cycles the language; the choice is remembered. */}
           <button
             type="button"

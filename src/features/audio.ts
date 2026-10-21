@@ -80,6 +80,8 @@ export function hasAudioAssets(): boolean {
 
 let context: AudioContext | null = null
 const buffers = new Map<string, AudioBuffer>()
+/** Sounds started since page load — the DEV probe's history (see audioStatus). */
+const played: SfxName[] = []
 const loading = new Map<string, Promise<AudioBuffer | null>>()
 let music: { source: AudioBufferSourceNode; gain: GainNode } | null = null
 let wantedMusic: string | null = null
@@ -106,11 +108,8 @@ function installHooks(): void {
 
   // Autoplay policy: the context starts suspended and only a user gesture may
   // resume it. Both gestures the game accepts count.
-  const unlock = () => {
-    void context?.resume().then(applyMusicState)
-  }
-  window.addEventListener('pointerdown', unlock, {once: true})
-  window.addEventListener('keydown', unlock, {once: true})
+  window.addEventListener('pointerdown', () => unlockAudio())
+  window.addEventListener('keydown', () => unlockAudio())
 
   // Home's switches: turn the music off/on the moment they are flipped.
   window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, () => {
@@ -121,8 +120,14 @@ function installHooks(): void {
   // Don't burn battery decoding/playing behind another tab.
   document.addEventListener('visibilitychange', () => {
     if (!context) return
-    if (document.hidden) void context.suspend()
-    else if (isMusicEnabled()) void context.resume().then(applyMusicState)
+    if (document.hidden) {
+      void context.suspend()
+      return
+    }
+    // Coming back: the platform may have suspended the context with the tab.
+    // Resume it for SFX as well — gating this on the MUSIC switch left a
+    // player with music off permanently silent after one tab switch.
+    void unlockAudio()
   })
 }
 
@@ -160,6 +165,22 @@ function loadBuffer(key: string): Promise<AudioBuffer | null> {
 }
 
 /**
+ * Resumes the audio clock. MUST be called from inside a real user gesture
+ * (pointer/key handler) the first time, before any scheduled sound can be
+ * heard: browsers start the context suspended. Safe to call on every tap.
+ */
+export function unlockAudio(): void {
+  const ctx = ensureContext()
+  if (!ctx || ctx.state === 'running') return
+  void ctx
+    .resume()
+    .then(applyMusicState)
+    .catch((err: unknown) => {
+      console.warn('[audio] could not resume the audio context', err)
+    })
+}
+
+/**
  * Pre-decodes everything so the first tap has no hitch. Safe to call at
  * mount time: with no files in the folders it resolves immediately.
  */
@@ -171,14 +192,49 @@ export async function loadAudioAssets(): Promise<void> {
 export function playSfx(name: SfxName): void {
   if (!isSfxEnabled()) return
   void loadBuffer(`sfx/${name}`).then((buffer) => {
-    if (!buffer || !context) return
-    const source = context.createBufferSource()
+    if (!buffer) return
+    // Re-read the context (it may have been created by the decode above) and
+    // push it into `running` — a context suspended by the autoplay policy or
+    // by a tab switch plays nothing, and silently starting a source on it is
+    // exactly the "the file is there but I hear nothing" bug.
+    const ctx = ensureContext()
+    if (!ctx) return
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined)
+    const source = ctx.createBufferSource()
     source.buffer = buffer
-    const gain = context.createGain()
+    const gain = ctx.createGain()
     gain.gain.value = SFX_VOLUMES[name] ?? 0.6
-    source.connect(gain).connect(context.destination)
+    source.connect(gain).connect(ctx.destination)
     source.start()
+    played.push(name)
+    if (played.length > 40) played.splice(0, played.length - 40)
   })
+}
+
+/**
+ * DEV-only introspection for the audio layer: which names actually have a
+ * file, which have decoded, the context state and the sounds that were
+ * started. Mirrored onto window.__birdAudio by GameCanvas; the fastest way to
+ * answer "I dropped die.mp3 in — why is it silent?".
+ */
+export interface AudioStatus {
+  contextState: AudioContextState | 'unavailable'
+  files: string[]
+  decoded: string[]
+  played: SfxName[]
+  sfxEnabled: boolean
+  musicEnabled: boolean
+}
+
+export function audioStatus(): AudioStatus {
+  return {
+    contextState: context ? context.state : 'unavailable',
+    files: [...KEY_TO_URL.keys()].sort(),
+    decoded: [...buffers.keys()].sort(),
+    played: [...played],
+    sfxEnabled: isSfxEnabled(),
+    musicEnabled: isMusicEnabled(),
+  }
 }
 
 /** Starts (or keeps) the looping music track. No-op when disabled/missing. */

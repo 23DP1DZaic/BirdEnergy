@@ -10,7 +10,7 @@
 // with Home through a window event (see homeBackground.ts). The engine phase
 // is reported to the parent so the shell can remove the navigation while a
 // run is actually in progress and bring it back on ready/game-over.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   advancePipePalette,
   createGameState,
@@ -20,7 +20,10 @@ import {
   FLOOR_H,
   isCelebrating,
   LOGICAL_W,
+  pauseGame,
+  replayGame,
   resetGame,
+  resumeGame,
   runResult,
   stepGame,
   syncChallenge,
@@ -38,8 +41,27 @@ import {
 } from '../homeBackground'
 // AUDIO: pre-decode the optional files + start the loop; both are no-ops
 // until something is dropped into src/assets/Sound (see features/audio.ts).
-import { loadAudioAssets, playMusic, playSfx, stopMusic } from '../audio'
+import {
+  audioStatus,
+  loadAudioAssets,
+  playMusic,
+  playSfx,
+  stopMusic,
+  unlockAudio,
+} from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
+import { HAPTIC, haptic } from '../haptics'
+import {
+  SOUND_SETTINGS_CHANGE_EVENT,
+  isSfxEnabled,
+  setSfxEnabled,
+} from '../soundSettings'
+import {
+  PENDING_RUNS_CHANGE_EVENT,
+  pendingRunCount,
+} from '../pendingRuns'
+import { getTelegramBotLink } from '../../telegram'
+import { useT } from '../../i18n'
 import { prefersReducedMotion } from '../reducedMotion'
 import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
 import './game.css'
@@ -48,6 +70,14 @@ type LoadState =
   | { kind: 'loading' }
   | { kind: 'ready'; sprites: GameSpriteImages }
   | { kind: 'error'; message: string }
+
+/** The engine handlers the DOM overlays call (the state object lives in the
+ *  effect closure — see actionsRef below). */
+interface GameActions {
+  pause: () => void
+  resume: () => void
+  replay: () => void
+}
 
 /**
  * C — how long the challenge-completion banner pulses after a run ends. It is
@@ -128,6 +158,25 @@ export function GameCanvas({
   /** DEV-only perf overlay (game.css `.perf-hud`); see the loop below. */
   const hudRef = useRef<HTMLDivElement>(null)
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' })
+  const { t, tn } = useT()
+  // The engine is owned by the effect closure below; React only mirrors what
+  // the DOM overlays need, so a phase change never tears the engine down.
+  const [uiPhase, setUiPhase] = useState<GamePhase>('ready')
+  // PAUSE — the big 3/2/1 digit (0 = no countdown on screen).
+  const [countdownNum, setCountdownNum] = useState(0)
+  // Score frozen into the pause screen and the Game Over share button.
+  const [shownScore, setShownScore] = useState(0)
+  // DATA-01 — runs waiting for a connection ("will sync when online").
+  const [queued, setQueued] = useState(pendingRunCount)
+  // AUDIO — the in-game speaker button mirrors the Sound effects switch.
+  const [sfxOn, setSfxOn] = useState(isSfxEnabled)
+  // Share feedback: the button doubles as its own confirmation.
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>(
+    'idle',
+  )
+  // PAUSE — DOM overlays never touch the engine state directly; it lives in the
+  // effect closure, so the buttons reach it through this ref.
+  const actionsRef = useRef<GameActions | null>(null)
   // C — the engine keeps its OWN copy of these (it owns a frozen object), so a
   // new best or a new progress value must never restart the run: the frame
   // loop copies them through this ref instead of reading the props.
@@ -137,6 +186,51 @@ export function GameCanvas({
   useEffect(() => {
     latest.current = { serverBest, challenge, seq: latest.current.seq + 1 }
   }, [serverBest, challenge])
+
+  // DATA-01 — the queued-runs count follows the queue itself (queued, replayed
+  // on reconnect, dropped as permanently invalid) plus the connection state, so
+  // the indicator appears the moment a run is parked and clears the moment it
+  // is replayed — no polling.
+  useEffect(() => {
+    const sync = () => setQueued(pendingRunCount())
+    window.addEventListener(PENDING_RUNS_CHANGE_EVENT, sync)
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener(PENDING_RUNS_CHANGE_EVENT, sync)
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+
+  // AUDIO — Home's switches stay authoritative; the in-game button reflects a
+  // change made there (and vice versa) through the shared settings event.
+  useEffect(() => {
+    const sync = () => setSfxOn(isSfxEnabled())
+    window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
+    return () => window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
+  }, [])
+
+  // SHARE — the native sheet where it exists (Telegram, iOS, Android), the
+  // clipboard everywhere else. Dismissing the sheet is not a failure: the
+  // button only reports an actual error.
+  const shareRun = useCallback(async () => {
+    const text = t('share.text', { score: shownScore })
+    const link = getTelegramBotLink()
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: t('share.title'), text, url: link })
+        return
+      }
+      await navigator.clipboard.writeText(`${text} ${link}`)
+      setShareState('copied')
+    } catch (err) {
+      // AbortError = the player closed the sheet; anything else is actionable.
+      if (err instanceof Error && err.name === 'AbortError') return
+      console.warn('[share] could not share the score', err)
+      setShareState('failed')
+    }
+  }, [shownScore, t])
 
   useEffect(() => {
     let cancelled = false
@@ -191,6 +285,10 @@ export function GameCanvas({
     // DEV-only state inspector + deterministic stepper (tests/debugging).
     if (import.meta.env.DEV) {
       ;(window as unknown as { __birdGame?: GameState }).__birdGame = state
+      // DEV-only audio probe: which files Vite saw, what decoded, whether the
+      // context is running and what was actually started (see audioStatus).
+      ;(window as unknown as { __birdAudio?: typeof audioStatus }).__birdAudio =
+        audioStatus
       // Live reference to the corpse store (test hook: a full page reload
       // re-evaluates the module → the store starts empty).
       ;(window as unknown as { __birdDeadBirds?: readonly DeadBird[] })
@@ -205,6 +303,7 @@ export function GameCanvas({
       if (state.phase !== reported) {
         const previous = reported
         reported = state.phase
+        setUiPhase(state.phase)
         onPhaseChange?.(state.phase)
         // One death = playing → dead → game-over, so this edge fires exactly
         // once per death (never on the collision frame itself), keeping the
@@ -212,6 +311,12 @@ export function GameCanvas({
         if (state.phase === 'game-over' && previous === 'dead') {
           onRunEnd?.(runResult(state))
         }
+        // The pause screen and the Game Over panel show the score that is
+        // frozen behind them (the share button needs the final number).
+        if (state.phase === 'paused' || state.phase === 'game-over') {
+          setShownScore(state.score)
+        }
+        if (state.phase === 'game-over') setShareState('idle')
       }
     }
     reportPhase()
@@ -314,6 +419,8 @@ export function GameCanvas({
     let raf = 0
     let last = performance.now()
     let running = !document.hidden
+    // PAUSE — last countdown number pushed to React (see the frame loop).
+    let countdownShown = 0
 
     // Running mean of the rAF delta: a panel measurably faster than 60 Hz
     // (mean < 15 ms) may have its draws rate-limited below, a 60 Hz or
@@ -330,8 +437,26 @@ export function GameCanvas({
       // loop), not in the draw path, so a repaint can never re-roll it.
       advancePipePalette(state, sprites.pipeSets.length)
       reportPhase()
-      // AUDIO — the engine queues events as data; this is where sound happens.
-      for (const event of drainEvents(state)) playSfx(event)
+      // PAUSE — mirror the countdown number into React for the DOM overlay:
+      // the engine owns the timer, the DOM only shows 3 → 2 → 1 (setState with
+      // the same value is a no-op, so this settles to no re-renders).
+      const shown =
+        state.phase === 'countdown'
+          ? Math.max(1, Math.ceil(state.countdownLeft))
+          : 0
+      if (shown !== countdownShown) {
+        countdownShown = shown
+        setCountdownNum(shown)
+      }
+      // AUDIO + HAPTICS — the engine queues events as data; this is where
+      // sound happens and where the phone buzzes. Haptics skip `flap` on
+      // purpose (a buzz on every tap is noise, not feedback).
+      for (const event of drainEvents(state)) {
+        playSfx(event)
+        if (event === 'hit') haptic(HAPTIC.hit)
+        else if (event === 'die') haptic(HAPTIC.die)
+        else if (event === 'score') haptic(HAPTIC.score)
+      }
       // C — refresh the personal best and the challenge block. The engine
       // derives the completion celebration from the values themselves.
       syncChallenge(state, latest.current)
@@ -405,17 +530,27 @@ export function GameCanvas({
       }
 
       // Rate-limit draws on panels faster than 60 Hz (see meanDelta above);
-      // the engine still steps every rAF, and the game-over freeze still
-      // paints its single frame immediately.
+      // the engine still steps every rAF, and the frozen scenes still paint
+      // their single frame immediately.
       const fastPanel = meanDelta > 0 && meanDelta < 15
-      if (state.phase !== 'game-over') {
+      // PAUSE — pause screen and countdown sit over a FROZEN scene (the
+      // renderer draws it with the plain score HUD), so like game-over they
+      // repaint only on a phase change, a late-arriving prop value or the
+      // banner pulse — not every rAF.
+      const frozenScene =
+        state.phase === 'game-over' ||
+        state.phase === 'paused' ||
+        state.phase === 'countdown'
+      if (!frozenScene) {
         if (!fastPanel || now - lastDraw >= 14) drawFrame(now)
       } else if (
         drawnPhase !== state.phase ||
         redrawPending ||
         // C — keep drawing only while the banner actually pulses; under
         // reduced motion it is drawn once and stays still.
-        (celebrateUntil > now && !prefersReducedMotion())
+        (state.phase === 'game-over' &&
+          celebrateUntil > now &&
+          !prefersReducedMotion())
       ) {
         drawFrame(now)
       }
@@ -487,15 +622,36 @@ export function GameCanvas({
 
     const onPointer = (e: PointerEvent) => {
       e.preventDefault()
+      // AUDIO — this tap is the user gesture browsers require to start (or
+      // resume) the AudioContext; doing it here beats waiting for a global
+      // listener, especially inside Telegram's WebView.
+      unlockAudio()
       if (state.phase === 'game-over') resetGame(state)
       else flap(state)
     }
 
     const onKey = (e: KeyboardEvent) => {
+      // PAUSE — Esc toggles the pause screen (Space stays flap-only, so a
+      // stray jump key can never dismiss the pause menu).
+      if (e.code === 'Escape') {
+        e.preventDefault()
+        if (state.phase === 'playing') pauseGame(state)
+        else if (state.phase === 'paused') resumeGame(state)
+        return
+      }
       if (e.code !== 'Space') return
       e.preventDefault()
+      unlockAudio()
       if (state.phase === 'game-over') resetGame(state)
       else flap(state)
+    }
+
+    // PAUSE — the DOM overlays talk to the engine through this ref: `state`
+    // lives in this effect closure, React state only carries the phase.
+    actionsRef.current = {
+      pause: () => pauseGame(state),
+      resume: () => resumeGame(state),
+      replay: () => replayGame(state),
     }
 
     // Profile and Game share the background, ground and bird skin indices
@@ -524,6 +680,7 @@ export function GameCanvas({
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       stopMusic()
+      actionsRef.current = null
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)
@@ -564,6 +721,111 @@ export function GameCanvas({
           }}
         />
       )}
+      {/* Top-right control cluster: clear of the canvas HUD (score is drawn
+          top-centre) and of the DEV perf overlay (top-left). */}
+      <div className="game-controls">
+        <button
+          type="button"
+          className="game-control"
+          aria-pressed={sfxOn}
+          aria-label={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
+          title={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
+          onClick={() => setSfxEnabled(!sfxOn)}
+        >
+          {sfxOn ? '🔊' : '🔇'}
+        </button>
+        {uiPhase === 'playing' && (
+          <button
+            type="button"
+            className="game-control"
+            aria-label={t('pause.open')}
+            title={t('pause.open')}
+            onClick={() => actionsRef.current?.pause()}
+          >
+            ❚❚
+          </button>
+        )}
+      </div>
+
+      {/* PAUSE — the run is frozen underneath (the engine ignores every input
+          but Esc/this button), so the menu sits on the live scene. */}
+      {uiPhase === 'paused' && (
+        <div
+          className="game-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('pause.title')}
+        >
+          <p className="game-modal-title">{t('pause.title')}</p>
+          <p className="game-modal-score">
+            {t('pause.score', { score: shownScore })}
+          </p>
+          <div className="game-modal-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                haptic(HAPTIC.resume)
+                actionsRef.current?.resume()
+              }}
+            >
+              {t('pause.resume')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => {
+                haptic(HAPTIC.resume)
+                actionsRef.current?.replay()
+              }}
+            >
+              {t('pause.playAgain')}
+            </button>
+          </div>
+          <p className="game-modal-hint">{t('pause.hint')}</p>
+        </div>
+      )}
+
+      {/* PAUSE — 3-2-1 before the world moves again. Pointer-events off: taps
+          during the countdown are already ignored by the engine, and a tap
+          that hit this overlay would otherwise do nothing at all. */}
+      {uiPhase === 'countdown' && countdownNum > 0 && (
+        <div
+          className="game-countdown"
+          aria-live="assertive"
+          aria-label={t('pause.countdown', { n: countdownNum })}
+        >
+          <span key={countdownNum} className="game-countdown-num">
+            {countdownNum}
+          </span>
+        </div>
+      )}
+
+      {/* DATA-01 — share the finished run; the queued-runs note says a score is
+          safe on the device and will sync by itself. */}
+      {uiPhase === 'game-over' && (
+        <div className="game-over-actions">
+          <button
+            type="button"
+            className="btn btn-small game-share"
+            onClick={() => void shareRun()}
+          >
+            {t(
+              shareState === 'copied'
+                ? 'share.copied'
+                : shareState === 'failed'
+                  ? 'share.failed'
+                  : 'share.button',
+            )}
+          </button>
+          {queued > 0 && (
+            <p className="game-queued" role="status">
+              {tn('queue.pending', queued)}
+            </p>
+          )}
+        </div>
+      )}
+
       {load.kind === 'loading' && <p className="game-status">Loading…</p>}
       {load.kind === 'error' && (
         <p className="game-status game-status-error">{load.message}</p>

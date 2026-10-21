@@ -200,7 +200,11 @@ function App() {
   // Active gameplay only: the nav bars are conditionally REMOVED (not made
   // transparent) so the run uses the full vertical space. They come back on
   // the ready screen, the game-over/result state and every other screen.
-  const navHidden = screen === 'game' && gamePhase === 'playing'
+  // PAUSE — the 3-2-1 countdown counts as gameplay: bringing the nav back for
+  // those three seconds would resize the canvas mid-countdown (the frozen run
+  // would jump under the player) and then hide it again.
+  const navHidden =
+    screen === 'game' && (gamePhase === 'playing' || gamePhase === 'countdown')
 
   return (
     <div className="shell">
