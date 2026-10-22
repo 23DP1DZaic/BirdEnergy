@@ -35,6 +35,12 @@ export interface UserProfile {
   preferredBird?: number
   preferredBackground?: number
   preferredGround?: number
+  /** ECON-01 — coin balance and cosmetic ownership, initialized server-side on
+   *  the profile upsert (absent on documents created before ECON-01). */
+  coins?: number
+  ownedSkinIds?: string[]
+  ownedBackgroundIds?: string[]
+  economyVersion?: number
   acceptedDataProcessingAt?: { toDate(): Date }
   createdAt?: { toDate(): Date }
 }
