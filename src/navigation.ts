@@ -27,7 +27,6 @@ export const NAV_ITEMS: Array<{
 }> = [
   { screen: 'challenges', labelKey: 'nav.challenges', icon: 'list' },
   { screen: 'home', labelKey: 'nav.home', icon: 'home' },
-  { screen: 'game', labelKey: 'nav.play', icon: 'gamepad' },
   { screen: 'leaderboard', labelKey: 'nav.leaderboard', icon: 'trophy' },
   { screen: 'profile', labelKey: 'nav.profile', icon: 'heart' },
   { screen: 'admin', labelKey: 'nav.admin', icon: 'settings', adminOnly: true },

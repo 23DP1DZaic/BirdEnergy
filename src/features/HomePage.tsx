@@ -7,8 +7,12 @@
 //   * inside Telegram, not signed in yet
 //        → "Sign in with Telegram" (plus the status/error line from App).
 //   * signed in
-//        → "▶ Play" only. The bot/sign-in buttons would be noise by then, so
-//          they disappear; the nav bar covers every other screen.
+//        → tapping ANYWHERE on Home starts a run; the screen shows a "TAP TO
+//          PLAY" line instead of a button. There is no Play entry in the
+//          bottom nav any more, so this is the way into the game. The tap-to-
+//          play line is a real button so keyboard users keep a path in, and
+//          the controls that are still on the screen (settings, admin) opt
+//          out of the page tap.
 //
 // The top-right settings button (text-only for now — icons come later) opens a
 // menu towards the left with Music / Sound effects switches and an Info entry
@@ -60,9 +64,16 @@ interface HomePageProps {
  * carried by aria-checked (and the sound icon itself swaps), so the buttons do
  * not need labels on screen.
  */
-function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
+function SettingsMenu({
+  open,
+  setOpen,
+  onOpenTutorial,
+}: {
+  open: boolean
+  setOpen: (open: boolean) => void
+  onOpenTutorial: () => void
+}) {
   const { t, locale } = useT()
-  const [open, setOpen] = useState(false)
   const { music, sfx, toggleMusic, toggleSfx } = useSoundSettings()
   const {
     haptics,
@@ -85,7 +96,7 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
       document.removeEventListener('mousedown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [open, setOpen])
 
   return (
     <div className="settings" ref={rootRef}>
@@ -96,7 +107,7 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
         aria-expanded={open}
         aria-label={t('home.settings')}
         title={t('home.settings')}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        onClick={() => setOpen(!open)}
       >
         <PixelIcon name="settings" size={34} pressed={open} />
       </button>
@@ -208,6 +219,9 @@ export function HomePage({
   const devTelegramId = getDevTelegramId()
 
   const signedIn = signedInUid !== null
+  // The settings menu is owned here so a tap meant to dismiss it cannot also
+  // start a run (see the page onClick below).
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Is a sign-in possible from here at all? Inside Telegram initData does the
   // job; outside it only the DEV login can, so a plain browser visitor (no
   // Telegram, no VITE_TELEGRAM_ID) gets the bot link instead of a button that
@@ -215,14 +229,33 @@ export function HomePage({
   const canSignIn = inTelegram || devTelegramId !== null
 
   return (
-    <main className="page">
+    <main
+      className={signedIn ? 'page page-playable' : 'page'}
+      onClick={(event) => {
+        // Signed-out Home keeps its explicit sign-in / bot action; the tap-to-
+        // play line is a button, so keyboard users start a run too.
+        if (!signedIn || settingsOpen) return
+        // Real controls on the page keep their own behaviour.
+        if (
+          event.target instanceof Element &&
+          event.target.closest('button, a, input, select, textarea')
+        ) {
+          return
+        }
+        onOpenGame()
+      }}
+    >
       <div
         className="sky"
         style={{ backgroundImage: `url(${backgrounds[backgroundIndex]})` }}
         aria-hidden="true"
       />
 
-      <SettingsMenu onOpenTutorial={() => onNavigate('tutorial')} />
+      <SettingsMenu
+        open={settingsOpen}
+        setOpen={setSettingsOpen}
+        onOpenTutorial={() => onNavigate('tutorial')}
+      />
 
       <div className="content">
         <img className="logo logo-float" src={logo} alt="Bird Energy" />
@@ -241,10 +274,15 @@ export function HomePage({
 
         <div className="home-actions">
           {signedIn ? (
-            /* Signed in: Play is the only action that still makes sense. */
+            /* Signed in: the whole screen is the play control; this line only
+               names it (and keeps a keyboard-reachable button). */
             <>
-              <button type="button" className="btn" onClick={onOpenGame}>
-                {t('home.play')}
+              <button
+                type="button"
+                className="tap-to-play"
+                onClick={onOpenGame}
+              >
+                {t('home.tapToPlay')}
               </button>
               {role === 'admin' && (
                 <button

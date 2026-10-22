@@ -485,7 +485,49 @@ a.btn {
   margin-top: 14px;
 }
 
-/* Play button + (for admins) the Admin Panel shortcut on Home. */
+/* Home tap-to-play: once signed in, the whole screen starts a run, so the page
+   itself is the target (its controls opt out — see HomePage.tsx). */
+.page-playable {
+  cursor: pointer;
+}
+
+/* The "TAP TO PLAY" line. Deliberately not a .btn: no yellow button any more,
+   just the pixel text over the sky. It stays a real button for keyboard users. */
+.tap-to-play {
+  margin: 0;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: clamp(12px, 3.5vw, 17px);
+  color: #fff;
+  text-shadow: 1px 2px 0 rgba(90, 30, 5, 0.75);
+  cursor: pointer;
+  animation: tap-to-play-pulse 1.8s ease-in-out infinite;
+}
+
+.tap-to-play:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+@keyframes tap-to-play-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tap-to-play {
+    animation: none;
+  }
+}
+
+/* Tap-to-play line + (for admins) the Admin Panel shortcut on Home. */
 .home-actions {
   display: flex;
   align-items: center;

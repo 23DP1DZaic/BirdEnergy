@@ -12,7 +12,6 @@ const EN: Strings = {
   // --- shell / navigation ---
   'nav.challenges': 'Challenges',
   'nav.home': 'Home',
-  'nav.play': 'Play',
   'nav.leaderboard': 'Leaderboard',
   'nav.profile': 'Profile',
   'nav.admin': 'Admin',
@@ -29,7 +28,7 @@ const EN: Strings = {
 
   // --- home ---
   'home.hello': 'Hello, {name}!',
-  'home.play': '▶ Play',
+  'home.tapToPlay': 'TAP TO PLAY',
   'home.openBot': 'Open Telegram Bot',
   'home.devLogin': 'DEV login: Telegram id {id} via the Functions emulator',
   'home.settings': 'Settings',
@@ -216,7 +215,6 @@ const EN: Strings = {
 const LV: Strings = {
   'nav.challenges': 'Izaicinājumi',
   'nav.home': 'Sākums',
-  'nav.play': 'Spēlēt',
   'nav.leaderboard': 'Reitings',
   'nav.profile': 'Profils',
   'nav.admin': 'Administrators',
@@ -231,7 +229,7 @@ const LV: Strings = {
   'error.reload': 'Pārlādēt',
 
   'home.hello': 'Sveicinies, {name}!',
-  'home.play': '▶ Spēlēt',
+  'home.tapToPlay': 'PIESIT, LAI SPĒLĒTU',
   'home.openBot': 'Atvērt Telegram botu',
   'home.devLogin': 'DEV pieslēgums: Telegram id {id} caur Functions emulatoru',
   'home.settings': 'Iestatījumi',
@@ -410,7 +408,6 @@ const LV: Strings = {
 const RU: Strings = {
   'nav.challenges': 'Испытания',
   'nav.home': 'Главная',
-  'nav.play': 'Играть',
   'nav.leaderboard': 'Рейтинг',
   'nav.profile': 'Профиль',
   'nav.admin': 'Админ',
@@ -425,7 +422,7 @@ const RU: Strings = {
   'error.reload': 'Перезагрузить',
 
   'home.hello': 'Привет, {name}!',
-  'home.play': '▶ Играть',
+  'home.tapToPlay': 'НАЖМИ, ЧТОБЫ ИГРАТЬ',
   'home.openBot': 'Открыть Telegram-бота',
   'home.devLogin': 'DEV вход: Telegram id {id} через эмулятор Functions',
   'home.settings': 'Настройки',
