@@ -1,5 +1,7 @@
 // UI-02 — app-shell navigation. The spec ("Ekrāni un navigācija") allows a
 // small route structure instead of React Router, so the screen is plain state.
+import type { IconName } from './features/ui/pixelIcons'
+
 export type Screen =
   | 'home'
   | 'game'
@@ -18,14 +20,15 @@ export type Screen =
 export const NAV_ITEMS: Array<{
   screen: Screen
   labelKey: string
+  /** Sprite cell from the shared pixel-button sheet (features/ui/PixelIcon). */
+  icon: IconName
   /** Admin Panel is reachable only for the admin role. */
   adminOnly?: boolean
 }> = [
-  { screen: 'challenges', labelKey: 'nav.challenges' },
-  { screen: 'home', labelKey: 'nav.home' },
-  { screen: 'game', labelKey: 'nav.play' },
-  { screen: 'leaderboard', labelKey: 'nav.leaderboard' },
-  { screen: 'profile', labelKey: 'nav.profile' },
-  { screen: 'admin', labelKey: 'nav.admin', adminOnly: true },
+  { screen: 'challenges', labelKey: 'nav.challenges', icon: 'list' },
+  { screen: 'home', labelKey: 'nav.home', icon: 'home' },
+  { screen: 'leaderboard', labelKey: 'nav.leaderboard', icon: 'trophy' },
+  { screen: 'profile', labelKey: 'nav.profile', icon: 'heart' },
+  { screen: 'admin', labelKey: 'nav.admin', icon: 'settings', adminOnly: true },
 ]
 

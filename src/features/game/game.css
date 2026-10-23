@@ -36,6 +36,189 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* PAUSE / COUNTDOWN / SHARE / QUEUE — DOM overlays on top of the      */
+/* canvas. Every colour is taken from the canvas Game Over panel        */
+/* (renderer.ts: fill rgba(90,30,5,.82), gold #ffd23f, cream #fff4d6)   */
+/* so the HTML controls read as part of the same pixel scene.          */
+/* ------------------------------------------------------------------ */
+
+/* Top-right cluster: score HUD is top-centre, the DEV perf overlay is
+   top-left, so this corner stays clear on every screen size. */
+.game-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+}
+
+/* Sprite buttons: the art IS the button (32px = the 16px cell at 2x), so the
+   control adds no chrome of its own — just a tap target big enough to trust
+   and a hard shadow that lifts it off the scene. */
+.game-control {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.5));
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Muted speaker stays legible but steps back: the corner is informational. */
+.game-control[aria-pressed='false'] .pixel-icon {
+  opacity: 0.78;
+}
+
+.game-control:active {
+  transform: translateY(1px);
+}
+
+.game-control:focus-visible {
+  outline: 2px solid #ffd23f;
+  outline-offset: 2px;
+}
+
+/* The pause menu sits on the frozen run — same panel language as Game Over. */
+.game-modal {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 7;
+  width: min(300px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+  text-align: center;
+  background: rgba(90, 30, 5, 0.92);
+  border: 3px solid #ffd23f;
+  border-radius: 14px;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.25);
+}
+
+.game-modal-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #ffd23f;
+}
+
+.game-modal-score {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #fff4d6;
+}
+
+.game-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.game-modal-actions .btn {
+  width: 100%;
+  /* Glyph + label on one line: the icon inherits the button's ink, so the
+     sprite set reads as part of the button, not as a sticker on it. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.game-modal-hint {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.6;
+  color: rgba(255, 244, 214, 0.7);
+}
+
+/* 3-2-1 — centred digit over the frozen world. Pointer-events off: the engine
+   already ignores taps during the countdown, and the overlay must not swallow
+   the tap that would otherwise reach the canvas. */
+.game-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.game-countdown-num {
+  font-size: clamp(56px, 20vmin, 120px);
+  line-height: 1;
+  color: #ffd23f;
+  text-shadow:
+    3px 3px 0 #5a1e05,
+    -3px 3px 0 #5a1e05,
+    3px -3px 0 #5a1e05,
+    -3px -3px 0 #5a1e05,
+    0 8px 0 rgba(90, 30, 5, 0.45);
+  animation: game-countdown-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes game-countdown-pop {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-countdown-num {
+    animation: none;
+  }
+}
+
+/* Share + offline-queue note, directly under the Game Over panel. It is
+   anchored to the vertical centre (the panel's bottom edge) rather than to the
+   bottom of the screen: the bottom nav floats over the page and would sit on
+   top of a bottom-anchored button, and the death scene underneath stays
+   readable. */
+.game-over-actions {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 14px);
+  transform: translateX(-50%);
+  z-index: 6;
+  width: min(260px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-over-actions .btn {
+  width: 100%;
+  white-space: normal;
+  line-height: 1.6;
+}
+
+.game-queued {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.6;
+  text-align: center;
+  color: #fff4d6;
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
+}
+
 /* Loading / error overlay while sprites decode. */
 .game-status {
   position: absolute;

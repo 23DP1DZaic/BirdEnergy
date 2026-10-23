@@ -1,37 +1,32 @@
-// ECON-01 — client half of the economy contract.
+// ECON-01 — challenge economy configuration and data contracts (client copy).
 //
-// The server (functions/src/economy.ts) is the trust boundary: it owns the
-// reward table, the prices and the profile initialization. This module mirrors
-// only what the UI must know to RENDER state:
+// MIRROR: functions/src/economy.ts owns the server copy. The two toolchains
+// cannot share one file (Cloud Functions deploys only its own directory), so
+// every exported value below must stay value-identical to that file — pinned
+// by src/features/economy.test.ts, which deep-compares both copies. Change
+// them together.
 //
-//   * the four challenge types and the two difficulty values (a daily
-//     assignment snapshot carries its own targetValue/rewardCoins, so the
-//     client never needs the reward table);
-//   * the cosmetic catalog in the SAME order as the sprite manifests —
-//     SKIN_IDS ↔ birdSkinUrls (src/features/game/sprites.ts),
-//     BACKGROUND_IDS ↔ backgrounds (src/sprites.ts);
-//   * the explicit free lists and the coin prices;
-//   * the read-side shapes of the documents ECON-02/ECON-03 will consume.
+// Pure by design (no React, no firebase imports): the daily-challenge UI and
+// purchase screens arriving in later ECON tasks read these tiers, prices and
+// free IDs, and nothing here writes Firestore — economy writes are server-only
+// (initializeEconomy / the future claim + purchase callables).
 //
-// IDs, not array positions, are the persistent identity: free ownership is
-// decided by FREE_SKIN_IDS / FREE_BACKGROUND_IDS, so adding or reordering an
-// asset can never change what a player owns for free.
-//
-// Note on names: `ChallengeType` here is the daily-challenge vocabulary. The
-// legacy `challenges/` collection (admin CRUD) keeps the narrower two-value
-// type in challenges.ts; those documents have no difficulty/reward and are
-// intentionally left unchanged.
+// Difficulty "normal" is DISPLAYED as "Easy" (i18n label, later task); the
+// stored value stays "normal" exactly as in the server config.
 
-/** Must mirror ECONOMY_VERSION in functions/src/economy.ts. */
+/** Schema stamp for the users/{uid} economy fields (server-applied). */
 export const ECONOMY_VERSION = 1
 
+/** How many server-generated assignments one daily challenge document holds. */
+export const DAILY_CHALLENGE_COUNT = 3
+
 /* ------------------------------------------------------------------ */
-/* Challenge types                                                    */
+/* Challenge types + difficulty tiers.                                 */
 /* ------------------------------------------------------------------ */
 
-/** Progress is derived from accepted gameResults (score + jumpCount):
- *  total_jumps = sum of jumpCount, games_played = count of games,
- *  single_game_score = best score, total_score = sum of score. */
+/** The four economy challenge types (ECON-01). single_game_score and
+ *  games_played also back the original admin challenges — see
+ *  ./challenges.ts, whose CRUD list stays a subset of this one. */
 export const CHALLENGE_TYPES = [
   'total_jumps',
   'games_played',
@@ -39,189 +34,217 @@ export const CHALLENGE_TYPES = [
   'total_score',
 ] as const
 
-export type ChallengeType = (typeof CHALLENGE_TYPES)[number]
+export type EconomyChallengeType = (typeof CHALLENGE_TYPES)[number]
 
-/** Stored difficulty values. "normal" is displayed as "Easy" in the UI. */
+/** Stored difficulty values; the UI labels 'normal' as 'Easy'. */
 export const CHALLENGE_DIFFICULTIES = ['normal', 'hard'] as const
 
 export type ChallengeDifficulty = (typeof CHALLENGE_DIFFICULTIES)[number]
 
-/** How many server-generated assignments a day has (exactly 3). */
-export const DAILY_CHALLENGE_COUNT = 3
-
-/* ------------------------------------------------------------------ */
-/* Cosmetic catalog, free lists and prices                            */
-/* ------------------------------------------------------------------ */
-
-/** Same order as birdSkinUrls: classic-1..7 are Bird2-1..7.png, then the
- *  meme birds. Position = sprite index; id = persistent ownership key. */
-export const SKIN_IDS = [
-  'classic-1',
-  'classic-2',
-  'classic-3',
-  'classic-4',
-  'classic-5',
-  'classic-6',
-  'classic-7',
-  'kirk',
-  'litvin',
-  'mell',
-] as const
-
-export type SkinId = (typeof SKIN_IDS)[number]
-
-/** Same order as `backgrounds` in src/sprites.ts (Background1..10). */
-export const BACKGROUND_IDS = [
-  'sky-1',
-  'sky-2',
-  'sky-3',
-  'sky-4',
-  'sky-5',
-  'sky-6',
-  'sky-7',
-  'sky-8',
-  'sky-9',
-  'sky-10',
-] as const
-
-export type BackgroundId = (typeof BACKGROUND_IDS)[number]
-
-/** The 7 permanently free skins, selected from the catalog order once. */
-export const FREE_SKIN_IDS: readonly SkinId[] = [
-  'classic-1',
-  'classic-2',
-  'classic-3',
-  'classic-4',
-  'classic-5',
-  'classic-6',
-  'classic-7',
-]
-
-/** The 3 permanently free backgrounds, selected from the catalog order once. */
-export const FREE_BACKGROUND_IDS: readonly BackgroundId[] = [
-  'sky-1',
-  'sky-2',
-  'sky-3',
-]
-
-/** Free fallbacks for a selection that is no longer owned. */
-export const DEFAULT_SKIN_ID: SkinId = 'classic-1'
-export const DEFAULT_BACKGROUND_ID: BackgroundId = 'sky-1'
-
-/** Equipped cosmetics are stored as sprite indices (preferredBird /
- *  preferredBackground), so the defaults are written as their indices. */
-export const DEFAULT_SKIN_INDEX = (SKIN_IDS as readonly string[]).indexOf(
-  DEFAULT_SKIN_ID,
-)
-export const DEFAULT_BACKGROUND_INDEX = (
-  BACKGROUND_IDS as readonly string[]
-).indexOf(DEFAULT_BACKGROUND_ID)
-
-export const PAID_SKIN_PRICE_COINS = 500
-export const PAID_BACKGROUND_PRICE_COINS = 1000
-
-const FREE_SKIN_SET: ReadonlySet<string> = new Set(FREE_SKIN_IDS)
-const FREE_BACKGROUND_SET: ReadonlySet<string> = new Set(FREE_BACKGROUND_IDS)
-
-export function isSkinId(value: unknown): value is SkinId {
-  return (
-    typeof value === 'string' && (SKIN_IDS as readonly string[]).includes(value)
-  )
+export interface ChallengeTier {
+  /** The tier's target value for the challenge type. */
+  targetValue: number
+  /** Coins paid out when this tier is claimed. */
+  rewardCoins: number
 }
 
-export function isBackgroundId(value: unknown): value is BackgroundId {
-  return (
-    typeof value === 'string' &&
-    (BACKGROUND_IDS as readonly string[]).includes(value)
-  )
+/** THE tier table (ECON-01) — mirrors functions/src/economy.ts exactly.
+ *  Anything outside these triples has no reward (lookupTierReward → null). */
+export const CHALLENGE_TIERS: Record<
+  EconomyChallengeType,
+  Record<ChallengeDifficulty, readonly ChallengeTier[]>
+> = {
+  total_jumps: {
+    normal: [
+      { targetValue: 20, rewardCoins: 20 },
+      { targetValue: 40, rewardCoins: 30 },
+      { targetValue: 60, rewardCoins: 40 },
+    ],
+    hard: [
+      { targetValue: 80, rewardCoins: 70 },
+      { targetValue: 100, rewardCoins: 90 },
+    ],
+  },
+  games_played: {
+    normal: [
+      { targetValue: 5, rewardCoins: 30 },
+      { targetValue: 10, rewardCoins: 50 },
+    ],
+    hard: [
+      { targetValue: 15, rewardCoins: 100 },
+      { targetValue: 20, rewardCoins: 130 },
+    ],
+  },
+  single_game_score: {
+    normal: [
+      { targetValue: 20, rewardCoins: 30 },
+      { targetValue: 30, rewardCoins: 45 },
+      { targetValue: 40, rewardCoins: 60 },
+    ],
+    hard: [
+      { targetValue: 50, rewardCoins: 100 },
+      { targetValue: 60, rewardCoins: 130 },
+    ],
+  },
+  total_score: {
+    normal: [
+      { targetValue: 100, rewardCoins: 25 },
+      { targetValue: 150, rewardCoins: 35 },
+      { targetValue: 200, rewardCoins: 45 },
+      { targetValue: 250, rewardCoins: 55 },
+    ],
+    hard: [
+      { targetValue: 300, rewardCoins: 90 },
+      { targetValue: 350, rewardCoins: 105 },
+      { targetValue: 400, rewardCoins: 120 },
+      { targetValue: 450, rewardCoins: 135 },
+      { targetValue: 500, rewardCoins: 150 },
+    ],
+  },
 }
 
-export function isFreeSkin(value: unknown): value is SkinId {
-  return isSkinId(value) && FREE_SKIN_SET.has(value)
-}
-
-export function isFreeBackground(value: unknown): value is BackgroundId {
-  return isBackgroundId(value) && FREE_BACKGROUND_SET.has(value)
-}
-
-/** 0 for a free skin, 500 for a paid one, null for an unknown id. */
-export function skinPriceCoins(value: unknown): number | null {
-  if (!isSkinId(value)) return null
-  return FREE_SKIN_SET.has(value) ? 0 : PAID_SKIN_PRICE_COINS
-}
-
-/** 0 for a free background, 1000 for a paid one, null for an unknown id. */
-export function backgroundPriceCoins(value: unknown): number | null {
-  if (!isBackgroundId(value)) return null
-  return FREE_BACKGROUND_SET.has(value) ? 0 : PAID_BACKGROUND_PRICE_COINS
-}
-
-/** Sprite index for a skin id (null when the id is not in the catalog). */
-export function skinIndexForId(value: unknown): number | null {
-  if (!isSkinId(value)) return null
-  return (SKIN_IDS as readonly string[]).indexOf(value)
-}
-
-/** Skin id at a sprite index (null when the index is out of range). */
-export function skinIdForIndex(index: unknown): SkinId | null {
-  if (!Number.isInteger(index)) return null
-  const n = index as number
-  return n >= 0 && n < SKIN_IDS.length ? SKIN_IDS[n] : null
-}
-
-/** Sprite index for a background id (null when it is not in the catalog). */
-export function backgroundIndexForId(value: unknown): number | null {
-  if (!isBackgroundId(value)) return null
-  return (BACKGROUND_IDS as readonly string[]).indexOf(value)
-}
-
-/** Background id at a sprite index (null when the index is out of range). */
-export function backgroundIdForIndex(index: unknown): BackgroundId | null {
-  if (!Number.isInteger(index)) return null
-  const n = index as number
-  return n >= 0 && n < BACKGROUND_IDS.length ? BACKGROUND_IDS[n] : null
+/** Reward for an allowed type/difficulty/target triple, or null when the
+ *  combination is not in the table. `unknown` on purpose — form/UI input is
+ *  unvalidated when it reaches here. */
+export function lookupTierReward(
+  type: unknown,
+  difficulty: unknown,
+  targetValue: unknown,
+): number | null {
+  if (typeof type !== 'string' || typeof difficulty !== 'string') return null
+  const tiers: Record<ChallengeDifficulty, readonly ChallengeTier[]> | undefined =
+    CHALLENGE_TIERS[type as EconomyChallengeType]
+  if (!tiers) return null
+  const list: readonly ChallengeTier[] | undefined =
+    tiers[difficulty as ChallengeDifficulty]
+  if (!list) return null
+  const tier = list.find((candidate) => candidate.targetValue === targetValue)
+  return tier ? tier.rewardCoins : null
 }
 
 /* ------------------------------------------------------------------ */
-/* Persistent data model (read side)                                  */
+/* Cosmetic catalogs + pricing.                                        */
 /* ------------------------------------------------------------------ */
 
-/** The economy fields of users/{uid} (written and initialized server-side). */
-export interface UserEconomy {
-  coins: number
-  ownedSkinIds: string[]
-  ownedBackgroundIds: string[]
-  economyVersion: number
-}
-
-/**
- * One of the 3 exclusive/day snapshots in
- * users/{uid}/dailyChallenges/{dateKey}.assignments. It is a frozen copy of
- * the configuration at assignment time; claimedAt is null until claimed.
+/*
+ * IDs are the lowercased asset file names, in EXACTLY the catalog order of
+ * birdSkinUrls (features/game/sprites.ts) and backgrounds (sprites.ts) — the
+ * same alignment UI-04's stored preferredBird/preferredBackground indices
+ * rely on. The free sets were chosen ONCE from that order; ownership is
+ * always decided against these explicit lists, never by a runtime index.
  */
+
+export const SKIN_IDS = [
+  'bird2-1',
+  'bird2-2',
+  'bird2-3',
+  'bird2-4',
+  'bird2-5',
+  'bird2-6',
+  'bird2-7',
+  'kirkbird',
+  'litvinbird',
+  'mellbird',
+  'redbirdsmall',
+] as const
+
+/** The 7 skins every account owns from the start (ECON-01). */
+export const FREE_SKIN_IDS: readonly string[] = [
+  'bird2-1',
+  'bird2-2',
+  'bird2-3',
+  'bird2-4',
+  'bird2-5',
+  'bird2-6',
+  'bird2-7',
+]
+
+export const BACKGROUND_IDS = [
+  'background1',
+  'background2',
+  'background3',
+  'background4',
+  'background5',
+  'background6',
+  'background7',
+  'background8',
+  'background9',
+  'background10',
+] as const
+
+/** The 3 backgrounds every account owns from the start (ECON-01). */
+export const FREE_BACKGROUND_IDS: readonly string[] = [
+  'background1',
+  'background2',
+  'background3',
+]
+
+/** Price of a paid skin — any catalog skin not in FREE_SKIN_IDS. */
+export const PAID_SKIN_PRICE = 500
+/** Price of a paid background — any catalog sky not in FREE_BACKGROUND_IDS. */
+export const PAID_BACKGROUND_PRICE = 1000
+
+/** Free default for a repaired/unset equipped pick (catalog index 0). */
+export const DEFAULT_SKIN_INDEX = 0
+export const DEFAULT_BACKGROUND_INDEX = 0
+
+/** Free-ownership check by EXPLICIT id — never `index < 7` at runtime. */
+export function isFreeSkinId(id: unknown): boolean {
+  return typeof id === 'string' && FREE_SKIN_IDS.includes(id)
+}
+
+/** Free-ownership check by EXPLICIT id — never `index < 3` at runtime. */
+export function isFreeBackgroundId(id: unknown): boolean {
+  return typeof id === 'string' && FREE_BACKGROUND_IDS.includes(id)
+}
+
+/* ------------------------------------------------------------------ */
+/* Persistent data model (client read shapes).                         */
+/* ------------------------------------------------------------------ */
+
+/** Firestore timestamps arrive as objects with toDate() — the same duck type
+ *  UserProfile.acceptedDataProcessingAt uses. */
+interface FirestoreDate {
+  toDate(): Date
+}
+
+/** One server-generated tier inside a daily challenge document. */
 export interface DailyChallengeAssignment {
+  /** Stable id (the challengeClaims/{id} path segment). */
   id: string
-  type: ChallengeType
+  type: EconomyChallengeType
   difficulty: ChallengeDifficulty
   targetValue: number
   rewardCoins: number
+  /** Title snapshotted from the assignment generator. */
   title: string
-  claimedAt: Date | null
+  /** null until the player claims this tier. */
+  claimedAt: FirestoreDate | null
 }
 
-/** users/{uid}/dailyChallenges/{dateKey} — exactly 3 assignments. */
-export interface DailyChallengeSet {
+/** users/{uid}/dailyChallenges/{dateKey} — one per local challenge day.
+ *  The economy fields of users/{uid} itself live on UserProfile
+ *  (features/userProfile.ts); equipped cosmetics stay preferredBird /
+ *  preferredBackground (catalog indices), so no duplicate state. */
+export interface DailyChallengeDoc {
+  /** 'YYYY-MM-DD' — the player's local challenge day (the path segment). */
   dateKey: string
+  /** IANA timezone the dateKey was computed in (e.g. 'Europe/Riga'). */
   timezone: string
-  startsAt: Date
-  expiresAt: Date
-  assignedAt: Date
-  assignments: DailyChallengeAssignment[]
+  startsAt: FirestoreDate
+  expiresAt: FirestoreDate
+  assignedAt: FirestoreDate
+  /** Exactly DAILY_CHALLENGE_COUNT server-generated snapshots. */
+  assignments: readonly [
+    DailyChallengeAssignment,
+    DailyChallengeAssignment,
+    DailyChallengeAssignment,
+  ]
 }
 
-/** users/{uid}/challengeClaims/{challengeId} — one payout, written once. */
-export interface ChallengeClaim {
+/** users/{uid}/challengeClaims/{challengeId} — one doc per claimed tier. */
+export interface ChallengeClaimDoc {
   challengeId: string
   rewardCoins: number
-  claimedAt: Date
+  claimedAt: FirestoreDate
 }

@@ -77,11 +77,23 @@ export const BIRD_X = 120
 export const BIRD_R = 13
 const FLAP_FRAME_MS = 150 // 4 frames × 150ms = 600ms full wing cycle (250 felt too slow)
 
+/** PAUSE — seconds counted down (3-2-1) over the frozen world before play continues. */
+export const RESUME_COUNTDOWN_S = 3
+
 /** Gap spawn bounds relative to the current view: 60px sky margin above the
  *  gap, 30px floor margin below it. */
 const GAP_TOP_MIN = 60
 
-export type GamePhase = 'ready' | 'playing' | 'dead' | 'game-over'
+// PAUSE — 'paused' is the pause screen over a frozen run; 'countdown' is the
+// 3-2-1 that both leaving the pause screen (resume AND Play again) goes
+// through. Both freeze the world exactly like 'game-over' does (stepGame).
+export type GamePhase =
+  | 'ready'
+  | 'playing'
+  | 'paused'
+  | 'countdown'
+  | 'dead'
+  | 'game-over'
 
 /**
  * AUDIO — feedback the engine reports to the wrapper. `flap`/`score` fire
@@ -93,8 +105,9 @@ export type GameEvent = 'flap' | 'score' | 'hit' | 'die'
 
 /**
  * C — the active challenge as the Game Over panel shows it. GamePage resolves
- * it from the challenge list + this player's runs; the wrapper decides whether
- * this run is the one that completed it (`celebrate`).
+ * it from the challenge list + this player's runs (always with celebrate:
+ * false — the ENGINE derives the completion celebration from the values
+ * themselves, see syncChallenge).
  */
 export interface GameChallengeView {
   id: string
@@ -226,6 +239,16 @@ export interface GameState {
   /** Skin index of the ACTIVE bird — synced by GameCanvas from birdSkin.ts
    *  and snapshotted into the corpse when the bird dies. */
   skinIndex: number
+  /**
+   * PAUSE — seconds left of the resume countdown (0 = none). It is the only
+   * thing that advances while the phase is 'countdown'.
+   */
+  countdownLeft: number
+  /**
+   * PAUSE — where the countdown goes when it reaches 0: false = the frozen
+   * run continues (resumeGame), true = a fresh run starts (replayGame).
+   */
+  countdownRestarts: boolean
   /** Death-animation bookkeeping: the tilt at the moment of collision and
    *  the highest point reached (the impact hop's apex). Rotation progress is
    *  measured from that apex down to the landing spot, so the spin spans the
@@ -282,6 +305,8 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     skinIndex: 0,
     deathStartAngle: 0,
     deathApexY: 0,
+    countdownLeft: 0,
+    countdownRestarts: false,
     currentPipeColorIndex: 0,
     lastPipeColorChangeScore: 0,
     previousPipeColorIndex: 0,
@@ -313,9 +338,14 @@ export function resetGame(s: GameState): void {
   s.groundIndex = groundIndex
   s.skinIndex = skinIndex
   // C — the best and the active challenge are fetched once and must survive
-  // "Play Again" too; only the run's own numbers start over.
+  // "Play Again" too; only the run's own numbers start over. The completion
+  // celebration belongs to the game-over it happened on, so a fresh run
+  // starts with the numbers but no banner.
   s.serverBest = serverBest
-  s.challenge = challenge
+  s.challenge =
+    challenge === null
+      ? null
+      : { ...challenge, celebrate: false, celebrateAt: 0 }
   s.currentPipeColorIndex = 0
   s.lastPipeColorChangeScore = 0
 }
@@ -331,6 +361,40 @@ export function resetGame(s: GameState): void {
  * Collision re-enters endRun only from 'playing', so a bird can never start
  * a second death animation (and the run result is reported exactly once).
  */
+/**
+ * PAUSE — freezes a live run (playing → paused). Every other phase is
+ * ignored, so a stray tap can never pause the ready screen, the death
+ * animation or the result panel.
+ */
+export function pauseGame(s: GameState): void {
+  if (s.phase === 'playing') s.phase = 'paused'
+}
+
+/**
+ * PAUSE — leaves the pause screen into the 3-2-1 countdown; when it reaches 0
+ * the SAME run continues exactly where it froze (bird position/velocity, pipes,
+ * score and run time are all untouched — the countdown only stops them).
+ */
+export function resumeGame(s: GameState): void {
+  if (s.phase !== 'paused') return
+  s.phase = 'countdown'
+  s.countdownLeft = RESUME_COUNTDOWN_S
+  s.countdownRestarts = false
+}
+
+/**
+ * PAUSE — "Play again" from the pause screen: the run is reset the same way
+ * the game-over restart resets it, and the countdown leads into a FRESH run
+ * instead of the frozen one.
+ */
+export function replayGame(s: GameState): void {
+  if (s.phase !== 'paused') return
+  resetGame(s)
+  s.phase = 'countdown'
+  s.countdownLeft = RESUME_COUNTDOWN_S
+  s.countdownRestarts = true
+}
+
 function endRun(s: GameState): void {
   s.phase = 'dead'
   s.best = Math.max(s.best, s.score)
@@ -364,15 +428,58 @@ export function drainEvents(s: GameState): GameEvent[] {
 }
 
 /**
- * C — true while the challenge-completion banner should still pulse. The Game
- * Over scene is otherwise drawn once and left alone (see GameCanvas), so the
- * renderer and the wrapper both gate the animation on this.
+ * C — true for the whole game-over the challenge was completed on. The Game
+ * Over scene is otherwise drawn once and left alone (see GameCanvas); the
+ * renderer gates the banner on this, and the wrapper bounds the VISIBLE pulse
+ * to a few real seconds on top of it ("pulses, then goes static"). The flag
+ * is cleared by resetGame — the only way off that screen — so the world
+ * clock ticking at game-over can never expire a celebration early.
  */
 export function isCelebrating(s: GameState): boolean {
-  const challenge = s.challenge
-  return (
-    challenge !== null && challenge.celebrate && s.time - challenge.celebrateAt < 3
-  )
+  return s.challenge !== null && s.challenge.celebrate
+}
+
+/**
+ * C — copies the newest best/challenge view into the engine's frozen state.
+ * The completion celebration is derived HERE, from the values themselves: the
+ * update that takes `value` from below `target` to >= target is the one that
+ * completed the challenge, and it starts pulsing on that game-over. Reading
+ * the crossing off the numbers (instead of trusting a flag in the view) makes
+ * it a one-shot — a view that keeps a stale flag, a reload with an
+ * already-finished challenge or "Play Again" can never re-fire it, and
+ * resetGame ends it for the next run.
+ */
+export function syncChallenge(
+  state: GameState,
+  view: { serverBest: number; challenge: GameChallengeView | null },
+): void {
+  state.serverBest = view.serverBest
+  if (!view.challenge) {
+    state.challenge = null
+    return
+  }
+  const current = state.challenge
+  if (current === null || current.id !== view.challenge.id) {
+    // First sighting of this challenge: show the numbers, never celebrate —
+    // arriving with value >= target only means it was finished earlier.
+    state.challenge = { ...view.challenge, celebrate: false, celebrateAt: 0 }
+    return
+  }
+  const crossed =
+    current.value < current.target &&
+    view.challenge.value >= view.challenge.target
+  const celebrate = current.celebrate || crossed
+  state.challenge = {
+    ...current,
+    title: view.challenge.title,
+    value: view.challenge.value,
+    target: view.challenge.target,
+    celebrate,
+    // Bookkeeping: when the celebration started. resetGame ends it for
+    // the next run (isCelebrating).
+    celebrateAt:
+      crossed && !current.celebrate ? state.time : current.celebrateAt,
+  }
 }
 
 /** Begin a run from the ready screen. The starting tap counts as flap #1. */
@@ -443,6 +550,21 @@ export function stepGame(s: GameState, dtRaw: number): void {
   s.time += dt
 
   if (s.phase === 'game-over') return // freeze the world on the death screen
+
+  // PAUSE — the pause screen and the resume countdown freeze everything the
+  // same way (no gravity, no scroll, no spawns, no run time): only the
+  // countdown itself ticks, and at 0 it either resumes the frozen run in
+  // place or — after "Play again" — starts a fresh one (startGame).
+  if (s.phase === 'paused') return
+  if (s.phase === 'countdown') {
+    s.countdownLeft -= dt
+    if (s.countdownLeft <= 0) {
+      s.countdownLeft = 0
+      if (s.countdownRestarts) startGame(s)
+      else s.phase = 'playing'
+    }
+    return
+  }
 
   if (s.phase === 'ready') {
     // Idle hover: the bird bobs and flaps, but the scenery stays STILL —

@@ -1,39 +1,48 @@
 /**
- * ECON-01 — challenge economy, cosmetic catalog and the user economy model.
+ * ECON-01 — the challenge economy configuration and data contracts.
  *
- * This module is the SERVER-SIDE source of truth for:
- *  - the four challenge types and the one allowed target→reward table
- *    (difficulty "normal" | "hard"); a daily assignment may only use a
- *    (type, difficulty, targetValue) triple listed here;
- *  - the cosmetic catalog order, the explicit free lists and the coin prices;
- *  - the persistent economy shapes (users/{uid}, users/{uid}/dailyChallenges/
- *    {dateKey}, users/{uid}/challengeClaims/{challengeId});
- *  - planUserEconomy(), the idempotent initializer applied to every existing
- *    profile.
+ * The ONE explicit configuration for the economy:
+ *   - the four challenge types with their per-difficulty target/reward tiers,
+ *   - the cosmetic catalogs with the EXPLICIT free IDs (7 skins, 3 backgrounds)
+ *     and the paid prices (500 / 1000 coins),
+ *   - the users/{uid} + dailyChallenges + challengeClaims document shapes,
+ *   - buildEconomyPatch: the pure backfill rules initializeEconomy applies.
  *
- * The client copy in src/features/economy.ts mirrors the cosmetic catalog,
- * the free lists, the prices and the challenge vocabulary for rendering; the
- * reward table and the initialization live here, because rewards are money.
+ * MIRROR: birdenergy/src/features/economy.ts holds the client copy. The two
+ * toolchains cannot share one file (Cloud Functions deploys only its own
+ * directory), so every exported VALUE here must stay value-identical to that
+ * file — pinned by birdenergy/src/features/economy.test.ts, which deep-compares
+ * both copies. Change them together.
  *
- * No purchasing, claiming or daily assignment is implemented in ECON-01.
+ * Deliberately dependency-free (no firebase imports): the pure helpers run
+ * directly in unit tests, and the client's cross-check test can import this
+ * file without dragging firebase-admin into the browser-side test run.
+ *
+ * NOT in this task (later ECON tasks): daily assignment generation, reward
+ * claiming, cosmetic purchases, ownership-gating UI.
  */
-import type {DocumentData} from "firebase-admin/firestore";
+
+/** Schema stamp for the users/{uid} economy fields — see buildEconomyPatch. */
+export const ECONOMY_VERSION = 1;
+
+/** How many server-generated assignments one daily challenge document holds. */
+export const DAILY_CHALLENGE_COUNT = 3;
 
 /* ------------------------------------------------------------------ */
-/* Challenge types + the allowed reward table                         */
+/* Challenge types + difficulty tiers.                                 */
 /* ------------------------------------------------------------------ */
 
 /**
- * Every challenge type the economy supports. Progress semantics, for the
- * assignment/claim code that follows in ECON-03:
+ * Exactly the four economy challenge types (ECON-01 spec):
+ *   total_jumps       sum of jumpCount over accepted games in the period
+ *   games_played      count of accepted completed games in the period
+ *   single_game_score max score in one accepted game in the period
+ *   total_score       sum of score over accepted games in the period
  *
- *   total_jumps        sum of jumpCount over accepted games in the period
- *   games_played       count of accepted completed games in the period
- *   single_game_score  best score of one accepted game in the period
- *   total_score        sum of score over accepted games in the period
- *
- * `gameResults/{id}` already stores score + jumpCount per run, so progress is
- * derived from those documents — it is never stored on the challenge.
+ * single_game_score and games_played also back the original admin challenges
+ * (CH-01/ADM-01); existing challenges/{id} documents keep working unchanged —
+ * the admin CRUD still offers only those two, this list is the economy-wide
+ * superset the daily assignments draw from.
  */
 export const CHALLENGE_TYPES = [
   "total_jumps",
@@ -42,27 +51,31 @@ export const CHALLENGE_TYPES = [
   "total_score",
 ] as const;
 
-export type ChallengeType = (typeof CHALLENGE_TYPES)[number];
+export type EconomyChallengeType = (typeof CHALLENGE_TYPES)[number];
 
-/** Difficulty values. "normal" is DISPLAYED as "Easy" in the UI (ECON-03). */
+/**
+ * Stored difficulty values. "normal" is DISPLAYED as "Easy" in the UI (the
+ * i18n layer maps the label later) — never rename the stored value itself.
+ */
 export const CHALLENGE_DIFFICULTIES = ["normal", "hard"] as const;
 
 export type ChallengeDifficulty = (typeof CHALLENGE_DIFFICULTIES)[number];
 
-/** One allowed goal: reaching targetValue pays rewardCoins. */
-export interface ChallengeReward {
+export interface ChallengeTier {
+  /** The tier's target value for the challenge type. */
   targetValue: number;
+  /** Coins paid out when this tier is claimed. */
   rewardCoins: number;
 }
 
 /**
- * The one explicit challenge configuration. A daily assignment is a snapshot
- * of one entry below, so a later change here never rewrites an already
- * assigned day. Nothing else may set a reward.
+ * THE tier table (ECON-01). Ascending per cell; nothing outside these exact
+ * type/difficulty/target triples is a valid assignment — lookupTierReward
+ * rejects everything else instead of guessing a reward.
  */
-export const CHALLENGE_REWARDS: Record<
-  ChallengeType,
-  Record<ChallengeDifficulty, readonly ChallengeReward[]>
+export const CHALLENGE_TIERS: Record<
+  EconomyChallengeType,
+  Record<ChallengeDifficulty, readonly ChallengeTier[]>
 > = {
   total_jumps: {
     normal: [
@@ -113,393 +126,261 @@ export const CHALLENGE_REWARDS: Record<
   },
 };
 
-export function isChallengeType(value: unknown): value is ChallengeType {
-  return (
-    typeof value === "string" &&
-    (CHALLENGE_TYPES as readonly string[]).includes(value)
-  );
-}
-
-export function isChallengeDifficulty(
-  value: unknown,
-): value is ChallengeDifficulty {
-  return (
-    typeof value === "string" &&
-    (CHALLENGE_DIFFICULTIES as readonly string[]).includes(value)
-  );
-}
-
-/** The allowed goals for a type+difficulty, or null for an unknown pair. */
-export function allowedChallengeRewards(
-  type: unknown,
-  difficulty: unknown,
-): readonly ChallengeReward[] | null {
-  if (!isChallengeType(type) || !isChallengeDifficulty(difficulty)) return null;
-  return CHALLENGE_REWARDS[type][difficulty];
-}
-
 /**
- * The coin reward for an exact (type, difficulty, targetValue) triple, or null
- * when the combination is not in the configuration. Assignments and claims
- * both go through this, so an unlisted target can never pay out.
+ * Reward for an allowed type/difficulty/target triple, or null when the
+ * combination is not in the table. Parameters are typed `unknown` on purpose:
+ * assignment generation, later validation steps and tests all feed it
+ * unvalidated shapes, so a wrong triple must never pay out by accident.
  */
-export function challengeReward(
+export function lookupTierReward(
   type: unknown,
   difficulty: unknown,
   targetValue: unknown,
 ): number | null {
-  if (!isChallengeType(type) || !isChallengeDifficulty(difficulty)) return null;
-  if (typeof targetValue !== "number" || !Number.isInteger(targetValue)) {
-    return null;
-  }
-  const entry = CHALLENGE_REWARDS[type][difficulty].find(
-    (reward) => reward.targetValue === targetValue,
-  );
-  return entry ? entry.rewardCoins : null;
+  if (typeof type !== "string" || typeof difficulty !== "string") return null;
+  const tiers: Record<ChallengeDifficulty, readonly ChallengeTier[]> | undefined =
+    CHALLENGE_TIERS[type as EconomyChallengeType];
+  if (!tiers) return null;
+  const list: readonly ChallengeTier[] | undefined =
+    tiers[difficulty as ChallengeDifficulty];
+  if (!list) return null;
+  const tier = list.find((candidate) => candidate.targetValue === targetValue);
+  return tier ? tier.rewardCoins : null;
 }
 
 /* ------------------------------------------------------------------ */
-/* Cosmetic catalog, free lists and prices                            */
+/* Cosmetic catalogs + pricing.                                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * Skin ids in the SAME order as `birdSkinUrls` in
- * src/features/game/sprites.ts (the seven classic Bird2-N sheets, then the
- * three meme birds). The position is the sprite index the game renderer uses;
- * the id is the STABLE identity that ownership is stored under, so reordering
- * the assets cannot silently change who owns what.
+/*
+ * IDs are the lowercased asset file names, in EXACTLY the catalog order used
+ * by birdSkinUrls (src/features/game/sprites.ts) and backgrounds
+ * (src/sprites.ts) — the index alignment is what lets UI-04's stored indices
+ * map onto these ids. The free sets below were chosen ONCE from that order
+ * (the seven classic sheets, the first three skies): ownership is always
+ * decided against these explicit lists, never by a runtime array index.
  */
+
 export const SKIN_IDS = [
-  "classic-1",
-  "classic-2",
-  "classic-3",
-  "classic-4",
-  "classic-5",
-  "classic-6",
-  "classic-7",
-  "kirk",
-  "litvin",
-  "mell",
+  "bird2-1",
+  "bird2-2",
+  "bird2-3",
+  "bird2-4",
+  "bird2-5",
+  "bird2-6",
+  "bird2-7",
+  "kirkbird",
+  "litvinbird",
+  "mellbird",
+  "redbirdsmall",
 ] as const;
 
-export type SkinId = (typeof SKIN_IDS)[number];
+/** The 7 skins every account owns from the start (ECON-01). */
+export const FREE_SKIN_IDS: readonly string[] = [
+  "bird2-1",
+  "bird2-2",
+  "bird2-3",
+  "bird2-4",
+  "bird2-5",
+  "bird2-6",
+  "bird2-7",
+];
 
-/**
- * Background ids in the SAME order as `backgrounds` in src/sprites.ts
- * (Background1..Background10).
- */
 export const BACKGROUND_IDS = [
-  "sky-1",
-  "sky-2",
-  "sky-3",
-  "sky-4",
-  "sky-5",
-  "sky-6",
-  "sky-7",
-  "sky-8",
-  "sky-9",
-  "sky-10",
+  "background1",
+  "background2",
+  "background3",
+  "background4",
+  "background5",
+  "background6",
+  "background7",
+  "background8",
+  "background9",
+  "background10",
 ] as const;
 
-export type BackgroundId = (typeof BACKGROUND_IDS)[number];
-
-/**
- * The 7 permanently free skins — written out once, selected from the catalog
- * order above. Free ownership is decided by these ids, never by an array
- * index at runtime.
- */
-export const FREE_SKIN_IDS: readonly SkinId[] = [
-  "classic-1",
-  "classic-2",
-  "classic-3",
-  "classic-4",
-  "classic-5",
-  "classic-6",
-  "classic-7",
+/** The 3 backgrounds every account owns from the start (ECON-01). */
+export const FREE_BACKGROUND_IDS: readonly string[] = [
+  "background1",
+  "background2",
+  "background3",
 ];
 
-/** The 3 permanently free backgrounds — the first three catalog entries. */
-export const FREE_BACKGROUND_IDS: readonly BackgroundId[] = [
-  "sky-1",
-  "sky-2",
-  "sky-3",
-];
+/** Price of a paid skin — any catalog skin not in FREE_SKIN_IDS. */
+export const PAID_SKIN_PRICE = 500;
+/** Price of a paid background — any catalog sky not in FREE_BACKGROUND_IDS. */
+export const PAID_BACKGROUND_PRICE = 1000;
 
-/** Fallbacks used when a selected cosmetic is no longer owned. */
-export const DEFAULT_SKIN_ID: SkinId = "classic-1";
-export const DEFAULT_BACKGROUND_ID: BackgroundId = "sky-1";
-
-/** Equipped cosmetics are still stored as sprite indices on users/{uid}
- *  (preferredBird / preferredBackground — the UI-04 preference fields), so a
- *  replacement is written as the index of the free default. */
-export const DEFAULT_SKIN_INDEX = SKIN_IDS.indexOf(DEFAULT_SKIN_ID);
-export const DEFAULT_BACKGROUND_INDEX = BACKGROUND_IDS.indexOf(
-  DEFAULT_BACKGROUND_ID,
-);
-
-/** Every paid skin costs the same, regardless of which one it is. */
-export const PAID_SKIN_PRICE_COINS = 500;
-/** Every paid background costs the same. */
-export const PAID_BACKGROUND_PRICE_COINS = 1000;
-
-const FREE_SKIN_SET: ReadonlySet<string> = new Set(FREE_SKIN_IDS);
-const FREE_BACKGROUND_SET: ReadonlySet<string> = new Set(FREE_BACKGROUND_IDS);
-
-export function isSkinId(value: unknown): value is SkinId {
-  return (
-    typeof value === "string" && (SKIN_IDS as readonly string[]).includes(value)
-  );
-}
-
-export function isBackgroundId(value: unknown): value is BackgroundId {
-  return (
-    typeof value === "string" &&
-    (BACKGROUND_IDS as readonly string[]).includes(value)
-  );
-}
-
-export function isFreeSkin(value: unknown): value is SkinId {
-  return isSkinId(value) && FREE_SKIN_SET.has(value);
-}
-
-export function isFreeBackground(value: unknown): value is BackgroundId {
-  return isBackgroundId(value) && FREE_BACKGROUND_SET.has(value);
-}
-
-/** 0 for a free skin, 500 for a paid one, null for an unknown id. */
-export function skinPriceCoins(value: unknown): number | null {
-  if (!isSkinId(value)) return null;
-  return FREE_SKIN_SET.has(value) ? 0 : PAID_SKIN_PRICE_COINS;
-}
-
-/** 0 for a free background, 1000 for a paid one, null for an unknown id. */
-export function backgroundPriceCoins(value: unknown): number | null {
-  if (!isBackgroundId(value)) return null;
-  return FREE_BACKGROUND_SET.has(value) ? 0 : PAID_BACKGROUND_PRICE_COINS;
-}
+/** Equipped cosmetics fall back to this catalog index when the stored pick is
+ *  out of range or no longer owned; entry 0 of both catalogs is free. */
+export const DEFAULT_SKIN_INDEX = 0;
+export const DEFAULT_BACKGROUND_INDEX = 0;
 
 /* ------------------------------------------------------------------ */
-/* Persistent data model                                              */
+/* Persistent data model.                                              */
 /* ------------------------------------------------------------------ */
 
 /**
- * Economy schema version, stored as users/{uid}.economyVersion so a later
- * migration can tell an initialized profile from a legacy one. A newer version
- * written by a newer deploy is preserved, never downgraded.
+ * The economy slice of users/{uid} (ECON-01):
+ *   coins                balance; 0 while absent on legacy documents
+ *   ownedSkinIds         catalog ids the account owns (starts = free grants)
+ *   ownedBackgroundIds   same for skies
+ *   economyVersion       ECONOMY_VERSION stamp — see buildEconomyPatch
+ *
+ * Equipped cosmetics are NOT duplicated here: UI-04 already stores them as
+ * catalog indices in preferredBird / preferredBackground / preferredGround
+ * (hydrated into localStorage on sign-in), and initializeEconomy reuses those.
+ * Grounds are not part of the economy (no price, no ownership list).
  */
-export const ECONOMY_VERSION = 1;
-
-/** The economy fields of users/{uid}, after initialization. */
-export interface UserEconomy {
+export interface EconomyUserFields {
   coins: number;
   ownedSkinIds: string[];
   ownedBackgroundIds: string[];
   economyVersion: number;
 }
 
-/**
- * One of the exactly 3 daily challenge snapshots stored on
- * users/{uid}/dailyChallenges/{dateKey}.assignedAt — a copy of the
- * configuration at assignment time, so editing CHALLENGE_REWARDS later cannot
- * change an assigned day. claimedAt is null until the reward is claimed.
- */
+/** One server-generated tier inside a daily challenge document. */
 export interface DailyChallengeAssignment {
+  /** Stable id (used as the challengeClaims/{id} path segment). */
   id: string;
-  type: ChallengeType;
+  type: EconomyChallengeType;
   difficulty: ChallengeDifficulty;
   targetValue: number;
   rewardCoins: number;
+  /** Title snapshotted from the assignment generator. */
   title: string;
+  /** null until the player claims this tier. */
   claimedAt: Date | null;
 }
 
-/** A day's assignment document; exactly DAILY_CHALLENGE_COUNT assignments. */
-export interface DailyChallengeSet {
+/**
+ * users/{uid}/dailyChallenges/{dateKey} — one document per local challenge
+ * day. Timestamps are written as Date; Firestore hands them back as Timestamps
+ * (duck-typed toDate() everywhere else in this codebase) on read.
+ */
+export interface DailyChallengeDoc {
+  /** 'YYYY-MM-DD' — the player's local challenge day (the path segment). */
   dateKey: string;
+  /** IANA timezone the dateKey was computed in (e.g. 'Europe/Riga'). */
   timezone: string;
   startsAt: Date;
   expiresAt: Date;
   assignedAt: Date;
-  assignments: DailyChallengeAssignment[];
+  /** Exactly DAILY_CHALLENGE_COUNT server-generated snapshots. */
+  assignments: readonly [
+    DailyChallengeAssignment,
+    DailyChallengeAssignment,
+    DailyChallengeAssignment,
+  ];
 }
 
-/** users/{uid}/challengeClaims/{challengeId} — one payout, written once. */
-export interface ChallengeClaim {
+/** users/{uid}/challengeClaims/{challengeId} — one doc per claimed tier. */
+export interface ChallengeClaimDoc {
   challengeId: string;
   rewardCoins: number;
   claimedAt: Date;
 }
 
-/** How many challenges a day gets. */
-export const DAILY_CHALLENGE_COUNT = 3;
-
 /* ------------------------------------------------------------------ */
-/* Backward-compatible, idempotent initialization                     */
+/* Backfill rules (pure) — applied by economyInit.initializeEconomy.   */
 /* ------------------------------------------------------------------ */
 
-/**
- * The fields to merge into users/{uid}. Only fields that need fixing appear,
- * so a correctly initialized profile produces an EMPTY patch and the login
- * path performs no economy write for it.
- */
-export interface UserEconomyPatch {
-  coins?: number;
-  ownedSkinIds?: string[];
-  ownedBackgroundIds?: string[];
-  economyVersion?: number;
-  /** Sprite index; only present when a locked selection was replaced. */
-  preferredBird?: number;
-  preferredBackground?: number;
-}
-
-export interface UserEconomyPlan {
-  patch: UserEconomyPatch;
-  /** Effective state once `patch` is applied. */
-  economy: UserEconomy;
-}
-
-/** The economy fields for a NEW users/{uid} document. */
-export function initialUserEconomy(): UserEconomy {
-  return {
-    coins: 0,
-    ownedSkinIds: [...FREE_SKIN_IDS],
-    ownedBackgroundIds: [...FREE_BACKGROUND_IDS],
-    economyVersion: ECONOMY_VERSION,
-  };
-}
-
-/** Valid balance, or 0 when the field is absent/corrupt. */
-function readCoins(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
-    ? value
-    : 0;
-}
-
-/**
- * Effective ownership: the stored ids that exist in the catalog, united with
- * the free ids, in catalog order. Unknown ids are not ownership (the catalog
- * above is the complete set).
- */
-function readOwnedIds(
-  value: unknown,
+/** Ids that exist in the catalog AND are granted (free) or already owned,
+ *  emitted in catalog order so the comparison below is stable. Unknown or
+ *  non-string stored ids are corrupt and do not count as ownership. */
+function mergeOwned(
   catalog: readonly string[],
   free: readonly string[],
-): {ids: string[]; changed: boolean} {
-  const stored = Array.isArray(value) ? value : [];
-  const keep = new Set<string>();
-  for (const entry of stored) {
-    if (typeof entry === "string" && catalog.includes(entry)) keep.add(entry);
+  stored: unknown,
+): string[] {
+  const owned = new Set<string>(free);
+  if (Array.isArray(stored)) {
+    for (const id of stored) {
+      if (typeof id === "string" && catalog.includes(id)) owned.add(id);
+    }
   }
-  for (const id of free) keep.add(id);
-  const ids = catalog.filter((id) => keep.has(id));
-  const changed =
-    stored.length !== ids.length ||
-    stored.some((entry, index) => entry !== ids[index]);
-  return {ids, changed};
+  return catalog.filter((id) => owned.has(id));
 }
 
-/** Stored version when it is current or newer, else ECONOMY_VERSION. */
-function readEconomyVersion(value: unknown): number {
-  return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= ECONOMY_VERSION
-    ? value
-    : ECONOMY_VERSION;
+function sameIdList(stored: unknown, next: readonly string[]): boolean {
+  if (!Array.isArray(stored) || stored.length !== next.length) return false;
+  return next.every((id, i) => stored[i] === id);
 }
 
-/**
- * The equipped sprite index when it still points at an owned cosmetic; the
- * free default otherwise. An unset (null/undefined) selection stays unset —
- * the renderer already defaults to index 0.
- */
-function readEquippedIndex(
-  value: unknown,
+/** True when the stored catalog index points at an id the account owns. */
+function ownsAt(
   catalog: readonly string[],
-  ownedIds: readonly string[],
-  fallback: number,
-): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  const index =
-    typeof value === "number" && Number.isInteger(value) ? value : -1;
-  const id = index >= 0 ? catalog[index] : undefined;
-  if (id !== undefined && ownedIds.includes(id)) return index;
-  return fallback;
+  owned: readonly string[],
+  index: unknown,
+): boolean {
+  if (typeof index !== "number" || !Number.isInteger(index)) return false;
+  const id: string | undefined = catalog[index];
+  return id !== undefined && owned.includes(id);
 }
 
 /**
- * ECON-01 — the backward-compatible initializer, as a pure function.
+ * The exact patch to apply to users/{uid} to bring its economy fields up to
+ * date — an already-current document yields {} (idempotent: no write at all).
  *
- * Given the current users/{uid} data (or undefined), returns the patch that
- * brings it onto the economy model plus the resulting state:
- *  - a missing/corrupt balance becomes 0, an existing balance is preserved;
- *  - every user owns the 7 free skins and 3 free backgrounds, in addition to
- *    whatever legitimate ids they already own;
- *  - an equipped skin/background that is no longer owned is replaced by the
- *    free default;
- *  - a current/newer economyVersion is preserved.
- *
- * Idempotent: running it on an already initialized profile returns an empty
- * patch, so callers can invoke it on every login without overwriting anything.
- * Call it INSIDE a Firestore transaction (both profile-upsert paths in
- * index.ts do) so concurrent initializations resolve to one state.
+ * Rules (ECON-01):
+ *   - coins absent / not a finite non-negative number → 0; an established
+ *     balance is never touched,
+ *   - ownership → union of the free grants with the stored catalog-valid ids
+ *     (established, legitimate ownership is preserved; unknown ids dropped),
+ *   - equipped preferredBird/preferredBackground → kept only while the stored
+ *     index still maps to an owned id, otherwise replaced with the free
+ *     default (a previously selected but now-locked cosmetic),
+ *   - economyVersion → filled or raised to ECONOMY_VERSION, never lowered.
  */
-export function planUserEconomy(
-  existing: DocumentData | undefined,
-): UserEconomyPlan {
-  const data: DocumentData = existing ?? {};
-  const patch: UserEconomyPatch = {};
+export function buildEconomyPatch(
+  profile: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const data: Record<string, unknown> = profile ?? {};
+  const patch: Record<string, unknown> = {};
 
-  const coins = readCoins(data.coins);
-  if (data.coins !== coins) patch.coins = coins;
+  const coins = data.coins;
+  if (typeof coins !== "number" || !Number.isFinite(coins) || coins < 0) {
+    patch.coins = 0;
+  }
 
-  const skins = readOwnedIds(data.ownedSkinIds, SKIN_IDS, FREE_SKIN_IDS);
-  if (skins.changed) patch.ownedSkinIds = skins.ids;
+  const ownedSkins = mergeOwned(SKIN_IDS, FREE_SKIN_IDS, data.ownedSkinIds);
+  if (!sameIdList(data.ownedSkinIds, ownedSkins)) {
+    patch.ownedSkinIds = ownedSkins;
+  }
 
-  const backgrounds = readOwnedIds(
-    data.ownedBackgroundIds,
+  const ownedBackgrounds = mergeOwned(
     BACKGROUND_IDS,
     FREE_BACKGROUND_IDS,
+    data.ownedBackgroundIds,
   );
-  if (backgrounds.changed) patch.ownedBackgroundIds = backgrounds.ids;
-
-  const economyVersion = readEconomyVersion(data.economyVersion);
-  if (data.economyVersion !== economyVersion) {
-    patch.economyVersion = economyVersion;
+  if (!sameIdList(data.ownedBackgroundIds, ownedBackgrounds)) {
+    patch.ownedBackgroundIds = ownedBackgrounds;
   }
 
-  // Equipped cosmetics are the UI-04 preference indices (see preview selection
-  // in src/features/birdSkin.ts / homeBackground.ts) — not duplicated into new
-  // equippedSkinId/equippedBackgroundId fields.
-  const preferredBird = readEquippedIndex(
-    data.preferredBird,
-    SKIN_IDS,
-    skins.ids,
-    DEFAULT_SKIN_INDEX,
-  );
-  if (preferredBird !== undefined && preferredBird !== data.preferredBird) {
-    patch.preferredBird = preferredBird;
-  }
-
-  const preferredBackground = readEquippedIndex(
-    data.preferredBackground,
-    BACKGROUND_IDS,
-    backgrounds.ids,
-    DEFAULT_BACKGROUND_INDEX,
-  );
+  // Equipped cosmetics live in preferredBird/preferredBackground (UI-04
+  // stores catalog INDICES — no duplicate equippedSkinId field). Only a
+  // present-but-unowned pick is repaired; an absent field stays absent.
   if (
-    preferredBackground !== undefined &&
-    preferredBackground !== data.preferredBackground
+    "preferredBird" in data &&
+    !ownsAt(SKIN_IDS, ownedSkins, data.preferredBird)
   ) {
-    patch.preferredBackground = preferredBackground;
+    patch.preferredBird = DEFAULT_SKIN_INDEX;
+  }
+  if (
+    "preferredBackground" in data &&
+    !ownsAt(BACKGROUND_IDS, ownedBackgrounds, data.preferredBackground)
+  ) {
+    patch.preferredBackground = DEFAULT_BACKGROUND_INDEX;
   }
 
-  return {
-    patch,
-    economy: {
-      coins,
-      ownedSkinIds: skins.ids,
-      ownedBackgroundIds: backgrounds.ids,
-      economyVersion,
-    },
-  };
+  const version = data.economyVersion;
+  if (
+    typeof version !== "number" ||
+    !Number.isFinite(version) ||
+    version < ECONOMY_VERSION
+  ) {
+    patch.economyVersion = ECONOMY_VERSION;
+  }
+
+  return patch;
 }

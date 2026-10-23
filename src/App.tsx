@@ -22,6 +22,7 @@ import { applyStoredGroundIndex } from './features/groundTile'
 import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
 import { NAV_ITEMS, type Screen } from './navigation.ts'
+import { PixelIcon } from './features/ui/PixelIcon'
 import { t, useT } from './i18n'
 import { useAuthRole } from './useAuthRole.ts'
 import type { GamePhase } from './features/game/engine'
@@ -210,7 +211,11 @@ function App() {
   // Active gameplay only: the nav bars are conditionally REMOVED (not made
   // transparent) so the run uses the full vertical space. They come back on
   // the ready screen, the game-over/result state and every other screen.
-  const navHidden = screen === 'game' && gamePhase === 'playing'
+  // PAUSE — the 3-2-1 countdown counts as gameplay: bringing the nav back for
+  // those three seconds would resize the canvas mid-countdown (the frozen run
+  // would jump under the player) and then hide it again.
+  const navHidden =
+    screen === 'game' && (gamePhase === 'playing' || gamePhase === 'countdown')
 
   return (
     <div className="shell">
@@ -226,7 +231,13 @@ function App() {
               aria-current={screen === item.screen ? 'page' : undefined}
               onClick={() => navigate(item.screen)}
             >
-              {t(item.labelKey)}
+              <PixelIcon
+                name={item.icon}
+                size={24}
+                pressed={screen === item.screen}
+                className="navlink-icon"
+              />
+              <span className="navlink-label">{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>

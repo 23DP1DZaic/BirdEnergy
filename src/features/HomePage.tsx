@@ -7,8 +7,12 @@
 //   * inside Telegram, not signed in yet
 //        → "Sign in with Telegram" (plus the status/error line from App).
 //   * signed in
-//        → "▶ Play" only. The bot/sign-in buttons would be noise by then, so
-//          they disappear; the nav bar covers every other screen.
+//        → tapping ANYWHERE on Home starts a run; the screen shows a big
+//          play-key (the sprite sheet's arrow cell — no word) instead of a
+//          text button. There is no Play entry in the bottom nav any more,
+//          so this is the way into the game. The key is a real button so
+//          keyboard users keep a path in, and the controls that are still on
+//          the screen (settings, admin) opt out of the page tap.
 //
 // The top-right settings button (text-only for now — icons come later) opens a
 // menu towards the left with Music / Sound effects switches and an Info entry
@@ -31,6 +35,8 @@ import {
   isTelegramEnvironment,
 } from '../telegram'
 import { useSoundSettings } from './soundSettings'
+import { useHapticsSetting } from './haptics'
+import { PixelIcon } from './ui/PixelIcon'
 import { LOCALES, LOCALE_LABEL, setLocale, useT } from '../i18n'
 import type { Screen } from '../navigation'
 import '../App.css'
@@ -49,16 +55,31 @@ interface HomePageProps {
 }
 
 /**
- * Home's settings button (top-right) + its dropdown. Text labels only for
- * now: "Music: On", "Sound effects: Off", "Info" — icons are a later pass, so
- * the state lives in the label itself. The menu extends to the LEFT of the
- * button (the button sits in the corner), and closes on outside click, on
- * Escape and whenever an entry is chosen.
+ * Home's settings button (top-right) + its dropdown.
+ *
+ * The trigger is the gear SPRITE alone — no word — so the corner stays quiet.
+ * The menu opens with the three things worth one tap (music, sound effects,
+ * info) as icon buttons from the shared sheet; the two settings the sheet has
+ * no symbol for (vibration, language) stay as text rows underneath. State is
+ * carried by aria-checked (and the sound icon itself swaps), so the buttons do
+ * not need labels on screen.
  */
-function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
+function SettingsMenu({
+  open,
+  setOpen,
+  onOpenTutorial,
+}: {
+  open: boolean
+  setOpen: (open: boolean) => void
+  onOpenTutorial: () => void
+}) {
   const { t, locale } = useT()
-  const [open, setOpen] = useState(false)
   const { music, sfx, toggleMusic, toggleSfx } = useSoundSettings()
+  const {
+    haptics,
+    supported: hapticsSupported,
+    toggleHaptics,
+  } = useHapticsSetting()
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -75,7 +96,7 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
       document.removeEventListener('mousedown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [open, setOpen])
 
   return (
     <div className="settings" ref={rootRef}>
@@ -84,9 +105,11 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
         className="settings-button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        aria-label={t('home.settings')}
+        title={t('home.settings')}
+        onClick={() => setOpen(!open)}
       >
-        Settings
+        <PixelIcon name="settings" size={34} pressed={open} />
       </button>
 
       {open && (
@@ -95,24 +118,69 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
           role="menu"
           aria-label={t('home.settings')}
         >
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={music}
-            className="settings-item"
-            onClick={toggleMusic}
-          >
-            {t('home.music', { state: t(music ? 'state.on' : 'state.off') })}
-          </button>
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={sfx}
-            className="settings-item"
-            onClick={toggleSfx}
-          >
-            {t('home.sfx', { state: t(sfx ? 'state.on' : 'state.off') })}
-          </button>
+          <div className="settings-icons">
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={music}
+              className="settings-icon-button"
+              aria-label={t('home.music', {
+                state: t(music ? 'state.on' : 'state.off'),
+              })}
+              title={t('home.music', {
+                state: t(music ? 'state.on' : 'state.off'),
+              })}
+              onClick={toggleMusic}
+            >
+              <PixelIcon name={music ? 'music' : 'musicOff'} size={30} />
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={sfx}
+              className="settings-icon-button"
+              aria-label={t('home.sfx', {
+                state: t(sfx ? 'state.on' : 'state.off'),
+              })}
+              title={t('home.sfx', {
+                state: t(sfx ? 'state.on' : 'state.off'),
+              })}
+              onClick={toggleSfx}
+            >
+              <PixelIcon
+                name={sfx ? 'soundOn' : 'soundOff'}
+                size={30}
+              />
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="settings-icon-button"
+              aria-label={t('home.info')}
+              title={t('home.info')}
+              onClick={() => {
+                setOpen(false)
+                onOpenTutorial()
+              }}
+            >
+              <PixelIcon name="info" size={30} />
+            </button>
+          </div>
+          {/* Haptics only shows where the device can vibrate — a switch that
+              can never do anything is worse than no switch. */}
+          {hapticsSupported && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={haptics}
+              className="settings-item"
+              onClick={toggleHaptics}
+            >
+              {t('home.haptics', {
+                state: t(haptics ? 'state.on' : 'state.off'),
+              })}
+            </button>
+          )}
           {/* i18n — one tap cycles the language; the choice is remembered. */}
           <button
             type="button"
@@ -123,17 +191,6 @@ function SettingsMenu({ onOpenTutorial }: { onOpenTutorial: () => void }) {
             }
           >
             {t('home.language', { name: LOCALE_LABEL[locale] })}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="settings-item"
-            onClick={() => {
-              setOpen(false)
-              onOpenTutorial()
-            }}
-          >
-            {t('home.info')}
           </button>
         </div>
       )}
@@ -162,6 +219,9 @@ export function HomePage({
   const devTelegramId = getDevTelegramId()
 
   const signedIn = signedInUid !== null
+  // The settings menu is owned here so a tap meant to dismiss it cannot also
+  // start a run (see the page onClick below).
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Is a sign-in possible from here at all? Inside Telegram initData does the
   // job; outside it only the DEV login can, so a plain browser visitor (no
   // Telegram, no VITE_TELEGRAM_ID) gets the bot link instead of a button that
@@ -169,14 +229,33 @@ export function HomePage({
   const canSignIn = inTelegram || devTelegramId !== null
 
   return (
-    <main className="page">
+    <main
+      className={signedIn ? 'page page-playable' : 'page'}
+      onClick={(event) => {
+        // Signed-out Home keeps its explicit sign-in / bot action; the tap-to-
+        // play line is a button, so keyboard users start a run too.
+        if (!signedIn || settingsOpen) return
+        // Real controls on the page keep their own behaviour.
+        if (
+          event.target instanceof Element &&
+          event.target.closest('button, a, input, select, textarea')
+        ) {
+          return
+        }
+        onOpenGame()
+      }}
+    >
       <div
         className="sky"
         style={{ backgroundImage: `url(${backgrounds[backgroundIndex]})` }}
         aria-hidden="true"
       />
 
-      <SettingsMenu onOpenTutorial={() => onNavigate('tutorial')} />
+      <SettingsMenu
+        open={settingsOpen}
+        setOpen={setSettingsOpen}
+        onOpenTutorial={() => onNavigate('tutorial')}
+      />
 
       <div className="content">
         <img className="logo logo-float" src={logo} alt="Bird Energy" />
@@ -195,10 +274,18 @@ export function HomePage({
 
         <div className="home-actions">
           {signedIn ? (
-            /* Signed in: Play is the only action that still makes sense. */
+            /* Signed in: the whole screen is the play control; this key only
+               names it (and keeps a keyboard-reachable button). The arrow
+               sprite IS the button — no "TAP TO PLAY" word on screen. */
             <>
-              <button type="button" className="btn" onClick={onOpenGame}>
-                {t('home.play')}
+              <button
+                type="button"
+                className="tap-to-play"
+                aria-label={t('home.tapToPlay')}
+                title={t('home.tapToPlay')}
+                onClick={onOpenGame}
+              >
+                <PixelIcon name="play" size={64} />
               </button>
               {role === 'admin' && (
                 <button

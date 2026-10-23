@@ -19,6 +19,10 @@ import { auth, functions } from '../firebase'
 import type { SubmitRunInput, SubmitRunResponse } from './userProfile'
 
 const QUEUE_KEY = 'birdenergy.pendingRuns'
+/** Fired whenever the queue changes (queued, replayed, dropped) — the Game
+ *  screen's "waiting for a connection" indicator listens to it, so it updates
+ *  without polling. */
+export const PENDING_RUNS_CHANGE_EVENT = 'birdenergy:pending-runs-change'
 /** Give up after this many attempts — it will never succeed. */
 const MAX_ATTEMPTS = 5
 /** A long session must not grow the queue without bound (oldest dropped). */
@@ -70,6 +74,16 @@ function writeQueue(queue: PendingRun[]): void {
   } catch {
     // Storage full or blocked (private mode): the run is lost, the game is not.
   }
+  window.dispatchEvent(new Event(PENDING_RUNS_CHANGE_EVENT))
+}
+
+/**
+ * Is the browser (or the OS) reporting no connection right now? `onLine`
+ * false is authoritative; `undefined` (older WebViews) is treated as online so
+ * the normal submit path still runs.
+ */
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
 }
 
 function enqueue(run: PendingRun): void {
@@ -110,6 +124,14 @@ export async function submitRun(
     finishedAt: Date.now(),
     attempts: 0,
   }
+  // Offline is known up front — queue it immediately instead of waiting for a
+  // callable that cannot possibly connect (the SDK would burn its retry/backoff
+  // window and leave the Game Over screen waiting on a promise that never
+  // resolves usefully). The 'online' listener replays it later.
+  if (isOffline()) {
+    enqueue(pending)
+    return null
+  }
   try {
     const result = await submit(pending)
     // One save usually means the connection is back — drain the backlog now.
@@ -133,7 +155,10 @@ export async function submitRun(
  * on calls that cannot authenticate.
  */
 export async function flushPendingRuns(): Promise<number> {
-  if (flushing || !auth.currentUser) return 0
+  // Signed out or offline: nothing to do, and DEFINITELY no attempts burned —
+  // a run queued for a tunnel ride must not age out while the connection is
+  // still missing (each attempt counts toward MAX_ATTEMPTS).
+  if (flushing || !auth.currentUser || isOffline()) return 0
   flushing = true
   try {
     const queue = readQueue()
@@ -164,5 +189,6 @@ function installAutoFlush(): void {
   autoFlushInstalled = true
   window.addEventListener('online', () => void flushPendingRuns())
   window.addEventListener('pageshow', () => void flushPendingRuns())
+  window.addEventListener('focus', () => void flushPendingRuns())
 }
 installAutoFlush()

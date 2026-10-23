@@ -66,6 +66,8 @@ export function GamePage({
     if (!pending) return
     const runs = [...pending.runs, { score: run.score, createdAt: new Date() }]
     pending.runs = runs
+    // celebrate stays false on purpose: the engine detects the crossing
+    // (value < target -> value >= target) itself, as a one-shot (syncChallenge).
     setChallengeView({
       id: pending.challenge.id,
       title: pending.challenge.title,
@@ -80,16 +82,20 @@ export function GamePage({
   // reset the game) — DATA-01: persist every finished run. Failures (offline,
   // validation) must never disturb the game-over screen; they surface in console.
   // Declared before the early returns: hooks must run on every render.
-  // C — the response carries the authoritative best score, and the challenge
-  // progress advances with the same run.
+  // C — the server response replaces the personal best; the challenge progress
+  // advances locally right away (see handleRunEnd).
   const handleRunEnd = useCallback(
     (run: RunResult) => {
-      // submitRun never rejects: a failure is queued (see pendingRuns.ts), and
-      // only a real server response updates the personal best on the panel.
+      // The progress block is pure local math over the runs already in
+      // memory — advance it NOW so the panel shows this run's contribution
+      // instantly, even offline (the queued run is replayed later and the
+      // server-side numbers converge).
+      advanceChallenge(run)
+      // submitRun never rejects: a failure is queued (see pendingRuns.ts),
+      // and only a real server response replaces the personal best.
       void submitRun(run).then((response) => {
         if (!response) return
         setSubmittedBest(response.bestScore)
-        advanceChallenge(run)
       })
     },
     [advanceChallenge],

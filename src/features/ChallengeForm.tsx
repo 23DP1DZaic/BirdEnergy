@@ -16,6 +16,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import type { ChallengeFormMode, ChallengeInput } from './challenges'
 import { LOCALE_CODE, getLocale, useT } from '../i18n'
 import type { ChallengeFormError } from './challengeValidation'
+import { PixelIcon } from './ui/PixelIcon'
 import {
   CHALLENGE_DESCRIPTION_MAX,
   CHALLENGE_DESCRIPTION_MIN,
@@ -291,6 +292,7 @@ export function ChallengeForm({
 
       <div className="form-actions">
         <button type="submit" className="btn btn-small" disabled={busy}>
+          <PixelIcon name="check" size={18} />
           {busy
             ? t('common.saving')
             : mode === 'create'
@@ -304,6 +306,7 @@ export function ChallengeForm({
             disabled={busy}
             onClick={onCancel}
           >
+            <PixelIcon name="close" size={18} />
             {t('form.cancel')}
           </button>
         )}

@@ -7,8 +7,12 @@
  */
 import "./setup.js";
 import assert from "node:assert/strict";
-import { beforeEach, describe, it } from "node:test";
-import { acceptDataProcessing } from "../src/index.js";
+import { beforeEach, describe, it } from "node:test";import {acceptDataProcessing} from "../src/index.js";
+import {
+  ECONOMY_VERSION,
+  FREE_BACKGROUND_IDS,
+  FREE_SKIN_IDS,
+} from "../src/economy.js";
 import {
   ADMIN_AUTH,
   USER_AUTH,
@@ -78,5 +82,26 @@ describe("acceptDataProcessing — profile upsert", () => {
     assert.equal(profile.bestScore, 42);
     assert.equal(profile.totalGames, 7);
     assert.ok(profile.acceptedDataProcessingAt instanceof Date);
+  });
+
+  it("initializes the economy fields alongside consent (ECON-01)", async () => {
+    await invoke({data: {}, auth: USER_AUTH});
+    const profile = db.peek("users", USER_AUTH.uid);
+    assert.ok(profile);
+    assert.equal(profile.coins, 0);
+    assert.deepEqual(profile.ownedSkinIds, [...FREE_SKIN_IDS]);
+    assert.deepEqual(profile.ownedBackgroundIds, [...FREE_BACKGROUND_IDS]);
+    assert.equal(profile.economyVersion, ECONOMY_VERSION);
+
+    // Re-consent (every login) must not overwrite established economy fields
+    // — and a now-locked equipped pick is repaired exactly once.
+    db.seed("users", USER_AUTH.uid, {...profile, coins: 750, preferredBird: 9});
+    await invoke({data: {}, auth: USER_AUTH});
+    const again = db.peek("users", USER_AUTH.uid);
+    assert.ok(again);
+    assert.equal(again.coins, 750);
+    assert.deepEqual(again.ownedSkinIds, [...FREE_SKIN_IDS]);
+    assert.equal(again.economyVersion, ECONOMY_VERSION);
+    assert.equal(again.preferredBird, 0);
   });
 });

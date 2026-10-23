@@ -15,6 +15,7 @@
 //   * A backend failure keeps the dialog open and shows the reason in it
 //     (spec's kļūdu uzvedība), leaving the decision with the admin.
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { PixelIcon } from './ui/PixelIcon'
 
 interface ConfirmDialogProps {
   /** Dialog heading — phrased as the question being confirmed. */
@@ -99,6 +100,7 @@ export function ConfirmDialog({
             disabled={busy}
             onClick={onCancel}
           >
+            <PixelIcon name="close" size={18} />
             Cancel
           </button>
           <button
@@ -107,6 +109,7 @@ export function ConfirmDialog({
             disabled={busy}
             onClick={onConfirm}
           >
+            <PixelIcon name="trash" size={18} />
             {busy ? busyLabel : confirmLabel}
           </button>
         </div>

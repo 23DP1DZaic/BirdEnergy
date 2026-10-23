@@ -37,6 +37,7 @@ import {
   validateTelegramInitData,
   type TelegramAuthUser,
 } from "./telegramAuth.js";
+import {initializeEconomy} from "./economyInit.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 
@@ -235,6 +236,16 @@ export const authenticateTelegram = onCall(
           // the client surfaces the error when it reads the profile instead.
           logger.error("users/ profile write failed", dbError);
         }
+
+        // ECON-01: backfill the economy fields (coins/ownership/version) now
+        // that the profile exists — own transaction, run AFTER the consent
+        // upsert above (Firestore transactions read before they write). A
+        // failure must not block sign-in either: the next login retries.
+        try {
+          await initializeEconomy(getFirestore(), uid);
+        } catch (economyError) {
+          logger.error("Economy initialization failed", economyError);
+        }
       }
 
       return {
@@ -344,6 +355,14 @@ export const acceptDataProcessing = onCall(
         }
       });
       logger.info("Data-processing consent accepted", {uid, telegramId});
+      // ECON-01: backfill the economy fields on the profile (own transaction,
+      // after the consent upsert above; best-effort — consent already saved,
+      // so an economy failure is logged and retried on the next sign-in).
+      try {
+        await initializeEconomy(db, uid);
+      } catch (economyError) {
+        logger.error("Economy initialization failed", economyError);
+      }
       return {ok: true};
     } catch (error) {
       logger.error("Consent write failed", error);

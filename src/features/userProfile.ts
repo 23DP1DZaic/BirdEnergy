@@ -31,12 +31,16 @@ export interface UserProfile {
   totalGames?: number
   totalScore?: number
   /** UI-04 — preferred bird skin index (birdSkinUrls), background index and
-   *  ground tile index; hydrated into localStorage on sign-in. */
+   *  ground tile index; hydrated into localStorage on sign-in. These indices
+   *  ARE the equipped-cosmetic state (ECON-01 reuses them instead of adding
+   *  an equippedSkinId field) — index-aligned with features/economy.ts
+   *  SKIN_IDS/BACKGROUND_IDS. */
   preferredBird?: number
   preferredBackground?: number
   preferredGround?: number
-  /** ECON-01 — coin balance and cosmetic ownership, initialized server-side on
-   *  the profile upsert (absent on documents created before ECON-01). */
+  /** ECON-01 — economy fields, written only by the server
+   *  (initializeEconomy backfills them at sign-in; legacy docs simply lack
+   *  them until then — coins absent counts as 0). See features/economy.ts. */
   coins?: number
   ownedSkinIds?: string[]
   ownedBackgroundIds?: string[]

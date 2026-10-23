@@ -451,8 +451,10 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
 
   // During the death animation ('dead') keep the plain score HUD — the Game
   // Over panel must not cover the falling bird; it appears once the bird has
-  // landed (phase 'game-over').
-  if (s.phase === 'playing' || s.phase === 'dead') {
+  // landed (phase 'game-over'). The same HUD stays up while the game is
+  // paused and during the resume countdown: those scenes are the frozen run
+  // itself, not the result panel (which must never flash over them).
+  if (s.phase !== 'game-over') {
     drawCachedHudText(ctx, String(s.score), 32, LOGICAL_W / 2, 60)
     return
   }
@@ -466,8 +468,16 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
   ctx.textBaseline = 'alphabetic'
   const isNewBest = s.score > 0 && s.score >= s.best && s.best === s.score
   const challenge = s.challenge
+  // C — a challenge that is 100% done no longer shows its progress here: the
+  // title/value/bar only carry information while the numbers still move, so a
+  // finished challenge collapses the panel back to its base height. The one
+  // exception is the game-over that CROSSED the target: that frame still needs
+  // the tall panel for its "CHALLENGE DONE!" banner (below), which is the
+  // celebration — progress itself stays hidden.
+  const showProgress = challenge !== null && challenge.value < challenge.target
+  const showBanner = challenge !== null && isCelebrating(s)
   const panelW = 320
-  const panelH = challenge ? 208 : 168
+  const panelH = showProgress || showBanner ? 208 : 168
   const panelX = (LOGICAL_W - panelW) / 2
   // Clamped: the challenge block makes the panel taller, and on a short view
   // half the panel would otherwise slide off the top of the screen.
@@ -502,16 +512,17 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
     panelY + 114,
   )
 
-  if (challenge) {
-    const done = challenge.value >= challenge.target
-    ctx.fillStyle = done ? '#8bf08b' : '#fff4d6'
+  if (challenge && showProgress) {
+    // Progress is still moving — title, numbers and the bar (gold until the
+    // target is reached; the `done` state itself is drawn by the banner).
+    ctx.fillStyle = '#fff4d6'
     ctx.fillText(
       `${fitChallengeTitle(challenge.title)} ${challenge.value}/${challenge.target}`,
       LOGICAL_W / 2,
       panelY + 136,
     )
 
-    // Progress bar — always visible, gold until the target is reached.
+    // Progress bar — always visible while the challenge is unfinished.
     const barW = 260
     const barH = 10
     const barX = (LOGICAL_W - barW) / 2
@@ -521,21 +532,21 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
     ctx.fill()
     const pct = Math.min(1, challenge.value / challenge.target)
     if (pct > 0) {
-      ctx.fillStyle = done ? '#8bf08b' : '#ffd23f'
+      ctx.fillStyle = '#ffd23f'
       roundRect(ctx, barX, barY, Math.max(barH, barW * pct), barH, barH / 2)
       ctx.fill()
     }
+  }
 
-    // One-off banner on the run that finished the challenge: it pulses for a
-    // few seconds, then the panel goes static again (see isCelebrating). The
-    // pulse alpha comes from the wrapper (s.celebrateAlpha) because s.time is
-    // frozen here; a steady 1 means no animation (reduced motion, or it is
-    // over — and then the wrapper stops repainting the frozen frame).
-    if (isCelebrating(s)) {
-      ctx.fillStyle = `rgba(139, 240, 139, ${s.celebrateAlpha})`
-      ctx.font = `12px ${PIXEL_FONT}`
-      ctx.fillText(t('canvas.challengeDone'), LOGICAL_W / 2, panelY + 174)
-    }
+  // One-off banner on the run that finished the challenge: it pulses for a
+  // few seconds, then the panel goes static again (see isCelebrating). The
+  // pulse alpha comes from the wrapper (s.celebrateAlpha) because s.time is
+  // frozen here; a steady 1 means no animation (reduced motion, or it is
+  // over — and then the wrapper stops repainting the frozen frame).
+  if (showBanner) {
+    ctx.fillStyle = `rgba(139, 240, 139, ${s.celebrateAlpha})`
+    ctx.font = `12px ${PIXEL_FONT}`
+    ctx.fillText(t('canvas.challengeDone'), LOGICAL_W / 2, panelY + 174)
   }
 
   ctx.fillStyle = 'rgba(255, 244, 214, 0.75)'
