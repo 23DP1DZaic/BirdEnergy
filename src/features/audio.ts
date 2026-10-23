@@ -14,7 +14,8 @@
 //   sfx/score   a pipe was passed
 //   sfx/hit     the collision that starts the death animation
 //   sfx/die     the bird touches down
-//   music/main  the loop under the Game screen
+//   music/main  the menu loop, started once at app level and kept playing
+//               on every screen (App.tsx)
 //
 // Every file is OPTIONAL: a name with no file, a failed fetch or a failed
 // decode is a silent no-op, so the app behaves exactly the same with or
@@ -105,12 +106,19 @@ function installHooks(): void {
   hooksInstalled = true
 
   // Autoplay policy: the context starts suspended and only a user gesture may
-  // resume it. Both gestures the game accepts count.
+  // resume it. Keep listening until it is actually running (a gesture can be
+  // refused — Telegram WebViews are stricter than desktop Chrome), and listen
+  // in the capture phase so a handler that stops propagation cannot swallow
+  // the gesture.
   const unlock = () => {
-    void context?.resume().then(applyMusicState)
+    if (!context || context.state === 'running') return
+    void context.resume().then(applyMusicState).catch(() => {
+      // Still blocked; the next gesture tries again.
+    })
   }
-  window.addEventListener('pointerdown', unlock, {once: true})
-  window.addEventListener('keydown', unlock, {once: true})
+  window.addEventListener('pointerdown', unlock, true)
+  window.addEventListener('keydown', unlock, true)
+  window.addEventListener('touchstart', unlock, true)
 
   // Home's switches: turn the music off/on the moment they are flipped.
   window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, () => {
@@ -211,9 +219,13 @@ async function applyMusicState(): Promise<void> {
   if (!wantedMusic || !isMusicEnabled() || music) return
   const ctx = ensureContext()
   if (!ctx) return
+  // A suspended context cannot make sound, and a source started in that state
+  // may never be heard. Leave the track wanted — the gesture hook above calls
+  // this again as soon as the context is allowed to run.
+  if (ctx.state !== 'running') return
 
   const buffer = await loadBuffer(`music/${wantedMusic}`)
-  if (!buffer || !context) return
+  if (!buffer || !context || context.state !== 'running') return
   // The settings may have been flipped (or the screen unmounted) while decoding.
   if (!wantedMusic || !isMusicEnabled() || music) return
 

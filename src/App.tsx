@@ -15,6 +15,7 @@ import {
 import { getDevTelegramId, shouldUseEmulators } from './devAuth'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
+import { loadAudioAssets, playMusic } from './features/audio'
 import { applyStoredBackgroundIndex } from './features/homeBackground'
 import { applyStoredBirdSkinIndex } from './features/birdSkin'
 import { applyStoredGroundIndex } from './features/groundTile'
@@ -73,6 +74,15 @@ function App() {
       }),
     [],
   )
+
+  // AUDIO — the menu music. It is the app's background loop, so it starts once
+  // here (not on one screen) and keeps playing while the player moves between
+  // the menu and the game; the AudioContext unlocks on the first tap, which
+  // audio.ts handles. Both calls are silent no-ops when the file is missing.
+  useEffect(() => {
+    void loadAudioAssets()
+    playMusic()
+  }, [])
 
   // UI-04 — appearance preferences saved on the profile (preferredBird /
   // preferredBackground / preferredGround) seed the local switchers on

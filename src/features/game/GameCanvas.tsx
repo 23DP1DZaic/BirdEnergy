@@ -35,9 +35,9 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-// AUDIO: pre-decode the optional files + start the loop; both are no-ops
-// until something is dropped into src/assets/Sound (see features/audio.ts).
-import { loadAudioAssets, playMusic, playSfx, stopMusic } from '../audio'
+// AUDIO: the menu loop is started once at app level (App.tsx); this screen
+// only plays the run's sound effects. Both are no-ops without files.
+import { playSfx } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { prefersReducedMotion } from '../reducedMotion'
 import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
@@ -202,10 +202,6 @@ export function GameCanvas({
     configureCanvas(ctx)
     const state = createGameState()
 
-    // AUDIO — decode the optional assets while the ready screen is up and start
-    // the loop (stops again in this effect's cleanup). Silent when no files.
-    void loadAudioAssets()
-    playMusic()
     // Local mutable copy of the sprite set: the effect re-runs on every render
     // commit, so the render-captured `load.sprites` object itself must stay
     // untouched (react-hooks/immutability). The renderer takes sprites as a
@@ -542,7 +538,6 @@ export function GameCanvas({
     window.addEventListener(GROUND_CHANGE_EVENT, onGroundChange)
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
-      stopMusic()
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)

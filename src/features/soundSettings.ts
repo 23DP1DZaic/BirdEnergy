@@ -4,10 +4,8 @@
 // window event, so any future audio layer can read the current choice without
 // prop drilling.
 //
-// NOTE: the game has no audio playback yet — GAME-0x does not include sound.
-// These only persist the player's preference; they are the hook the audio work
-// will read when it lands (isMusicEnabled / isSfxEnabled are callable from
-// anywhere, including the canvas render loop).
+// features/audio.ts reads these live: every play is gated on the current
+// preference and a change event starts/stops the loop immediately.
 import { useEffect, useState } from 'react'
 
 const MUSIC_KEY = 'birdenergy.music'
