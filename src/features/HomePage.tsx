@@ -7,12 +7,12 @@
 //   * inside Telegram, not signed in yet
 //        → "Sign in with Telegram" (plus the status/error line from App).
 //   * signed in
-//        → tapping ANYWHERE on Home starts a run; the screen shows a "TAP TO
-//          PLAY" line instead of a button. There is no Play entry in the
-//          bottom nav any more, so this is the way into the game. The tap-to-
-//          play line is a real button so keyboard users keep a path in, and
-//          the controls that are still on the screen (settings, admin) opt
-//          out of the page tap.
+//        → tapping ANYWHERE on Home starts a run; the screen shows a big
+//          play-key (the sprite sheet's arrow cell — no word) instead of a
+//          text button. There is no Play entry in the bottom nav any more,
+//          so this is the way into the game. The key is a real button so
+//          keyboard users keep a path in, and the controls that are still on
+//          the screen (settings, admin) opt out of the page tap.
 //
 // The top-right settings button (text-only for now — icons come later) opens a
 // menu towards the left with Music / Sound effects switches and an Info entry
@@ -274,15 +274,18 @@ export function HomePage({
 
         <div className="home-actions">
           {signedIn ? (
-            /* Signed in: the whole screen is the play control; this line only
-               names it (and keeps a keyboard-reachable button). */
+            /* Signed in: the whole screen is the play control; this key only
+               names it (and keeps a keyboard-reachable button). The arrow
+               sprite IS the button — no "TAP TO PLAY" word on screen. */
             <>
               <button
                 type="button"
                 className="tap-to-play"
+                aria-label={t('home.tapToPlay')}
+                title={t('home.tapToPlay')}
                 onClick={onOpenGame}
               >
-                {t('home.tapToPlay')}
+                <PixelIcon name="play" size={64} />
               </button>
               {role === 'admin' && (
                 <button

@@ -491,18 +491,17 @@ a.btn {
   cursor: pointer;
 }
 
-/* The "TAP TO PLAY" line. Deliberately not a .btn: no yellow button any more,
-   just the pixel text over the sky. It stays a real button for keyboard users. */
+/* The play key. Deliberately not a .btn: no yellow chrome — the sprite
+   sheet's arrow cell IS the button, pulsing over the sky. It stays a real
+   button for keyboard users; hover/press swap to the pressed sheet via
+   pixelIcons.css, like every other sprite key. */
 .tap-to-play {
   margin: 0;
-  padding: 6px 10px;
+  padding: 0;
   border: 0;
   background: none;
-  font-family: inherit;
-  font-size: clamp(12px, 3.5vw, 17px);
-  color: #fff;
-  text-shadow: 1px 2px 0 rgba(90, 30, 5, 0.75);
   cursor: pointer;
+  line-height: 0;
   animation: tap-to-play-pulse 1.8s ease-in-out infinite;
 }
 
