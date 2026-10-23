@@ -73,6 +73,44 @@ describe('computeProgress — window filtering (CH-01 DoD)', () => {
   })
 })
 
+describe('computeProgress — the four ECON-01 types (CH-04)', () => {
+  it('sums score for total_score inside the window', () => {
+    const runs = [run(1, 5), run(3, 12), run(5, 9), run(60, 100)]
+    const p = computeProgress(challenge('total_score', 40), runs)
+    assert.equal(p.value, 26) // 5 + 12 + 9; the after-window run is excluded
+    assert.equal(p.done, false)
+  })
+
+  it('caps total_score at the target (60/40 reads as 40/40)', () => {
+    const p = computeProgress(challenge('total_score', 40), [run(1, 30), run(2, 30)])
+    assert.equal(p.value, 40)
+    assert.equal(p.pct, 100)
+    assert.equal(p.done, true)
+  })
+
+  it('sums jumpCount for total_jumps; a missing count counts as 0', () => {
+    const runs = [
+      { ...run(1, 999), jumpCount: 7 },
+      { ...run(2, 0), jumpCount: 8 },
+      { ...run(3, 0) }, // legacy run stored before jumpCount existed
+      { ...run(60, 0), jumpCount: 50 }, // outside the window
+    ]
+    const p = computeProgress(challenge('total_jumps', 40), runs)
+    assert.equal(p.value, 15)
+    assert.equal(p.done, false)
+  })
+
+  it('caps total_jumps at the target (90/60 reads as 60/60)', () => {
+    const p = computeProgress(challenge('total_jumps', 60), [
+      { ...run(1, 0), jumpCount: 40 },
+      { ...run(2, 0), jumpCount: 50 },
+    ])
+    assert.equal(p.value, 60)
+    assert.equal(p.pct, 100)
+    assert.equal(p.done, true)
+  })
+})
+
 describe('computeProgress — the value stops at the target', () => {
   it('caps games_played at the target (4/2 reads as 2/2)', () => {
     const runs = [run(1, 0), run(2, 0), run(3, 0), run(4, 0)]

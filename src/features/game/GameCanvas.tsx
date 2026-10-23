@@ -39,12 +39,12 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-// AUDIO: pre-decode the optional files + start the loop; both are no-ops
-// until something is dropped into src/assets/Sound (see features/audio.ts).
+// AUDIO: the menu loop is started once at app level (App.tsx); this screen
+// stops it on leaving, unlocks audio on the first tap and plays the run's
+// sound effects. All of them are no-ops without files in src/assets/Sound
+// (see features/audio.ts).
 import {
   audioStatus,
-  loadAudioAssets,
-  playMusic,
   playSfx,
   stopMusic,
   unlockAudio,

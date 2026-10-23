@@ -28,7 +28,13 @@ import {bot} from "./botcommand.js";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
-import {initialUserEconomy, planUserEconomy} from "./economy.js";
+import {
+  CHALLENGE_DIFFICULTIES,
+  CHALLENGE_TYPES,
+  lookupTierReward,
+  type ChallengeDifficulty,
+  type EconomyChallengeType,
+} from "./economy.js";
 import {
   buildTelegramUid, 
   parseAdminTelegramIds,
@@ -189,12 +195,6 @@ export const authenticateTelegram = onCall(
           await db.runTransaction(async (tx) => {
             const existing = await tx.get(userDoc);
             if (existing.exists) {
-              // ECON-01 — initialize the economy fields an older profile is
-              // missing (0 coins, the free cosmetics, a locked equipped item
-              // replaced by a free default). The patch is empty once the
-              // profile is initialized, so a balance or ownership set is never
-              // overwritten on a later login.
-              const economy = planUserEconomy(existing.data());
               tx.update(userDoc, {
                 acceptedDataProcessingAt: new Date(),
                 telegramId,
@@ -203,7 +203,6 @@ export const authenticateTelegram = onCall(
                 lastName,
                 languageCode,
                 photoUrl,
-                ...economy.patch,
               });
             } else {
               tx.set(userDoc, {
@@ -223,10 +222,6 @@ export const authenticateTelegram = onCall(
                 totalScore: 0,
                 acceptedDataProcessingAt: new Date(),
                 createdAt: new Date(),
-                // ECON-01 — new profiles start with 0 coins and the free
-                // cosmetics, under the same field names the claim/purchase
-                // paths will use.
-                ...initialUserEconomy(),
               });
             }
           });
@@ -321,11 +316,8 @@ export const acceptDataProcessing = onCall(
       await db.runTransaction(async (tx) => {
         const existing = await tx.get(userDoc);
         if (existing.exists) {
-          // ECON-01 — same idempotent economy migration as the sign-in path.
-          const economy = planUserEconomy(existing.data());
           tx.update(userDoc, {
             acceptedDataProcessingAt: new Date(),
-            ...economy.patch,
           });
         } else {
           tx.set(userDoc, {
@@ -348,9 +340,6 @@ export const acceptDataProcessing = onCall(
             totalScore: 0,
             acceptedDataProcessingAt: new Date(),
             createdAt: new Date(),
-            // ECON-01 — the economy fields start under the same names the
-            // claim/purchase paths will use.
-            ...initialUserEconomy(),
           });
         }
       });
@@ -852,7 +841,17 @@ export const getLeaderboard = onCall(
  *    an id that is already gone instead of silently succeeding;
  *  - the payload is re-validated server-side (the client rules in
  *    src/features/challengeValidation.ts are instant feedback, never the trust
- *    boundary), and createdAt/updatedAt/createdBy are stamped here.
+ *    boundary), and createdAt/updatedAt/createdBy are stamped here;
+ *  - CH-04: type/difficulty/targetValue must match ONE exact ECON-01 tier
+ *    triple, and rewardCoins is derived from CHALLENGE_TIERS here — any
+ *    rewardCoins in the request is ignored, the client never sends one;
+ *  - the update/delete paths write ONLY challenges/{id}: personal daily
+ *    assignments (users/{uid}/dailyChallenges) and claimed rewards
+ *    (users/{uid}/challengeClaims) are separate documents this function never
+ *    touches, so editing a challenge cannot reset/duplicate a claim and
+ *    deleting one cannot remove a player's daily assignments. A claim doc is
+ *    keyed by challengeId alone, so a user who already claimed cannot claim
+ *    the same challenge again after an edit.
  *
  * The role is read from the Firebase ID-token custom claims set by
  * authenticateTelegram (AUTH-03) — never from client-supplied data. The
@@ -861,7 +860,9 @@ export const getLeaderboard = onCall(
  *   {
  *     operation: "create" | "update" | "delete",
  *     challengeId?: string,
- *     payload?: { title, description, type, targetValue, startDate, endDate }
+ *     payload?: {
+ *       title, description, type, difficulty, targetValue, startDate, endDate
+ *     }
  *   }
  *
  * The Admin Panel's confirmation dialog is UX only — this function performs its
@@ -869,14 +870,16 @@ export const getLeaderboard = onCall(
  * shown (spec: "Backends nedrīkst paļauties uz šo logu autorizācijai").
  */
 
-/** Challenge kinds supported by the app (src/features/challenges.ts). */
-type ChallengeType = "single_game_score" | "games_played";
+/** Challenge kinds supported by the app (CH-04: the four ECON-01 economy
+ *  types, mirroring src/features/challenges.ts). */
+type ChallengeType = EconomyChallengeType;
 
 /** Raw payload as it arrives from the callable (every field unvalidated). */
 interface AdminChallengePayload {
   title?: unknown;
   description?: unknown;
   type?: unknown;
+  difficulty?: unknown;
   targetValue?: unknown;
   /** ISO 8601 string — the callable transport is JSON. */
   startDate?: unknown;
@@ -889,12 +892,16 @@ interface AdminChallengeMutationData {
   payload?: unknown;
 }
 
-/** Validated challenge fields, ready to persist. */
+/** Validated challenge fields, ready to persist. rewardCoins is ALWAYS the
+ *  server-derived tier value (see validateChallengePayload) — it never comes
+ *  from the request. */
 interface ValidatedChallenge {
   title: string;
   description: string;
   type: ChallengeType;
+  difficulty: ChallengeDifficulty;
   targetValue: number;
+  rewardCoins: number;
   startDate: Date;
   endDate: Date;
 }
@@ -924,8 +931,10 @@ function parseIsoDate(value: unknown, field: string): Date {
 /**
  * Server-side re-validation of the admin payload (the trust boundary).
  * Same rules as validateChallengeForm in src/features/challengeValidation.ts:
- * title 3–80, description 10–500, a known type, whole-number target 1–1 000 000,
- * and endDate on or after startDate. Everything is trimmed like the form does.
+ * title 3–80, description 10–500, a known type, a known difficulty, whole-
+ * number target 1–1 000 000 that is ALSO an allowed tier for that
+ * type/difficulty (ECON-01), and endDate on or after startDate. Everything is
+ * trimmed like the form does.
  */
 export function validateChallengePayload(payload: unknown): ValidatedChallenge {
   if (payload === null || typeof payload !== "object") {
@@ -954,11 +963,21 @@ export function validateChallengePayload(payload: unknown): ValidatedChallenge {
     );
   }
 
-  const type = p.type;
-  if (type !== "single_game_score" && type !== "games_played") {
+  const type = CHALLENGE_TYPES.find((candidate) => candidate === p.type);
+  if (!type) {
     throw new HttpsError(
       "invalid-argument",
-      "type must be single_game_score or games_played.",
+      `type must be one of: ${CHALLENGE_TYPES.join(", ")}.`,
+    );
+  }
+
+  const difficulty = CHALLENGE_DIFFICULTIES.find(
+    (candidate) => candidate === p.difficulty,
+  );
+  if (!difficulty) {
+    throw new HttpsError(
+      "invalid-argument",
+      `difficulty must be one of: ${CHALLENGE_DIFFICULTIES.join(", ")}.`,
     );
   }
 
@@ -975,6 +994,20 @@ export function validateChallengePayload(payload: unknown): ValidatedChallenge {
     );
   }
 
+  // CH-04 — the exact ECON-01 tier triple decides validity AND the payout.
+  // lookupTierReward answers null for anything outside CHALLENGE_TIERS, so an
+  // arbitrary (legacy-style) target or a mismatched difficulty is rejected
+  // instead of guessing a reward. rewardCoins is derived here from the table;
+  // any rewardCoins sent by the client is deliberately never read.
+  const rewardCoins = lookupTierReward(type, difficulty, targetValue);
+  if (rewardCoins === null) {
+    throw new HttpsError(
+      "invalid-argument",
+      "type, difficulty and targetValue must match one of the allowed " +
+        "challenge tiers.",
+    );
+  }
+
   const startDate = parseIsoDate(p.startDate, "startDate");
   const endDate = parseIsoDate(p.endDate, "endDate");
   if (endDate.getTime() < startDate.getTime()) {
@@ -984,16 +1017,31 @@ export function validateChallengePayload(payload: unknown): ValidatedChallenge {
     );
   }
 
-  return {title, description, type, targetValue, startDate, endDate};
+  return {
+    title,
+    description,
+    type,
+    difficulty,
+    targetValue,
+    rewardCoins,
+    startDate,
+    endDate,
+  };
 }
 
-/** The four stored challenge fields, copied from the validated payload. */
+/** The stored challenge fields, copied from the validated payload. The tier
+ *  triple (type/difficulty/targetValue) always travels WITH its server-derived
+ *  rewardCoins, so every document written from here on is a complete economy
+ *  configuration; legacy documents that predate CH-04 keep none of these
+ *  reward fields until they are explicitly edited through this function. */
 function challengeFields(validated: ValidatedChallenge) {
   return {
     title: validated.title,
     description: validated.description,
     type: validated.type,
+    difficulty: validated.difficulty,
     targetValue: validated.targetValue,
+    rewardCoins: validated.rewardCoins,
     startDate: validated.startDate,
     endDate: validated.endDate,
   };
