@@ -28,6 +28,7 @@ import {bot} from "./botcommand.js";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
+import {initialUserEconomy, planUserEconomy} from "./economy.js";
 import {
   buildTelegramUid, 
   parseAdminTelegramIds,
@@ -188,6 +189,12 @@ export const authenticateTelegram = onCall(
           await db.runTransaction(async (tx) => {
             const existing = await tx.get(userDoc);
             if (existing.exists) {
+              // ECON-01 — initialize the economy fields an older profile is
+              // missing (0 coins, the free cosmetics, a locked equipped item
+              // replaced by a free default). The patch is empty once the
+              // profile is initialized, so a balance or ownership set is never
+              // overwritten on a later login.
+              const economy = planUserEconomy(existing.data());
               tx.update(userDoc, {
                 acceptedDataProcessingAt: new Date(),
                 telegramId,
@@ -196,6 +203,7 @@ export const authenticateTelegram = onCall(
                 lastName,
                 languageCode,
                 photoUrl,
+                ...economy.patch,
               });
             } else {
               tx.set(userDoc, {
@@ -215,6 +223,10 @@ export const authenticateTelegram = onCall(
                 totalScore: 0,
                 acceptedDataProcessingAt: new Date(),
                 createdAt: new Date(),
+                // ECON-01 — new profiles start with 0 coins and the free
+                // cosmetics, under the same field names the claim/purchase
+                // paths will use.
+                ...initialUserEconomy(),
               });
             }
           });
@@ -309,7 +321,12 @@ export const acceptDataProcessing = onCall(
       await db.runTransaction(async (tx) => {
         const existing = await tx.get(userDoc);
         if (existing.exists) {
-          tx.update(userDoc, {acceptedDataProcessingAt: new Date()});
+          // ECON-01 — same idempotent economy migration as the sign-in path.
+          const economy = planUserEconomy(existing.data());
+          tx.update(userDoc, {
+            acceptedDataProcessingAt: new Date(),
+            ...economy.patch,
+          });
         } else {
           tx.set(userDoc, {
             uid,
@@ -331,6 +348,9 @@ export const acceptDataProcessing = onCall(
             totalScore: 0,
             acceptedDataProcessingAt: new Date(),
             createdAt: new Date(),
+            // ECON-01 — the economy fields start under the same names the
+            // claim/purchase paths will use.
+            ...initialUserEconomy(),
           });
         }
       });

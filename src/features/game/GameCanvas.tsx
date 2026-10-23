@@ -267,10 +267,6 @@ export function GameCanvas({
     configureCanvas(ctx)
     const state = createGameState()
 
-    // AUDIO — decode the optional assets while the ready screen is up and start
-    // the loop (stops again in this effect's cleanup). Silent when no files.
-    void loadAudioAssets()
-    playMusic()
     // Local mutable copy of the sprite set: the effect re-runs on every render
     // commit, so the render-captured `load.sprites` object itself must stay
     // untouched (react-hooks/immutability). The renderer takes sprites as a

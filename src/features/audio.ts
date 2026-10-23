@@ -14,7 +14,8 @@
 //   sfx/score   a pipe was passed
 //   sfx/hit     the collision that starts the death animation
 //   sfx/die     the bird touches down
-//   music/main  the loop under the Game screen
+//   music/main  the menu loop, started once at app level and kept playing
+//               on every screen (App.tsx)
 //
 // Every file is OPTIONAL: a name with no file, a failed fetch or a failed
 // decode is a silent no-op, so the app behaves exactly the same with or
@@ -267,9 +268,13 @@ async function applyMusicState(): Promise<void> {
   if (!wantedMusic || !isMusicEnabled() || music) return
   const ctx = ensureContext()
   if (!ctx) return
+  // A suspended context cannot make sound, and a source started in that state
+  // may never be heard. Leave the track wanted — the gesture hook above calls
+  // this again as soon as the context is allowed to run.
+  if (ctx.state !== 'running') return
 
   const buffer = await loadBuffer(`music/${wantedMusic}`)
-  if (!buffer || !context) return
+  if (!buffer || !context || context.state !== 'running') return
   // The settings may have been flipped (or the screen unmounted) while decoding.
   if (!wantedMusic || !isMusicEnabled() || music) return
 
