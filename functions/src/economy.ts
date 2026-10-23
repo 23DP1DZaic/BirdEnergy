@@ -384,3 +384,32 @@ export function buildEconomyPatch(
 
   return patch;
 }
+
+/**
+ * The economy fields every NEW profile starts with — spread into the
+ * users/{uid} create payload of the consent paths (authenticateTelegram,
+ * acceptDataProcessing). Fresh arrays per call, same field names the
+ * claim/purchase paths will use.
+ */
+export function initialUserEconomy(): EconomyUserFields {
+  return {
+    coins: 0,
+    ownedSkinIds: [...FREE_SKIN_IDS],
+    ownedBackgroundIds: [...FREE_BACKGROUND_IDS],
+    economyVersion: ECONOMY_VERSION,
+  };
+}
+
+/**
+ * The idempotent backfill for an EXISTING profile, as a patch the consent
+ * transaction spreads into its update: buildEconomyPatch's object-returning
+ * form — empty once the profile is current, so established balances,
+ * ownership and equipped cosmetics are never overwritten on a later login.
+ * (economyInit.initializeEconomy applies the same rules in its own
+ * transaction for sign-ins that skip the consent upsert.)
+ */
+export function planUserEconomy(
+  profile: Record<string, unknown> | undefined,
+): {patch: Record<string, unknown>} {
+  return {patch: buildEconomyPatch(profile)};
+}
