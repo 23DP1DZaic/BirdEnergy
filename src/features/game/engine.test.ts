@@ -600,6 +600,32 @@ describe('death animation and game over — GAME-03 / GAME-04', () => {
     }
   })
 
+  it('queues the die cue mid-fall, before touchdown, exactly once', () => {
+    const s = playing()
+    crashIntoGround(s)
+    assert.ok(
+      !drainEvents(s).includes('die'),
+      'not on the impact frame — hit fires there',
+    )
+
+    let queuedFrame = -1
+    for (let i = 0; i < 60 && queuedFrame < 0; i++) {
+      run(s, 1)
+      if (drainEvents(s).includes('die')) queuedFrame = i
+    }
+
+    assert.ok(queuedFrame >= 0, 'the cue fires during the death fall')
+    // Copy first: assert.equal's assertion signature would otherwise narrow
+    // s.phase to 'dead' and the loop below could no longer compare it.
+    const phaseAtCue = s.phase
+    assert.equal(phaseAtCue, 'dead', 'still falling — earlier than touchdown')
+
+    for (let i = 0; i < 120 && s.phase !== 'game-over'; i++) run(s, 1)
+    assert.equal(s.phase, 'game-over', 'the fall still ends the run')
+    run(s, 5)
+    assert.ok(!drainEvents(s).includes('die'), 'never queued a second time')
+  })
+
   it('lands nose-down on the ground line and leaves a corpse where it died', () => {
     const s = playing({score: 2})
     s.skinIndex = 4

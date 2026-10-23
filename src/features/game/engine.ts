@@ -45,6 +45,14 @@ const DEATH_GRAVITY = 2400
 const DEATH_FALL_SPEED = 1100
 
 /**
+ * AUDIO — the 'die' cue fires once the fall has covered this fraction of its
+ * path (apex → ground). It used to fire only on touchdown, which made it
+ * trail the crash — and the game-over panel — noticeably; 0.7 keeps it in
+ * the death animation but a beat before the bird lands.
+ */
+const DIE_SFX_FALL_PROGRESS = 0.7
+
+/**
  * Visual (render-only) scale for the bird and pipes: logical/world coordinates
  * stay 1:1 with the source art, and the renderer draws every game object
  * SPRITE_SCALE× bigger with nearest-neighbour so the pixel art stays crisp.
@@ -255,6 +263,9 @@ export interface GameState {
    *  whole fall and lands on exactly -180°. */
   deathStartAngle: number
   deathApexY: number
+  /** AUDIO — the 'die' cue has been queued for this death (fires mid-fall,
+   *  see DIE_SFX_FALL_PROGRESS; starts false with the rest of a fresh run). */
+  dieSoundQueued: boolean
   currentPipeColorIndex?: number
   lastPipeColorChangeScore: number
   /** Pipe-palette cross-fade (GAME-05 smooth animation): the palette we are
@@ -305,6 +316,7 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     skinIndex: 0,
     deathStartAngle: 0,
     deathApexY: 0,
+    dieSoundQueued: false,
     countdownLeft: 0,
     countdownRestarts: false,
     currentPipeColorIndex: 0,
@@ -604,6 +616,13 @@ export function stepGame(s: GameState, dtRaw: number): void {
       -Math.PI,
       s.deathStartAngle + (-Math.PI - s.deathStartAngle) * p,
     )
+    // AUDIO — queue the 'die' cue once the fall is most of the way down, a
+    // beat before touchdown (it used to fire only on landing). p grows
+    // monotonically along the fall, so the guard makes it fire exactly once.
+    if (!s.dieSoundQueued && p >= DIE_SFX_FALL_PROGRESS) {
+      s.dieSoundQueued = true
+      s.events.push('die')
+    }
     if (s.bird.y >= landY) {
       s.bird.y = landY
       s.bird.vy = 0
@@ -619,7 +638,6 @@ export function stepGame(s: GameState, dtRaw: number): void {
         frame: birdFrame(s),
         animationFinished: true,
       })
-      s.events.push('die')
       s.phase = 'game-over'
     }
     return

@@ -39,16 +39,10 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-// AUDIO: pre-decode the optional files + start the loop; both are no-ops
-// until something is dropped into src/assets/Sound (see features/audio.ts).
-import {
-  audioStatus,
-  loadAudioAssets,
-  playMusic,
-  playSfx,
-  stopMusic,
-  unlockAudio,
-} from '../audio'
+// AUDIO: the menu loop is started once at app level (App.tsx) and keeps
+// playing across screens; this screen only plays the run's sound effects.
+// Both are no-ops without files in src/assets/Sound (see features/audio.ts).
+import { audioStatus, playSfx, unlockAudio } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
@@ -676,7 +670,6 @@ export function GameCanvas({
     window.addEventListener(GROUND_CHANGE_EVENT, onGroundChange)
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
-      stopMusic()
       actionsRef.current = null
       cancelAnimationFrame(raf)
       observer.disconnect()
