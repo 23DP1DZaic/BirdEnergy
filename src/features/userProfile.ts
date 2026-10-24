@@ -141,6 +141,10 @@ export interface SubmitRunResponse {
   totalGames: number
   totalScore: number
   newBest: boolean
+  /** ECON-03 — coins this accepted run paid: Math.floor(score / 5). */
+  coinsEarned: number
+  /** The authoritative coin balance after the write (unchanged on a retry). */
+  coins: number
 }
 
 /**

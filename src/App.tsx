@@ -16,8 +16,19 @@ import { getDevTelegramId, shouldUseEmulators } from './devAuth'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
 import { loadAudioAssets, playMusic } from './features/audio'
-import { applyStoredBackgroundIndex } from './features/homeBackground'
-import { applyStoredBirdSkinIndex } from './features/birdSkin'
+import {
+  applyStoredBackgroundIndex,
+  getStoredBackgroundIndex,
+} from './features/homeBackground'
+import {
+  applyStoredBirdSkinIndex,
+  getStoredBirdSkinIndex,
+} from './features/birdSkin'
+import {
+  DEFAULT_BACKGROUND_INDEX,
+  DEFAULT_SKIN_INDEX,
+  ownsCosmeticIndex,
+} from './features/economy'
 import { applyStoredGroundIndex } from './features/groundTile'
 import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
@@ -96,8 +107,28 @@ function App() {
       .then((snap) => {
         if (cancelled || !snap.exists()) return
         const profile = snap.data() as UserProfile
-        applyStoredBirdSkinIndex(profile.preferredBird)
-        applyStoredBackgroundIndex(profile.preferredBackground)
+        // SHOP-01 — only hydrate looks this account may equip (free or owned).
+        // A legacy/corrupt paid preference never reaches the local renderer;
+        // the server also repairs such a pick on sign-in (initializeEconomy).
+        // The LOCAL pick needs the same guard: it can outlive the economy
+        // (chosen before the item was priced), so an unowned one falls back to
+        // the free default instead of staying equipped without a purchase.
+        if (ownsCosmeticIndex(profile, 'skin', profile.preferredBird)) {
+          applyStoredBirdSkinIndex(profile.preferredBird)
+        } else if (!ownsCosmeticIndex(profile, 'skin', getStoredBirdSkinIndex())) {
+          applyStoredBirdSkinIndex(DEFAULT_SKIN_INDEX)
+        }
+        if (ownsCosmeticIndex(profile, 'background', profile.preferredBackground)) {
+          applyStoredBackgroundIndex(profile.preferredBackground)
+        } else if (
+          !ownsCosmeticIndex(
+            profile,
+            'background',
+            getStoredBackgroundIndex(),
+          )
+        ) {
+          applyStoredBackgroundIndex(DEFAULT_BACKGROUND_INDEX)
+        }
         applyStoredGroundIndex(profile.preferredGround)
       })
       .catch((err: unknown) => {

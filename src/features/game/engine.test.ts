@@ -20,6 +20,7 @@ import {
   BIRD_R,
   BIRD_X,
   DEFAULT_VIEW_H,
+  HIGH_SCORE_SPEED_MULTIPLIER,
   LOGICAL_W,
   PIPE_CAP_W,
   PIPE_COLOR_SCORE_STEP,
@@ -27,6 +28,8 @@ import {
   PIPE_SPACING,
   PIPE_SPEED,
   RESUME_COUNTDOWN_S,
+  SPEED_INCREASE_SCORE,
+  SPEED_RAMP_SECONDS,
   SPRITE_SCALE,
   birdFrame,
   birdHitsPipe,
@@ -47,6 +50,7 @@ import {
   startGame,
   stepGame,
   syncChallenge,
+  targetSpeedMultiplier,
   type GameChallengeView,
   type GameState,
   type PipePair,
@@ -322,6 +326,191 @@ describe('gravity — the vertical physics (GAME-02)', () => {
     assert.notEqual(s.bird.y, startY, 'the bird bobs while waiting')
     assert.ok(Math.abs(s.bird.y - startY) < 6.5, 'but stays where it started')
     assert.ok(s.bird.y < floorTop(s))
+  })
+})
+
+/**
+ * GAME-05 — one-time +10% world-speed increase at score 50.
+ *
+ * The speed is read off the world itself: these cases keep the bird parked in
+ * the sky and drop the spawned pairs, so a random gap height can never end the
+ * run mid-measurement (the pipes get their own case at the end).
+ */
+function cruiseFrom(s: GameState, seconds: number, dt = FRAME): void {
+  const frames = Math.round(seconds / dt)
+  for (let i = 0; i < frames; i++) {
+    s.bird.y = 2000
+    s.bird.vy = 0
+    stepGame(s, dt)
+    s.pipes.length = 0
+  }
+}
+
+function cruise(score: number, seconds: number, dt = FRAME): GameState {
+  const s = playing({viewH: 20_000, y: 2000, vy: 0, score})
+  cruiseFrom(s, seconds, dt)
+  return s
+}
+
+/**
+ * Keeps a long measurement alive: parks the bird in the middle of whichever
+ * gap is about to reach it. The window is wider than one clamped frame of
+ * travel, so it centres the bird BEFORE the collision check can see it.
+ */
+function holdInGap(s: GameState): void {
+  s.bird.vy = 0
+  const capW = PIPE_CAP_W * SPRITE_SCALE
+  const reach = PIPE_SPEED * 0.05 + BIRD_R
+  for (const p of s.pipes) {
+    if (p.x <= BIRD_X + reach && p.x + capW >= BIRD_X - reach) {
+      s.bird.y = p.gapTop + PIPE_GAP / 2
+    }
+  }
+}
+
+describe('world speed — +10% at score 50 (GAME-05)', () => {
+  it('targets the base speed below 50 and 1.10× from 50 on', () => {
+    assert.equal(targetSpeedMultiplier(0), 1)
+    assert.equal(targetSpeedMultiplier(SPEED_INCREASE_SCORE - 1), 1)
+    assert.equal(
+      targetSpeedMultiplier(SPEED_INCREASE_SCORE),
+      HIGH_SCORE_SPEED_MULTIPLIER,
+    )
+    assert.equal(
+      targetSpeedMultiplier(SPEED_INCREASE_SCORE + 1),
+      HIGH_SCORE_SPEED_MULTIPLIER,
+    )
+    assert.equal(targetSpeedMultiplier(100), HIGH_SCORE_SPEED_MULTIPLIER)
+  })
+
+  it('scrolls exactly at the base speed at score 49', () => {
+    const s = cruise(SPEED_INCREASE_SCORE - 1, 1)
+
+    assert.equal(s.speedMultiplier, 1)
+    closeTo(s.scroll, PIPE_SPEED, 1e-6)
+  })
+
+  it('starts the one transition at 50 and settles at exactly 1.10×', () => {
+    const s = cruise(SPEED_INCREASE_SCORE - 1, 1)
+    assert.equal(s.speedMultiplier, 1)
+
+    s.score = SPEED_INCREASE_SCORE
+    s.bird.y = 2000
+    s.bird.vy = 0
+    stepGame(s, FRAME)
+    assert.ok(s.speedMultiplier > 1, 'the crossing starts the transition')
+    assert.ok(
+      s.speedMultiplier < HIGH_SCORE_SPEED_MULTIPLIER,
+      'and it is a ramp, not a jump',
+    )
+
+    // At most one ramp length after the crossing, it is exactly on target.
+    cruiseFrom(s, SPEED_RAMP_SECONDS + 0.1)
+    assert.equal(s.speedMultiplier, HIGH_SCORE_SPEED_MULTIPLIER)
+
+    // …and one step later the world moves at 1.10 × the base speed, computed
+    // from the base every time (never compounded onto the current speed).
+    s.bird.y = 2000
+    s.bird.vy = 0
+    const before = s.scroll
+    stepGame(s, FRAME)
+    closeTo(
+      s.scroll - before,
+      PIPE_SPEED * HIGH_SCORE_SPEED_MULTIPLIER * FRAME,
+      1e-9,
+    )
+  })
+
+  it('does not increase again at 51, 100 or 150', () => {
+    const s = cruise(SPEED_INCREASE_SCORE, 2)
+    assert.equal(s.speedMultiplier, HIGH_SCORE_SPEED_MULTIPLIER)
+
+    for (const score of [51, 100, 150]) {
+      s.score = score
+      const before = s.scroll
+      cruiseFrom(s, 1)
+
+      assert.equal(s.speedMultiplier, HIGH_SCORE_SPEED_MULTIPLIER)
+      closeTo(
+        s.scroll - before,
+        PIPE_SPEED * HIGH_SCORE_SPEED_MULTIPLIER,
+        1e-6,
+      )
+    }
+  })
+
+  it('ramps in game time, so the frame rate does not change it', () => {
+    const at60 = cruise(SPEED_INCREASE_SCORE, 2, 1 / 60)
+    const at24 = cruise(SPEED_INCREASE_SCORE, 2, 1 / 24)
+    const at144 = cruise(SPEED_INCREASE_SCORE, 2, 1 / 144)
+
+    for (const s of [at60, at24, at144]) {
+      assert.equal(s.speedMultiplier, HIGH_SCORE_SPEED_MULTIPLIER)
+    }
+    closeTo(at24.scroll, at60.scroll, 1e-6)
+    closeTo(at144.scroll, at60.scroll, 1e-6)
+  })
+
+  it('keeps distance-based pipe spacing at the high speed', () => {
+    const s = playing({
+      viewH: 20_000,
+      y: 2000,
+      vy: 0,
+      score: SPEED_INCREASE_SCORE,
+    })
+    s.speedMultiplier = HIGH_SCORE_SPEED_MULTIPLIER
+    const speed = PIPE_SPEED * HIGH_SCORE_SPEED_MULTIPLIER
+    const spawnX = LOGICAL_W + PIPE_CAP_W * SPRITE_SCALE
+    let spawns = 0
+    let previousLast: PipePair | null = null
+
+    for (let i = 0; i < 600; i++) {
+      holdInGap(s)
+      const beforeX = previousLast?.x ?? 0
+      stepGame(s, FRAME)
+      const last = s.pipes[s.pipes.length - 1] ?? null
+
+      if (last && last !== previousLast) {
+        spawns++
+        // One spacing behind the previous pair (or the off-screen margin when
+        // that is further), then the ordinary step the new pair also takes.
+        const expected =
+          (previousLast ? Math.max(beforeX + PIPE_SPACING, spawnX) : spawnX) -
+          speed * FRAME
+        closeTo(last.x, expected, 1e-9)
+      }
+
+      for (let j = 1; j < s.pipes.length; j++) {
+        assert.ok(
+          s.pipes[j].x - s.pipes[j - 1].x >= PIPE_SPACING - 1e-9,
+          'the speed-up may never bring two pairs closer than PIPE_SPACING',
+        )
+      }
+      if (last) previousLast = last
+    }
+
+    assert.ok(spawns >= 4, `expected several pairs, saw ${spawns}`)
+    // The vertical gap is still exactly PIPE_GAP tall: the bird clears it in
+    // the middle and dies one pixel above its top edge.
+    const probe = pipeOverBird(200)
+    const inside = {...s, bird: {...s.bird, y: 200 + PIPE_GAP / 2}}
+    const above = {...s, bird: {...s.bird, y: 200 - BIRD_R - 1}}
+    assert.equal(birdHitsPipe(inside, probe), false)
+    assert.equal(birdHitsPipe(above, probe), true)
+  })
+
+  it('resets to the normal speed on a restart', () => {
+    const s = cruise(SPEED_INCREASE_SCORE, 2)
+    assert.equal(s.speedMultiplier, HIGH_SCORE_SPEED_MULTIPLIER)
+
+    resetGame(s)
+    assert.equal(s.speedMultiplier, 1)
+    assert.equal(targetSpeedMultiplier(s.score), 1)
+
+    // The countdown-restart path enters a fresh run through startGame.
+    s.speedMultiplier = HIGH_SCORE_SPEED_MULTIPLIER
+    startGame(s)
+    assert.equal(s.speedMultiplier, 1)
   })
 })
 

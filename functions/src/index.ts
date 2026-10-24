@@ -29,8 +29,14 @@ import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
 import {
+  BACKGROUND_IDS,
   CHALLENGE_DIFFICULTIES,
   CHALLENGE_TYPES,
+  FREE_BACKGROUND_IDS,
+  FREE_SKIN_IDS,
+  SKIN_IDS,
+  canEquipCosmetic,
+  coinsForScore,
   lookupTierReward,
   type ChallengeDifficulty,
   type EconomyChallengeType,
@@ -56,6 +62,11 @@ import {
   type ClaimChallengeRewardRequest,
   type ClaimChallengeRewardResult,
 } from "./challengeRewards.js";
+import {
+  purchaseCosmeticCore,
+  type PurchaseCosmeticRequest,
+  type PurchaseCosmeticResult,
+} from "./cosmeticPurchases.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 
@@ -406,10 +417,11 @@ export const IN_GAME_NAME_MIN = 3;
 export const IN_GAME_NAME_MAX = 20;
 const IN_GAME_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
 
-/** Appearance preference ranges — must cover the client asset lists
- *  (10 bird skins, 9 skies, 2 grounds) without being unbounded. */
-const PREFERRED_BIRD_MAX = 99;
-const PREFERRED_BACKGROUND_MAX = 99;
+/** Appearance preference ranges. Bird/background indices are the economy
+ *  catalogs (SKIN_IDS / BACKGROUND_IDS); EQUIPPING those additionally requires
+ *  ownership, checked in the updateProfile transaction. Grounds are free. */
+const PREFERRED_BIRD_MAX = SKIN_IDS.length - 1;
+const PREFERRED_BACKGROUND_MAX = BACKGROUND_IDS.length - 1;
 const PREFERRED_GROUND_MAX = 99;
 
 /** Validates a preference index: a non-negative integer within the range.
@@ -520,10 +532,44 @@ export const updateProfile = onCall(
             "No player profile — accept data processing first.",
           );
         }
-        const current = snap.data()?.inGameName;
+        const current = snap.data() ?? {};
+
+        // SHOP-01 — free or owned cosmetics only. The persisted appearance is
+        // re-checked here against the SERVER's ownership list, so a client
+        // that simply sends a paid index never equips it.
+        if (
+          data.preferredBird !== undefined &&
+          !canEquipCosmetic(
+            SKIN_IDS,
+            FREE_SKIN_IDS,
+            current.ownedSkinIds,
+            data.preferredBird,
+          )
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "That skin is locked — buy it first.",
+          );
+        }
+        if (
+          data.preferredBackground !== undefined &&
+          !canEquipCosmetic(
+            BACKGROUND_IDS,
+            FREE_BACKGROUND_IDS,
+            current.ownedBackgroundIds,
+            data.preferredBackground,
+          )
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "That background is locked — buy it first.",
+          );
+        }
+
         // Respond with the effective name (unchanged when only prefs changed).
         effectiveName =
-          inGameName ?? (typeof current === "string" ? current : "");
+          inGameName ??
+          (typeof current.inGameName === "string" ? current.inGameName : "");
         tx.update(userDoc, patch);
       });
 
@@ -551,6 +597,12 @@ export const updateProfile = onCall(
  * Reuses the authenticateTelegram CORS origins + europe-north1 region; the
  * caller must be signed in (Firebase ID token) AND have accepted data
  * processing (the users/{uid} doc must exist — created by the consent flow).
+ *
+ * ECON-03 — the same transaction awards gameplay coins: one per full 5 score
+ * points of THIS run (Math.floor(score / 5), no remainder carry-over) and
+ * stores the accepted amount on the result. The reward is derived from the
+ * validated score here, never read from the request; an idempotent retry
+ * returns the stored amount and the current balance without paying again.
  */
 interface SubmitGameResultData {
   score?: unknown;
@@ -563,6 +615,13 @@ interface SubmitGameResultData {
    * counted twice. Old builds do not send one, so it stays optional.
    */
   runId?: unknown;
+}
+
+/** A stored balance that is absent/corrupt reads as 0 (never reset here). */
+function storedCoins(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0;
 }
 
 /** Server-side range validation — the client is never trusted (card DoD). */
@@ -618,6 +677,9 @@ export const submitGameResult = onCall(
     const db = getFirestore();
     const userDoc = db.collection("users").doc(uid);
     const now = new Date();
+    // ECON-03 — derived from the validated score, in the same transaction as
+    // the result and the aggregates; the client never sends a reward.
+    const coinsEarned = coinsForScore(run.score);
 
     try {
       const aggregates = await db.runTransaction(async (tx) => {
@@ -629,6 +691,7 @@ export const submitGameResult = onCall(
 
         const prev = userSnap.data() ?? {};
         const prevBest = typeof prev.bestScore === "number" ? prev.bestScore : 0;
+        const prevCoins = storedCoins(prev.coins);
         const newBest = run.score > prevBest;
 
         // One attempt document per finished run (never updated afterwards).
@@ -656,6 +719,11 @@ export const submitGameResult = onCall(
             );
           }
           logger.info("Duplicate run ignored (retry)", {uid, resultId});
+          // ECON-03 — the retry returns the reward that was accepted with this
+          // attempt (0 for a result stored before this feature: coins are
+          // never awarded retroactively) and the unchanged balance. Nothing
+          // is written again, so a retry cannot pay twice.
+          const storedReward = storedCoins(stored.coinsEarned);
           return {
             bestScore: prevBest,
             totalGames:
@@ -663,6 +731,8 @@ export const submitGameResult = onCall(
             totalScore:
               typeof prev.totalScore === "number" ? prev.totalScore : 0,
             newBest: false,
+            coinsEarned: storedReward,
+            coins: prevCoins,
           };
         }
 
@@ -673,6 +743,9 @@ export const submitGameResult = onCall(
           score: run.score,
           durationMs: run.durationMs,
           jumpCount: run.jumpCount,
+          // ECON-03 — the accepted reward travels with its result, so a retry
+          // can report it and audits can see what was actually paid.
+          coinsEarned,
           createdAt: now,
         });
 
@@ -680,6 +753,10 @@ export const submitGameResult = onCall(
           bestScore: newBest ? run.score : prevBest,
           totalGames: FieldValue.increment(1),
           totalScore: FieldValue.increment(run.score),
+          // ECON-03 — atomic with the result row: a failed transaction rolls
+          // both back, so coins are never paid for an unsaved run. An absent
+          // field increments from 0; an established balance is preserved.
+          coins: FieldValue.increment(coinsEarned),
           lastPlayedAt: now,
         });
 
@@ -689,6 +766,8 @@ export const submitGameResult = onCall(
           totalScore: (typeof prev.totalScore === "number" ? prev.totalScore : 0) +
             run.score,
           newBest,
+          coinsEarned,
+          coins: prevCoins + coinsEarned,
         };
       });
 
@@ -994,6 +1073,42 @@ export const claimChallengeReward = onCall(
       if (error instanceof HttpsError) throw error;
       logger.error("claimChallengeReward failed", error);
       throw new HttpsError("internal", "Could not claim the reward.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ SHOP-01 ---
+
+/**
+ * SHOP-01 — buy one cosmetic for the authenticated player.
+ *
+ * Input: {kind: "skin" | "background", itemId}. Only those two fields are
+ * read: the price comes from the trusted ECON-01 catalogs, the balance and
+ * ownership come from users/{uid}. Free items never charge, an already-owned
+ * item is an idempotent no-op, and the coin deduction + ownership grant are
+ * one transaction (no negative balance under concurrent purchases).
+ */
+export const purchaseCosmetic = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<PurchaseCosmeticResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to buy cosmetics.");
+    }
+
+    try {
+      return await purchaseCosmeticCore(
+        getFirestore(),
+        request.auth.uid,
+        (request.data ?? {}) as PurchaseCosmeticRequest,
+      );
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("purchaseCosmetic failed", error);
+      throw new HttpsError("internal", "Could not complete the purchase.");
     }
   },
 );

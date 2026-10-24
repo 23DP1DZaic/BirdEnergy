@@ -16,16 +16,23 @@
 //     (spec's kļūdu uzvedība), leaving the decision with the admin.
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { PixelIcon } from './ui/PixelIcon'
+import type { IconName } from './ui/pixelIcons'
 
 interface ConfirmDialogProps {
   /** Dialog heading — phrased as the question being confirmed. */
   title: string
   /** Body copy: what confirming actually does. */
   message: ReactNode
-  /** Label of the destructive button (e.g. "Delete"). */
+  /** Label of the confirming button (e.g. "Delete" or "Buy"). */
   confirmLabel: string
   /** Same button while the request runs (e.g. "Deleting…"). */
   busyLabel: string
+  /** Icon in the confirm button; defaults to the destructive trash. */
+  confirmIcon?: IconName
+  /** Confirm styling: 'danger' red (default) or 'primary' gold for a buy. */
+  confirmTone?: 'danger' | 'primary'
+  /** Cancel label; defaults to the built-in English "Cancel". */
+  cancelLabel?: string
   /** True while the confirmed call is in flight. */
   busy: boolean
   /** Backend failure to show inside the dialog; null when there is none. */
@@ -39,6 +46,9 @@ export function ConfirmDialog({
   message,
   confirmLabel,
   busyLabel,
+  confirmIcon = 'trash',
+  confirmTone = 'danger',
+  cancelLabel = 'Cancel',
   busy,
   error,
   onConfirm,
@@ -101,15 +111,17 @@ export function ConfirmDialog({
             onClick={onCancel}
           >
             <PixelIcon name="close" size={18} />
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"
-            className="btn btn-small btn-danger"
+            className={`btn btn-small${
+              confirmTone === 'danger' ? ' btn-danger' : ''
+            }`}
             disabled={busy}
             onClick={onConfirm}
           >
-            <PixelIcon name="trash" size={18} />
+            <PixelIcon name={confirmIcon} size={18} />
             {busy ? busyLabel : confirmLabel}
           </button>
         </div>

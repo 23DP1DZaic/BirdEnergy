@@ -85,6 +85,29 @@ export const BIRD_X = 120
 export const BIRD_R = 13
 const FLAP_FRAME_MS = 150 // 4 frames × 150ms = 600ms full wing cycle (250 felt too slow)
 
+/**
+ * GAME-05 — one-time world-speed increase.
+ *
+ * The world (sky, ground, every pipe) scrolls at PIPE_SPEED until the score
+ * reaches SPEED_INCREASE_SCORE, then ramps to HIGH_SCORE_SPEED_MULTIPLIER ×
+ * PIPE_SPEED over SPEED_RAMP_SECONDS and stays there: 100, 150, … never
+ * increase it again. The target is always derived from the SCORE over the
+ * BASE speed (never by multiplying the current multiplier), so repeated
+ * updates or rerenders cannot compound it, and the ramp is time-based, so it
+ * settles in the same wall-clock second on any frame rate.
+ *
+ * Speeds are logical px per second, not distances per frame — everything that
+ * moves with the world uses the same worldSpeed inside one stepGame call.
+ */
+export const SPEED_INCREASE_SCORE = 50
+export const HIGH_SCORE_SPEED_MULTIPLIER = 1.1
+export const SPEED_RAMP_SECONDS = 1
+
+/** The multiplier the world speed is easing toward for a given score. */
+export function targetSpeedMultiplier(score: number): number {
+  return score >= SPEED_INCREASE_SCORE ? HIGH_SCORE_SPEED_MULTIPLIER : 1
+}
+
 /** PAUSE — seconds counted down (3-2-1) over the frozen world before play continues. */
 export const RESUME_COUNTDOWN_S = 3
 
@@ -237,6 +260,12 @@ export interface GameState {
   jumpCount: number
   /** Total world scroll — drives sky/ground parallax. */
   scroll: number
+  /**
+   * GAME-05 — current world-speed multiplier (1 → HIGH_SCORE_SPEED_MULTIPLIER).
+   * Eased once per playing step toward targetSpeedMultiplier(score); a fresh
+   * run starts back at 1 (createGameState / startGame).
+   */
+  speedMultiplier: number
   time: number
   /** Logical view height (follows the container, >= ~2 screens worth of sky). */
   viewH: number
@@ -309,6 +338,7 @@ export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
     runTime: 0,
     jumpCount: 0,
     scroll: 0,
+    speedMultiplier: 1,
     time: 0,
     viewH,
     backgroundIndex: 0,
@@ -505,6 +535,7 @@ export function startGame(s: GameState): void {
   s.score = 0
   s.runTime = 0
   s.jumpCount = 1
+  s.speedMultiplier = 1 // every run starts at the normal world speed
   s.events.push('flap') // the starting tap counts as a jump (and a sound)
 }
 
@@ -644,7 +675,25 @@ export function stepGame(s: GameState, dtRaw: number): void {
   }
 
   // Playing: gravity, flap handled by flap(); ground/ceiling contact ends the run.
-  s.scroll += PIPE_SPEED * dt
+  //
+  // GAME-05 — the world speed for THIS step, derived from the score over the
+  // base speed. The ease is linear in seconds (0.1 × base over 1 s), so its
+  // duration does not depend on the frame rate, and it stops exactly on the
+  // target instead of creeping toward it forever.
+  const targetMultiplier = targetSpeedMultiplier(s.score)
+  const rampPerSecond = (HIGH_SCORE_SPEED_MULTIPLIER - 1) / SPEED_RAMP_SECONDS
+  const previousMultiplier = s.speedMultiplier
+  s.speedMultiplier =
+    targetMultiplier > s.speedMultiplier
+      ? Math.min(targetMultiplier, s.speedMultiplier + rampPerSecond * dt)
+      : Math.max(targetMultiplier, s.speedMultiplier - rampPerSecond * dt)
+  // Integrate the ramp at its midpoint: the frame carries the AVERAGE of the
+  // multipliers at its two ends. Without it, summing either endpoint makes
+  // the distance covered during the ramp depend slightly on the frame rate
+  // (a 24 fps run would travel ~0.2px further than a 60 fps run here).
+  const worldSpeed =
+    PIPE_SPEED * ((previousMultiplier + s.speedMultiplier) / 2)
+  s.scroll += worldSpeed * dt
   s.runTime += dt
   s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
   s.bird.y += s.bird.vy * dt
@@ -654,7 +703,7 @@ export function stepGame(s: GameState, dtRaw: number): void {
 
   const last = s.pipes[s.pipes.length - 1]
   if (!last || last.x < LOGICAL_W - PIPE_SPACING) spawnPipe(s)
-  for (const p of s.pipes) p.x -= PIPE_SPEED * dt
+  for (const p of s.pipes) p.x -= worldSpeed * dt
   // Despawn only when the scaled cap has fully left the screen.
   if (s.pipes[0] && s.pipes[0].x < -PIPE_CAP_W * SPRITE_SCALE) s.pipes.shift()
 

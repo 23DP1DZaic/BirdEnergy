@@ -139,6 +139,9 @@ export function GameCanvas({
   onRunEnd,
   serverBest = 0,
   challenge = null,
+  coinState = 'idle',
+  coinReward = null,
+  onRetryCoins,
 }: {
   onPhaseChange?: (phase: GamePhase) => void
   /** DATA-01: fired once per finished run with its final numbers. */
@@ -147,6 +150,12 @@ export function GameCanvas({
   serverBest?: number
   /** C — the active challenge, when one is running (GamePage resolves it). */
   challenge?: GameChallengeView | null
+  /** ECON-03 — the Game Over coin line (server-confirmed reward only). */
+  coinState?: 'idle' | 'saving' | 'pending' | 'confirmed'
+  /** ECON-03 — coins paid for this run + the authoritative balance. */
+  coinReward?: { earned: number; balance: number } | null
+  /** ECON-03 — replay the unconfirmed attempt (same submission id). */
+  onRetryCoins?: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -797,6 +806,36 @@ export function GameCanvas({
           safe on the device and will sync by itself. */}
       {uiPhase === 'game-over' && (
         <div className="game-over-actions">
+          {/* ECON-03 — the reward shown here is the server-confirmed amount
+              (nothing is added locally); the wallet is the balance the same
+              response returned. A lost save stays retryable with the same
+              submission id instead of hiding the reward. */}
+          {coinState === 'confirmed' && coinReward && (
+            <p className="game-coins" role="status">
+              <span className="game-coins-earned">
+                {t('canvas.coinsEarned', { n: coinReward.earned })}
+              </span>
+              <span className="game-coins-wallet">
+                {t('canvas.wallet', { n: coinReward.balance })}
+              </span>
+            </p>
+          )}
+          {coinState === 'pending' && (
+            <>
+              <p className="game-coins game-coins-pending" role="status">
+                {t('canvas.coinsPending')}
+              </p>
+              {onRetryCoins && (
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={onRetryCoins}
+                >
+                  {t('canvas.retryCoins')}
+                </button>
+              )}
+            </>
+          )}
           <button
             type="button"
             className="btn btn-small game-share"

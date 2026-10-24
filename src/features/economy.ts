@@ -124,6 +124,27 @@ export function lookupTierReward(
 }
 
 /* ------------------------------------------------------------------ */
+/* Gameplay coins (ECON-03).                                            */
+/* ------------------------------------------------------------------ */
+
+/** Score points needed for one gameplay coin (1 coin per full 5 points).
+ *  MUST mirror COINS_PER_SCORE_POINTS in functions/src/economy.ts. */
+export const COINS_PER_SCORE_POINTS = 5
+
+/**
+ * ECON-03 — coins for one finished run: floor(score / 5), per game, no
+ * remainder carry-over. The SERVER owns the awarded amount; this copy exists
+ * so the gameplay HUD preview and the docs/tests use the same formula (pinned
+ * against the server mirror in economy.test.ts).
+ */
+export function coinsForScore(score: unknown): number {
+  if (typeof score !== 'number' || !Number.isFinite(score) || score <= 0) {
+    return 0
+  }
+  return Math.floor(score / COINS_PER_SCORE_POINTS)
+}
+
+/* ------------------------------------------------------------------ */
 /* Cosmetic catalogs + pricing.                                        */
 /* ------------------------------------------------------------------ */
 
@@ -197,6 +218,53 @@ export function isFreeSkinId(id: unknown): boolean {
 /** Free-ownership check by EXPLICIT id — never `index < 3` at runtime. */
 export function isFreeBackgroundId(id: unknown): boolean {
   return typeof id === 'string' && FREE_BACKGROUND_IDS.includes(id)
+}
+
+/** The two purchasable cosmetic kinds (grounds have no economy). */
+export type CosmeticKind = 'skin' | 'background'
+
+/** Catalog id at an index, or null when the index is not a catalog entry. */
+export function cosmeticIdAt(
+  kind: CosmeticKind,
+  index: unknown,
+): string | null {
+  if (typeof index !== 'number' || !Number.isInteger(index)) return null
+  const catalog = kind === 'skin' ? SKIN_IDS : BACKGROUND_IDS
+  return (catalog as readonly string[])[index] ?? null
+}
+
+/** Server-derived price for a catalog id; null when it is not in that catalog.
+ *  The client uses this only for the label — the callable re-derives it. */
+export function cosmeticPrice(
+  kind: CosmeticKind,
+  id: unknown,
+): number | null {
+  if (typeof id !== 'string') return null
+  if (kind === 'skin') {
+    if (!(SKIN_IDS as readonly string[]).includes(id)) return null
+    return isFreeSkinId(id) ? 0 : PAID_SKIN_PRICE
+  }
+  if (!(BACKGROUND_IDS as readonly string[]).includes(id)) return null
+  return isFreeBackgroundId(id) ? 0 : PAID_BACKGROUND_PRICE
+}
+
+/** True when the profile may EQUIP the cosmetic at this catalog index: free
+ *  ids always, paid ids only while the server-provided ownership list has
+ *  them. Mirrors canEquipCosmetic in functions/src/economy.ts. */
+export function ownsCosmeticIndex(
+  profile: {
+    ownedSkinIds?: readonly string[]
+    ownedBackgroundIds?: readonly string[]
+  },
+  kind: CosmeticKind,
+  index: unknown,
+): boolean {
+  const id = cosmeticIdAt(kind, index)
+  if (id === null) return false
+  if (kind === 'skin') {
+    return isFreeSkinId(id) || (profile.ownedSkinIds ?? []).includes(id)
+  }
+  return isFreeBackgroundId(id) || (profile.ownedBackgroundIds ?? []).includes(id)
 }
 
 /* ------------------------------------------------------------------ */

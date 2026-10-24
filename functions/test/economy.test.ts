@@ -20,6 +20,7 @@ import {
   CHALLENGE_DIFFICULTIES,
   CHALLENGE_TIERS,
   CHALLENGE_TYPES,
+  COINS_PER_SCORE_POINTS,
   DAILY_CHALLENGE_COUNT,
   DEFAULT_BACKGROUND_INDEX,
   DEFAULT_SKIN_INDEX,
@@ -29,6 +30,7 @@ import {
   PAID_BACKGROUND_PRICE,
   PAID_SKIN_PRICE,
   SKIN_IDS,
+  coinsForScore,
   lookupTierReward,
 } from "../src/economy.js";
 
@@ -250,5 +252,36 @@ describe("challenge economy — explicit free cosmetic IDs", () => {
     assert.ok(
       FREE_BACKGROUND_IDS.includes(BACKGROUND_IDS[DEFAULT_BACKGROUND_INDEX]),
     );
+  });
+});
+
+describe("gameplay coins (ECON-03)", () => {
+  it("pays one coin per full 5 score points", () => {
+    assert.equal(COINS_PER_SCORE_POINTS, 5);
+    const cases: Array<[number, number]> = [
+      [0, 0],
+      [4, 0],
+      [5, 1],
+      [9, 1],
+      [10, 2],
+      [49, 9],
+      [50, 10],
+      [54, 10],
+    ];
+    for (const [score, coins] of cases) {
+      assert.equal(coinsForScore(score), coins, `score ${score}`);
+    }
+  });
+
+  it("rounds down per game and never carries remainders", () => {
+    // Each call is independent: 2 + 2 + 2 scores pay 0 + 0 + 0, not 1.
+    assert.deepEqual([2, 2, 2].map((score) => coinsForScore(score)), [0, 0, 0]);
+    assert.equal(coinsForScore(4) + coinsForScore(6), 1);
+  });
+
+  it("treats negative/corrupt input as zero coins", () => {
+    for (const score of [-5, Number.NaN, Number.POSITIVE_INFINITY, "50", null]) {
+      assert.equal(coinsForScore(score), 0);
+    }
   });
 });

@@ -8,10 +8,12 @@
 // signing out and back in) return the same assignments until the next Riga
 // midnight, so this is safe to call on every mount.
 //
-// Rewards are not claimed here (CH-06/CH-07 add claiming and purchases); this
-// module ships the data contract only, no screens.
+// CH-06 adds the screen: this module stays the data layer (callable + the
+// owner-only profile read for the coin balance). Rewards are claimed through
+// challengeRewards.ts, never by writing Firestore from here.
+import { doc, getDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '../firebase'
+import { db, functions } from '../firebase'
 import type { ChallengeDifficulty, EconomyChallengeType } from './economy'
 
 /** One of the day's three assignments, with this player's progress on it. */
@@ -53,4 +55,24 @@ export async function fetchDailyChallenges(): Promise<DailyChallenges> {
   )
   const response = await call()
   return response.data
+}
+
+/**
+ * The player's coin balance, read from their own users/{uid} document (the
+ * rules allow the owner a single get). A missing/invalid field reads as 0 and
+ * a failed read as null, so the Challenges screen can render without it —
+ * claiming and purchases always re-read the balance server-side anyway.
+ */
+export async function fetchCoinBalance(uid: string): Promise<number | null> {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
+    if (!snap.exists()) return 0
+    const coins = snap.data().coins
+    return typeof coins === 'number' && Number.isFinite(coins) && coins >= 0
+      ? coins
+      : 0
+  } catch (err) {
+    console.warn('CH-06: coin balance read failed', err)
+    return null
+  }
 }

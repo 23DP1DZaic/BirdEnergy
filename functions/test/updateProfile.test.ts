@@ -130,3 +130,90 @@ describe("updateProfile — valid input", () => {
     );
   });
 });
+
+describe("updateProfile — equipping locked cosmetics (SHOP-01)", () => {
+  const PAID_SKIN_INDEX = 7 // kirkbird — index-aligned with SKIN_IDS
+  const PAID_BACKGROUND_INDEX = 3 // background4
+
+  it("rejects a paid skin the account does not own", async () => {
+    assert.equal(
+      await errorCode(
+        invoke({data: {preferredBird: PAID_SKIN_INDEX}, auth: USER_AUTH}),
+      ),
+      "failed-precondition",
+    );
+    assert.equal(db.peek("users", USER_AUTH.uid)?.preferredBird, undefined);
+  });
+
+  it("rejects a paid background the account does not own", async () => {
+    assert.equal(
+      await errorCode(
+        invoke({
+          data: {preferredBackground: PAID_BACKGROUND_INDEX},
+          auth: USER_AUTH,
+        }),
+      ),
+      "failed-precondition",
+    );
+    assert.equal(
+      db.peek("users", USER_AUTH.uid)?.preferredBackground,
+      undefined,
+    );
+  });
+
+  it("equips a paid skin that the server ownership list contains", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      inGameName: "Old_Name",
+      ownedSkinIds: ["kirkbird"],
+    });
+
+    const result = await invoke({
+      data: {preferredBird: PAID_SKIN_INDEX},
+      auth: USER_AUTH,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      db.peek("users", USER_AUTH.uid)?.preferredBird,
+      PAID_SKIN_INDEX,
+    );
+  });
+
+  it("equips a paid background that the server ownership list contains", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      inGameName: "Old_Name",
+      ownedBackgroundIds: ["background4"],
+    });
+
+    const result = await invoke({
+      data: {preferredBackground: PAID_BACKGROUND_INDEX},
+      auth: USER_AUTH,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      db.peek("users", USER_AUTH.uid)?.preferredBackground,
+      PAID_BACKGROUND_INDEX,
+    );
+  });
+
+  it("allows the explicit free sets without any ownership list", async () => {
+    const result = await invoke({
+      data: {preferredBird: 6, preferredBackground: 2},
+      auth: USER_AUTH,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(db.peek("users", USER_AUTH.uid)?.preferredBird, 6);
+    assert.equal(db.peek("users", USER_AUTH.uid)?.preferredBackground, 2);
+  });
+
+  it("rejects an index outside the catalog even if it is a number", async () => {
+    for (const data of [{preferredBird: 11}, {preferredBackground: 10}]) {
+      assert.equal(
+        await errorCode(invoke({data, auth: USER_AUTH})),
+        "invalid-argument",
+      );
+    }
+  });
+});
