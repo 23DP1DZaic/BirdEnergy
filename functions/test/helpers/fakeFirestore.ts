@@ -209,6 +209,14 @@ export class FakeCollection {
 export class FakeFirestore {
   private readonly collections = new Map<string, Map<string, DocData>>();
   private counter = 0;
+  /**
+   * Real Firestore transactions are serializable: a transaction never lets
+   * another one observe its reads half-applied, and concurrent creators of
+   * the same document settle on one write. The fake runs transactions one at
+   * a time so a Promise.all of two handlers behaves like two concurrent
+   * Firestore clients instead of interleaving read-before-write.
+   */
+  private transactionQueue: Promise<unknown> = Promise.resolve();
 
   collection(name: string): FakeCollection {
     this.col(name);
@@ -218,7 +226,10 @@ export class FakeFirestore {
   async runTransaction<T>(
     fn: (tx: FakeTransaction) => Promise<T>,
   ): Promise<T> {
-    return fn(new FakeTransaction(this));
+    const run = this.transactionQueue.then(() => fn(new FakeTransaction(this)));
+    // The queue must survive a rejected transaction (the handler rethrows).
+    this.transactionQueue = run.catch(() => undefined);
+    return run;
   }
 
   nextId(): string {

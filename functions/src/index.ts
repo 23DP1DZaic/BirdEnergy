@@ -44,6 +44,13 @@ import {
   type TelegramAuthUser,
 } from "./telegramAuth.js";
 import {initializeEconomy} from "./economyInit.js";
+import {
+  cappedProgress,
+  computeChallengeProgress,
+  ensureDailyChallenge,
+  readDailyGameResults,
+  toDate,
+} from "./dailyChallenges.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 
@@ -818,6 +825,112 @@ export const getLeaderboard = onCall(
       if (error instanceof HttpsError) throw error;
       logger.error("getLeaderboard failed", error);
       throw new HttpsError("internal", "Could not load the leaderboard.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ CH-05 ---
+
+/** One assignment as the client receives it — no document ids of other users,
+ *  no raw timestamps, no game history. */
+interface DailyChallengeResponseItem {
+  id: string;
+  type: EconomyChallengeType;
+  difficulty: ChallengeDifficulty;
+  targetValue: number;
+  rewardCoins: number;
+  title: string;
+  /** ISO 8601 of the claim, or null while unclaimed (claiming is a later
+   *  task — CH-05 only stores the null). */
+  claimedAt: string | null;
+  /** Progress clamped to targetValue ("40/40", never "97/40"). */
+  progress: number;
+  completed: boolean;
+}
+
+interface DailyChallengesResponse {
+  dateKey: string;
+  timezone: string;
+  /** Start and expiry of the day window (ISO 8601). */
+  startsAt: string;
+  expiresAt: string;
+  assignments: DailyChallengeResponseItem[];
+}
+
+/**
+ * CH-05 — the player's personal daily challenge assignments for TODAY.
+ *
+ * The server, not the client, decides the day: `now` is read inside the
+ * function and converted to the Europe/Riga calendar day (dateKey), with the
+ * true UTC bounds of that local day — DST days are 23 or 25 hours long and
+ * the next day starts exactly when this one expires. Nothing date- or
+ * timezone-shaped is accepted from the request.
+ *
+ * First request of a day creates the document (exactly 3 assignments: two
+ * normal + one hard, three distinct types, targets from the ECON-01 tiers)
+ * inside a transaction; every later request, from any tab or device, returns
+ * that stored set unchanged. The next Riga day lazily creates its own
+ * document; the old one stays as history (previous unclaimed rewards are
+ * never carried forward).
+ *
+ * Progress is calculated on the fly from this player's accepted gameResults
+ * rows with startsAt <= createdAt < expiresAt — no progress state is stored
+ * and no result limit is applied.
+ */
+export const getDailyChallenges = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<DailyChallengesResponse> => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in to load your daily challenges.",
+      );
+    }
+
+    const uid = request.auth.uid;
+    const db = getFirestore();
+
+    try {
+      const daily = await ensureDailyChallenge(db, uid, new Date());
+      // Scoped to this uid + the stored day window — never other players.
+      const results = await readDailyGameResults(db, uid, {
+        startsAt: daily.startsAt,
+        expiresAt: daily.expiresAt,
+      });
+
+      const assignments: DailyChallengeResponseItem[] = daily.assignments.map(
+        (assignment) => {
+          const progress = computeChallengeProgress(assignment.type, results);
+          const claimedAt = toDate(assignment.claimedAt);
+          return {
+            id: assignment.id,
+            type: assignment.type,
+            difficulty: assignment.difficulty,
+            targetValue: assignment.targetValue,
+            rewardCoins: assignment.rewardCoins,
+            title: assignment.title,
+            claimedAt: claimedAt ? claimedAt.toISOString() : null,
+            progress: cappedProgress(progress, assignment.targetValue),
+            completed: progress >= assignment.targetValue,
+          };
+        },
+      );
+
+      return {
+        dateKey: daily.dateKey,
+        timezone: daily.timezone,
+        startsAt: daily.startsAt.toISOString(),
+        expiresAt: daily.expiresAt.toISOString(),
+        assignments,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("getDailyChallenges failed", error);
+      throw new HttpsError("internal", "Could not load daily challenges.");
     }
   },
 );

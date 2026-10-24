@@ -39,23 +39,10 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-<<<<<<< HEAD
 // AUDIO: the menu loop is started once at app level (App.tsx) and keeps
 // playing across screens; this screen only plays the run's sound effects.
 // Both are no-ops without files in src/assets/Sound (see features/audio.ts).
 import { audioStatus, playSfx, unlockAudio } from '../audio'
-=======
-// AUDIO: the menu loop is started once at app level (App.tsx); this screen
-// stops it on leaving, unlocks audio on the first tap and plays the run's
-// sound effects. All of them are no-ops without files in src/assets/Sound
-// (see features/audio.ts).
-import {
-  audioStatus,
-  playSfx,
-  stopMusic,
-  unlockAudio,
-} from '../audio'
->>>>>>> 52652a3530fbf147b98ed20d39e6dece9858572e
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
