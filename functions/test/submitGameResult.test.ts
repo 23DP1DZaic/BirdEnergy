@@ -102,6 +102,8 @@ describe("submitGameResult — valid input", () => {
     assert.equal(storedRun.score, 10);
     assert.equal(storedRun.durationMs, 45_000);
     assert.equal(storedRun.jumpCount, 12);
+    // ECON-02: the completion time is the SERVER's clock, never the client's.
+    assert.ok(storedRun.createdAt instanceof Date);
 
     const profile = db.peek("users", USER_AUTH.uid);
     assert.ok(profile);
@@ -127,6 +129,67 @@ describe("submitGameResult — valid input", () => {
     assert.equal(second.totalScore, 25);
     assert.equal(second.newBest, false);
     assert.equal(db.rows("gameResults").length, 1);
+  });
+
+  it("counts two concurrent copies of one retry exactly once", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      bestScore: 0,
+      totalGames: 0,
+      totalScore: 0,
+    });
+    const data = {
+      score: 25,
+      durationMs: 10_000,
+      jumpCount: 5,
+      runId: "parallel-id",
+    };
+
+    const results = await Promise.all([
+      invoke({data, auth: USER_AUTH}),
+      invoke({data, auth: USER_AUTH}),
+    ]);
+
+    assert.equal(db.rows("gameResults").length, 1);
+    const profile = db.peek("users", USER_AUTH.uid);
+    assert.ok(profile);
+    assert.equal(profile.totalGames, 1);
+    assert.equal(profile.totalScore, 25);
+    for (const result of results) {
+      assert.equal(result.totalGames, 1);
+      assert.equal(result.totalScore, 25);
+    }
+  });
+
+  it("rejects reusing a runId with different result data", async () => {
+    db.seed("users", USER_AUTH.uid, {
+      bestScore: 0,
+      totalGames: 0,
+      totalScore: 0,
+    });
+    const runId = "same-attempt-id";
+    await invoke({
+      data: {score: 10, durationMs: 45_000, jumpCount: 12, runId},
+      auth: USER_AUTH,
+    });
+
+    // Same id, any different accepted field → conflict, not a silent retry.
+    for (const changed of [
+      {score: 11, durationMs: 45_000, jumpCount: 12},
+      {score: 10, durationMs: 46_000, jumpCount: 12},
+      {score: 10, durationMs: 45_000, jumpCount: 13},
+    ]) {
+      assert.equal(
+        await errorCode(invoke({data: {...changed, runId}, auth: USER_AUTH})),
+        "already-exists",
+      );
+    }
+
+    assert.equal(db.rows("gameResults").length, 1);
+    const profile = db.peek("users", USER_AUTH.uid);
+    assert.ok(profile);
+    assert.equal(profile.totalGames, 1);
+    assert.equal(profile.totalScore, 10);
+    assert.equal(profile.bestScore, 10);
   });
 
   it("treats a malformed runId as absent rather than failing", async () => {

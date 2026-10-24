@@ -306,6 +306,27 @@ describe('adversarial queries against the gameResults list rule', () => {
 })
 
 describe('default deny — anything not named in the rules', () => {
+  it('denies economy writes: coins, ownership, daily assignments, claims', async () => {
+    for (const ctx of [guest(), user(), admin()]) {
+      const db = ctx.firestore()
+      // Coins / ownership live on the profile, which never accepts client writes.
+      await assertFails(
+        updateDoc(doc(db, 'users', ME), {coins: 10_000, ownedSkinIds: []}),
+      )
+      // ECON-02: the daily set and the claim ledger are server-only too.
+      const daily = doc(db, 'users', ME, 'dailyChallenges', '2026-10-24')
+      const claim = doc(db, 'users', ME, 'challengeClaims', 'challenge-1')
+      await assertFails(getDoc(daily))
+      await assertFails(
+        setDoc(daily, {dateKey: '2026-10-24', assignments: []}),
+      )
+      await assertFails(getDoc(claim))
+      await assertFails(
+        setDoc(claim, {challengeId: 'challenge-1', rewardCoins: 999}),
+      )
+    }
+  })
+
   it('is closed to guests, players and admins alike', async () => {
     for (const ctx of [guest(), user(), admin()]) {
       const db = ctx.firestore()

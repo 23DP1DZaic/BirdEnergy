@@ -26,7 +26,10 @@ rules_version = '2';
 //
 // Writers, all server-side: authenticateTelegram / acceptDataProcessing and
 // updateProfile (users), submitGameResult (users + gameResults),
-// adminChallengeMutation (challenges).
+// adminChallengeMutation (challenges), getDailyChallenges (dailyChallenges)
+// and claimChallengeReward (challengeClaims + the daily snapshot + coins).
+// The economy subcollections under users/{uid} match the default deny below:
+// only the callables (Admin SDK, rules bypassed) can read or write them.
 //
 // Reads stay open only where the app needs them:
 //  - users/{uid}: the owner reads their own profile (App/Profile "your data").

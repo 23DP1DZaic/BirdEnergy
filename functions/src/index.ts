@@ -48,9 +48,14 @@ import {
   cappedProgress,
   computeChallengeProgress,
   ensureDailyChallenge,
-  readDailyGameResults,
+  readGameResultsInWindow,
   toDate,
 } from "./dailyChallenges.js";
+import {
+  claimChallengeRewardCore,
+  type ClaimChallengeRewardRequest,
+  type ClaimChallengeRewardResult,
+} from "./challengeRewards.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 
@@ -635,6 +640,21 @@ export const submitGameResult = onCall(
         const resultRef = db.collection("gameResults").doc(resultId);
         const alreadyStored = await tx.get(resultRef);
         if (alreadyStored.exists) {
+          // ECON-02 — an idempotent retry must carry the SAME attempt. Reusing
+          // a runId for different data is a client bug (or an attempt to
+          // overwrite a stored result), so it is rejected instead of silently
+          // returning someone else's aggregates.
+          const stored = alreadyStored.data() ?? {};
+          if (
+            stored.score !== run.score ||
+            stored.durationMs !== run.durationMs ||
+            stored.jumpCount !== run.jumpCount
+          ) {
+            throw new HttpsError(
+              "already-exists",
+              "runId was already used with different result data.",
+            );
+          }
           logger.info("Duplicate run ignored (retry)", {uid, resultId});
           return {
             bestScore: prevBest,
@@ -646,6 +666,8 @@ export const submitGameResult = onCall(
           };
         }
 
+        // createdAt is the SERVER completion time: the client never supplies
+        // it, and both challenge progress windows read this field.
         tx.set(resultRef, {
           uid,
           score: run.score,
@@ -897,7 +919,7 @@ export const getDailyChallenges = onCall(
     try {
       const daily = await ensureDailyChallenge(db, uid, new Date());
       // Scoped to this uid + the stored day window — never other players.
-      const results = await readDailyGameResults(db, uid, {
+      const results = await readGameResultsInWindow(db, uid, {
         startsAt: daily.startsAt,
         expiresAt: daily.expiresAt,
       });
@@ -931,6 +953,47 @@ export const getDailyChallenges = onCall(
       if (error instanceof HttpsError) throw error;
       logger.error("getDailyChallenges failed", error);
       throw new HttpsError("internal", "Could not load daily challenges.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ ECON-02 ---
+
+/**
+ * ECON-02 — claim the reward for one completed challenge.
+ *
+ * Input: {source: "daily" | "admin", challengeId}. Nothing else is read from
+ * the request — the reward amount, progress, balance and the caller's uid are
+ * all resolved here (uid from the ID token, the rest from Firestore).
+ *
+ * Completion is computed from accepted gameResults inside the challenge's own
+ * window (the CH-05 calculation), so claiming cannot reset or fake progress.
+ * The claim document and the coin increment are written in one transaction:
+ * repeated/clashing claims award once, and an already-claimed request answers
+ * {alreadyClaimed: true} with the original reward and the current balance
+ * instead of paying again.
+ */
+export const claimChallengeReward = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<ClaimChallengeRewardResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to claim rewards.");
+    }
+
+    try {
+      return await claimChallengeRewardCore(
+        getFirestore(),
+        request.auth.uid,
+        (request.data ?? {}) as ClaimChallengeRewardRequest,
+      );
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("claimChallengeReward failed", error);
+      throw new HttpsError("internal", "Could not claim the reward.");
     }
   },
 );

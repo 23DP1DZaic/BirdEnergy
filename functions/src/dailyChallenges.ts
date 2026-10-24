@@ -259,6 +259,17 @@ function shuffle<T>(items: readonly T[], random: () => number): T[] {
  * The id embeds the dateKey: challengeClaims/{challengeId} is keyed by the id
  * alone, so a target that repeats on another day must still be claimable.
  */
+/** The Riga dateKey embedded in a daily assignment id, or null when the id is
+ *  not one of ours. Challenge claims derive the dailyChallenges document path
+ *  from this instead of scanning every past day — the id is server-generated
+ *  as '<dateKey>-<type>-<targetValue>' (see generateDailyAssignments). */
+export function dailyChallengeDateKey(challengeId: string): string | null {
+  if (typeof challengeId !== "string" || challengeId.length < 12) return null;
+  if (challengeId[10] !== "-") return null;
+  const dateKey = challengeId.slice(0, 10);
+  return isDateKey(dateKey) ? dateKey : null;
+}
+
 export function generateDailyAssignments(
   dateKey: string,
   random: () => number = Math.random,
@@ -342,7 +353,7 @@ export function toDate(value: unknown): Date | null {
   return null;
 }
 
-function isAssignmentSnapshot(
+export function isAssignmentSnapshot(
   value: unknown,
 ): value is DailyChallengeAssignment {
   if (value === null || typeof value !== "object") return false;
@@ -485,10 +496,14 @@ function safeCount(value: unknown): number {
  * everyone's history. No limit is applied: a limit would silently undercount
  * `total_jumps`/`games_played` on a busy day.
  *
+ * Used by both challenge sources: the daily window is [startsAt, expiresAt)
+ * from the daily document, an admin challenge passes its own [startDate,
+ * endDate] window (with endDate + 1ms as the exclusive bound).
+ *
  * Requires the composite index gameResults(uid ASC, createdAt ASC) declared
  * in firestore.indexes.json.
  */
-export async function readDailyGameResults(
+export async function readGameResultsInWindow(
   db: Firestore,
   uid: string,
   bounds: DailyChallengeBounds,

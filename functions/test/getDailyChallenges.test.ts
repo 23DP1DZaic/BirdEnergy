@@ -28,7 +28,7 @@ import {
   ensureDailyChallenge,
   generateDailyAssignments,
   isDateKey,
-  readDailyGameResults,
+  readGameResultsInWindow,
   rigaDateKey,
   rigaDayBounds,
   type AcceptedGameResult,
@@ -501,7 +501,7 @@ describe("daily challenge progress — accepted results in the window", () => {
 
   it("reads only this player's accepted runs inside [startsAt, expiresAt)", async () => {
     seedResults();
-    const results = await readDailyGameResults(firestore(), USER_AUTH.uid, bounds);
+    const results = await readGameResultsInWindow(firestore(), USER_AUTH.uid, bounds);
     assert.equal(results.length, 3);
     assert.deepEqual(
       results.map((r) => r.score).sort((a, b) => a - b),
@@ -511,7 +511,7 @@ describe("daily challenge progress — accepted results in the window", () => {
 
   it("computes all four challenge types from those runs", async () => {
     seedResults();
-    const results: AcceptedGameResult[] = await readDailyGameResults(
+    const results: AcceptedGameResult[] = await readGameResultsInWindow(
       firestore(),
       USER_AUTH.uid,
       bounds,
