@@ -24,9 +24,10 @@ export const DAILY_CHALLENGE_COUNT = 3
 /* Challenge types + difficulty tiers.                                 */
 /* ------------------------------------------------------------------ */
 
-/** The four economy challenge types (ECON-01). single_game_score and
- *  games_played also back the original admin challenges — see
- *  ./challenges.ts, whose CRUD list stays a subset of this one. */
+/** The four economy challenge types (ECON-01). All four now also back the
+ *  admin challenges (CH-04 extended the CRUD to this full list) — see
+ *  ./challenges.ts. Legacy challenges without a reward configuration remain
+ *  viewable and non-rewarding until explicitly edited into a valid tier. */
 export const CHALLENGE_TYPES = [
   'total_jumps',
   'games_played',

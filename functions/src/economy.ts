@@ -39,10 +39,11 @@ export const DAILY_CHALLENGE_COUNT = 3;
  *   single_game_score max score in one accepted game in the period
  *   total_score       sum of score over accepted games in the period
  *
- * single_game_score and games_played also back the original admin challenges
- * (CH-01/ADM-01); existing challenges/{id} documents keep working unchanged —
- * the admin CRUD still offers only those two, this list is the economy-wide
- * superset the daily assignments draw from.
+ * All four also back the admin challenges (CH-01/ADM-01, extended to this
+ * full list by CH-04); existing challenges/{id} documents keep working
+ * unchanged — legacy docs WITHOUT a difficulty/reward configuration stay
+ * viewable and non-rewarding until an admin explicitly edits them into a
+ * valid tier triple (lookupTierReward rejects anything else).
  */
 export const CHALLENGE_TYPES = [
   "total_jumps",

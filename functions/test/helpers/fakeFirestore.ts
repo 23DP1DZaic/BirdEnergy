@@ -5,7 +5,7 @@
  * create/update writes) without an emulator or credentials, so the helpers here
  * swap the module-level getFirestore()/FieldValue for this fake. It implements
  * only the surface the functions actually use:
- *   collection().doc().{get,set,update}, where/orderBy/limit queries,
+ *   collection().doc().{get,set,update,delete}, where/orderBy/limit queries,
  *   runTransaction() and FieldValue.increment().
  *
  * install() patches the already-required "firebase-admin/firestore" module
@@ -150,6 +150,10 @@ export class FakeTransaction {
   update(ref: FakeDocRef, payload: DocData): void {
     this.set(ref, payload);
   }
+
+  delete(ref: FakeDocRef): void {
+    this.db.remove(ref.collectionName, ref.id);
+  }
 }
 
 export class FakeCollection {
@@ -230,6 +234,11 @@ export class FakeFirestore {
   /** Test helper: read a document directly. */
   peek(collection: string, id: string): DocData | undefined {
     return this.read(collection, id);
+  }
+
+  /** Remove a document — backs FakeTransaction.delete (ADM-02). */
+  remove(collection: string, id: string): void {
+    this.col(collection).delete(id);
   }
 
   read(collection: string, id: string): DocData | undefined {
