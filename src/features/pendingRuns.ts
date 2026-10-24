@@ -23,6 +23,26 @@ const QUEUE_KEY = 'birdenergy.pendingRuns'
  *  screen's "waiting for a connection" indicator listens to it, so it updates
  *  without polling. */
 export const PENDING_RUNS_CHANGE_EVENT = 'birdenergy:pending-runs-change'
+/** Fired ONLY after the server confirmed a run (direct submit or replay) —
+ *  CH-06's Challenges screen listens so daily/admin progress re-reads the
+ *  stored results instead of trusting an optimistic client total. The event
+ *  also carries {runId, response} (ECON-03), so the Game screen can show the
+ *  server-confirmed coin reward even when a queued attempt was replayed later. */
+export const RUNS_SAVED_EVENT = 'birdenergy:runs-saved'
+
+/** The detail carried by RUNS_SAVED_EVENT — one accepted attempt. */
+export interface SavedRunDetail {
+  runId: string
+  response: SubmitRunResponse
+}
+
+function notifyRunSaved(runId: string, response: SubmitRunResponse): void {
+  window.dispatchEvent(
+    new CustomEvent<SavedRunDetail>(RUNS_SAVED_EVENT, {
+      detail: { runId, response },
+    }),
+  )
+}
 /** Give up after this many attempts — it will never succeed. */
 const MAX_ATTEMPTS = 5
 /** A long session must not grow the queue without bound (oldest dropped). */
@@ -134,6 +154,9 @@ export async function submitRun(
   }
   try {
     const result = await submit(pending)
+    // The server accepted (or already had) this run: progress screens must
+    // re-read the trusted results now, never add the score locally.
+    notifyRunSaved(pending.runId, result.data)
     // One save usually means the connection is back — drain the backlog now.
     void flushPendingRuns()
     return result.data
@@ -165,20 +188,56 @@ export async function flushPendingRuns(): Promise<number> {
     if (queue.length === 0) return 0
 
     const remaining: PendingRun[] = []
-    let saved = 0
+    const saved: SavedRunDetail[] = []
     for (const run of queue.sort((a, b) => a.finishedAt - b.finishedAt)) {
       try {
-        await submit(run)
-        saved += 1
+        const result = await submit(run)
+        saved.push({runId: run.runId, response: result.data})
       } catch (err) {
         if (isPermanentFailure(err)) continue
         remaining.push({...run, attempts: run.attempts + 1})
       }
     }
     writeQueue(remaining.filter((r) => r.attempts < MAX_ATTEMPTS))
-    return saved
+    for (const entry of saved) notifyRunSaved(entry.runId, entry.response)
+    return saved.length
   } finally {
     flushing = false
+  }
+}
+
+/**
+ * ECON-03 — explicit retry of ONE queued attempt, keeping its runId.
+ *
+ * The Game screen offers this while a finished run's coin reward is
+ * unconfirmed: the attempt is still in the queue (never dropped just because
+ * the response was lost), so replaying it is idempotent server-side — the
+ * result and the coins are awarded at most once. Returns the server's answer,
+ * or null while the attempt is still waiting for a connection.
+ */
+export async function retryRun(
+  runId: string,
+): Promise<SubmitRunResponse | null> {
+  const queued = readQueue().find((run) => run.runId === runId)
+  if (!queued) return null
+  try {
+    const result = await submit(queued)
+    writeQueue(readQueue().filter((run) => run.runId !== runId))
+    notifyRunSaved(runId, result.data)
+    return result.data
+  } catch (err) {
+    if (isPermanentFailure(err)) {
+      // Validation can never be fixed by retrying: drop the attempt.
+      writeQueue(readQueue().filter((run) => run.runId !== runId))
+      return null
+    }
+    // Keep it queued (same id) — a later connection can still save it.
+    writeQueue(
+      readQueue().map((run) =>
+        run.runId === runId ? {...run, attempts: run.attempts + 1} : run,
+      ),
+    )
+    return null
   }
 }
 

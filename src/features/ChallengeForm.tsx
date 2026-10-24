@@ -14,18 +14,21 @@
 // (key), which is also how a fresh form is handed out after a save.
 import { useRef, useState, type FormEvent } from 'react'
 import type { ChallengeFormMode, ChallengeInput } from './challenges'
-import { LOCALE_CODE, getLocale, useT } from '../i18n'
+import { useT } from '../i18n'
+import { lookupTierReward } from './economy.ts'
 import type { ChallengeFormError } from './challengeValidation'
 import { PixelIcon } from './ui/PixelIcon'
 import {
   CHALLENGE_DESCRIPTION_MAX,
   CHALLENGE_DESCRIPTION_MIN,
-  CHALLENGE_TARGET_MAX,
   CHALLENGE_TITLE_MAX,
   CHALLENGE_TITLE_MIN,
   CHALLENGE_FORM_FIELDS,
   EMPTY_CHALLENGE_FORM,
+  allowedTargets,
   firstInvalidField,
+  isChallengeDifficulty,
+  isChallengeType,
   toChallengeInput,
   validateChallengeForm,
   type ChallengeFormErrors,
@@ -84,13 +87,38 @@ export function ChallengeForm({
 
   const invalidFields = CHALLENGE_FORM_FIELDS.filter((f) => errors[f])
 
-  /** One typed character: update the value and clear that field's error. */
+  // CH-04 — the target options belong to the (type, difficulty) pair, so the
+  // preview only shows once every piece of the tier triple is chosen.
+  const targetOptions =
+    isChallengeType(values.type) && isChallengeDifficulty(values.difficulty)
+      ? allowedTargets(values.type, values.difficulty)
+      : null
+  const rewardPreview =
+    targetOptions && values.targetValue.trim()
+      ? lookupTierReward(
+          values.type,
+          values.difficulty,
+          Number(values.targetValue.trim()),
+        )
+      : null
+
+  /**
+   * One typed character: update the value and clear that field's error.
+   * Changing type or difficulty empties the target (the allowed list just
+   * changed) and drops the target's stale error with it.
+   */
   const change = (field: ChallengeFormField, value: string) => {
-    setValues((v) => ({ ...v, [field]: value }))
+    const resetsTarget = field === 'type' || field === 'difficulty'
+    setValues((v) => ({
+      ...v,
+      [field]: value,
+      ...(resetsTarget ? { targetValue: '' } : {}),
+    }))
     setErrors((e) => {
-      if (!e[field]) return e
+      if (!e[field] && !(resetsTarget && e.targetValue)) return e
       const rest = { ...e }
       delete rest[field]
+      if (resetsTarget) delete rest.targetValue
       return rest
     })
     setBlocked(false)
@@ -205,38 +233,98 @@ export function ChallengeForm({
             onChange={(e) => change('type', e.target.value)}
           >
             <option value="">{t('form.typePlaceholder')}</option>
-            <option value="single_game_score">{t('form.typeScore')}</option>
+            <option value="total_jumps">{t('form.typeJumps')}</option>
             <option value="games_played">{t('form.typeGames')}</option>
+            <option value="single_game_score">{t('form.typeScore')}</option>
+            <option value="total_score">{t('form.typeTotalScore')}</option>
           </select>
           <FieldError id="challenge-type-error" error={errors.type} />
         </div>
 
         <div className="form-field">
+          <label className="form-label" htmlFor="challenge-difficulty">
+            {t('form.difficulty')}
+          </label>
+          <select
+            id="challenge-difficulty"
+            className={inputClass('difficulty')}
+            value={values.difficulty}
+            aria-invalid={ariaInvalid('difficulty')}
+            aria-describedby={ariaDescribedBy('difficulty')}
+            onChange={(e) => change('difficulty', e.target.value)}
+          >
+            <option value="">{t('form.difficultyPlaceholder')}</option>
+            <option value="normal">{t('form.difficultyNormal')}</option>
+            <option value="hard">{t('form.difficultyHard')}</option>
+          </select>
+          <FieldError id="challenge-difficulty-error" error={errors.difficulty} />
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div className="form-field">
           <label className="form-label" htmlFor="challenge-targetValue">
             {t('form.target')}
           </label>
-          <input
+          {/* CH-04 — a dropdown of the ALLOWED tier targets only; the type and
+              difficulty pick the list, so an arbitrary target cannot be typed. */}
+          <select
             id="challenge-targetValue"
-            type="number"
             className={inputClass('targetValue')}
-            min={1}
-            max={CHALLENGE_TARGET_MAX}
-            step={1}
-            inputMode="numeric"
-            placeholder={t('form.targetPlaceholder')}
             value={values.targetValue}
+            disabled={targetOptions === null}
             aria-invalid={ariaInvalid('targetValue')}
             aria-describedby={ariaDescribedBy('targetValue')}
             onChange={(e) => change('targetValue', e.target.value)}
-          />
+          >
+            <option value="">{t('form.targetPlaceholder')}</option>
+            {targetOptions?.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
           <FieldError id="challenge-targetValue-error" error={errors.targetValue} />
           <p className="form-hint">
-            {values.type === 'games_played'
-              ? t('form.hintGames')
-              : values.type === 'single_game_score'
-                ? t('form.hintScore')
-                : t('form.hintPickType')}
+            {!targetOptions
+              ? t('form.hintPickType')
+              : values.type === 'games_played'
+                ? t('form.hintGames')
+                : values.type === 'single_game_score'
+                  ? t('form.hintScore')
+                  : values.type === 'total_jumps'
+                    ? t('form.hintJumps')
+                    : t('form.hintTotalScore')}
           </p>
+        </div>
+
+        <div className="form-field">
+          <label className="form-label" htmlFor="challenge-reward">
+            {t('form.reward')}
+          </label>
+          {/* Read-only preview of the SERVER-derived tier reward; the payload
+              never carries rewardCoins (the Cloud Function derives it). */}
+          <input
+            id="challenge-reward"
+            type="text"
+            className="form-input"
+            value={
+              rewardPreview !== null
+                ? t('form.rewardCoins', { n: rewardPreview })
+                : '—'
+            }
+            readOnly
+            aria-readonly="true"
+            aria-describedby={
+              rewardPreview !== null ? undefined : 'challenge-reward-hint'
+            }
+            tabIndex={-1}
+          />
+          {rewardPreview === null && (
+            <p className="form-hint" id="challenge-reward-hint">
+              {t('form.rewardPending')}
+            </p>
+          )}
         </div>
       </div>
 
@@ -318,9 +406,6 @@ export function ChallengeForm({
           titleMax: CHALLENGE_TITLE_MAX,
           descMin: CHALLENGE_DESCRIPTION_MIN,
           descMax: CHALLENGE_DESCRIPTION_MAX,
-          targetMax: CHALLENGE_TARGET_MAX.toLocaleString(
-            LOCALE_CODE[getLocale()],
-          ),
         })}
       </p>
     </form>

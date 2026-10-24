@@ -13,7 +13,8 @@
 //   sfx/flap    every jump (including the tap that starts a run)
 //   sfx/score   a pipe was passed
 //   sfx/hit     the collision that starts the death animation
-//   sfx/die     the bird touches down
+//   sfx/die     the death fall is most of the way down — a beat before
+//               touchdown, so the cue is felt WITH the crash
 //   music/main  the menu loop, started once at app level and kept playing
 //               on every screen (App.tsx)
 //

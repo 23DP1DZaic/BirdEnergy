@@ -5,7 +5,7 @@
  * create/update writes) without an emulator or credentials, so the helpers here
  * swap the module-level getFirestore()/FieldValue for this fake. It implements
  * only the surface the functions actually use:
- *   collection().doc().{get,set,update}, where/orderBy/limit queries,
+ *   collection().doc().{get,set,update,delete}, where/orderBy/limit queries,
  *   runTransaction() and FieldValue.increment().
  *
  * install() patches the already-required "firebase-admin/firestore" module
@@ -150,6 +150,10 @@ export class FakeTransaction {
   update(ref: FakeDocRef, payload: DocData): void {
     this.set(ref, payload);
   }
+
+  delete(ref: FakeDocRef): void {
+    this.db.remove(ref.collectionName, ref.id);
+  }
 }
 
 export class FakeCollection {
@@ -205,6 +209,14 @@ export class FakeCollection {
 export class FakeFirestore {
   private readonly collections = new Map<string, Map<string, DocData>>();
   private counter = 0;
+  /**
+   * Real Firestore transactions are serializable: a transaction never lets
+   * another one observe its reads half-applied, and concurrent creators of
+   * the same document settle on one write. The fake runs transactions one at
+   * a time so a Promise.all of two handlers behaves like two concurrent
+   * Firestore clients instead of interleaving read-before-write.
+   */
+  private transactionQueue: Promise<unknown> = Promise.resolve();
 
   collection(name: string): FakeCollection {
     this.col(name);
@@ -214,7 +226,10 @@ export class FakeFirestore {
   async runTransaction<T>(
     fn: (tx: FakeTransaction) => Promise<T>,
   ): Promise<T> {
-    return fn(new FakeTransaction(this));
+    const run = this.transactionQueue.then(() => fn(new FakeTransaction(this)));
+    // The queue must survive a rejected transaction (the handler rethrows).
+    this.transactionQueue = run.catch(() => undefined);
+    return run;
   }
 
   nextId(): string {
@@ -230,6 +245,11 @@ export class FakeFirestore {
   /** Test helper: read a document directly. */
   peek(collection: string, id: string): DocData | undefined {
     return this.read(collection, id);
+  }
+
+  /** Remove a document — backs FakeTransaction.delete (ADM-02). */
+  remove(collection: string, id: string): void {
+    this.col(collection).delete(id);
   }
 
   read(collection: string, id: string): DocData | undefined {

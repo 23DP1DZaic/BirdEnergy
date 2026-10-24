@@ -219,6 +219,43 @@
   text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
 }
 
+/* ECON-03 — the coin reward line. Confirmed rewards use the panel's gold
+   pill; an unconfirmed save uses the dark panel ink so "not yet" never reads
+   as "paid". */
+.game-coins {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 9px;
+  line-height: 1.6;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.game-coins-earned {
+  font-size: 9px;
+  color: #5a1e05;
+}
+
+.game-coins-wallet {
+  font-size: 8px;
+  color: #7a3d16;
+}
+
+.game-coins-pending {
+  color: #fff4d6;
+  background: rgba(90, 30, 5, 0.88);
+  border-color: #ffd23f;
+  white-space: normal;
+  text-align: center;
+}
+
 /* Loading / error overlay while sprites decode. */
 .game-status {
   position: absolute;

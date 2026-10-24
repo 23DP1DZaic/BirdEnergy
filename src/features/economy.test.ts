@@ -16,6 +16,7 @@ import {
   CHALLENGE_DIFFICULTIES,
   CHALLENGE_TIERS,
   CHALLENGE_TYPES,
+  COINS_PER_SCORE_POINTS,
   DAILY_CHALLENGE_COUNT,
   DEFAULT_BACKGROUND_INDEX,
   DEFAULT_SKIN_INDEX,
@@ -25,15 +26,20 @@ import {
   PAID_BACKGROUND_PRICE,
   PAID_SKIN_PRICE,
   SKIN_IDS,
+  coinsForScore,
+  cosmeticIdAt,
+  cosmeticPrice,
   isFreeBackgroundId,
   isFreeSkinId,
   lookupTierReward,
+  ownsCosmeticIndex,
 } from './economy.ts'
 import {
   BACKGROUND_IDS as SERVER_BACKGROUND_IDS,
   CHALLENGE_DIFFICULTIES as SERVER_CHALLENGE_DIFFICULTIES,
   CHALLENGE_TIERS as SERVER_CHALLENGE_TIERS,
   CHALLENGE_TYPES as SERVER_CHALLENGE_TYPES,
+  COINS_PER_SCORE_POINTS as SERVER_COINS_PER_SCORE_POINTS,
   DAILY_CHALLENGE_COUNT as SERVER_DAILY_CHALLENGE_COUNT,
   DEFAULT_BACKGROUND_INDEX as SERVER_DEFAULT_BACKGROUND_INDEX,
   DEFAULT_SKIN_INDEX as SERVER_DEFAULT_SKIN_INDEX,
@@ -43,6 +49,7 @@ import {
   PAID_BACKGROUND_PRICE as SERVER_PAID_BACKGROUND_PRICE,
   PAID_SKIN_PRICE as SERVER_PAID_SKIN_PRICE,
   SKIN_IDS as SERVER_SKIN_IDS,
+  coinsForScore as serverCoinsForScore,
 } from '../../functions/src/economy.ts'
 
 describe('economy mirror — client copy === server copy', () => {
@@ -78,6 +85,13 @@ describe('economy mirror — client copy === server copy', () => {
 })
 
 describe('client economy helpers', () => {
+  it('shares the ECON-03 gameplay-coin formula with the server', () => {
+    assert.equal(COINS_PER_SCORE_POINTS, SERVER_COINS_PER_SCORE_POINTS)
+    for (const score of [0, 4, 5, 9, 10, 49, 50, 54, 100, 10_000]) {
+      assert.equal(coinsForScore(score), serverCoinsForScore(score))
+    }
+  })
+
   it('looks up rewards for allowed triples', () => {
     assert.equal(lookupTierReward('total_jumps', 'normal', 40), 30)
     assert.equal(lookupTierReward('games_played', 'hard', 15), 100)
@@ -105,5 +119,61 @@ describe('client economy helpers', () => {
     assert.equal(isFreeBackgroundId('background3'), true)
     assert.equal(isFreeBackgroundId('background4'), false)
     assert.equal(isFreeBackgroundId(undefined), false)
+  })
+})
+
+describe('cosmetic ownership helpers (SHOP-01)', () => {
+  const empty = {}
+
+  it('maps catalog indices to ids and prices', () => {
+    assert.equal(cosmeticIdAt('skin', 0), 'bird2-1')
+    assert.equal(cosmeticIdAt('skin', 7), 'kirkbird')
+    assert.equal(cosmeticIdAt('background', 3), 'background4')
+    assert.equal(cosmeticIdAt('skin', -1), null)
+    assert.equal(cosmeticIdAt('skin', 1.5), null)
+    assert.equal(cosmeticIdAt('background', BACKGROUND_IDS.length), null)
+
+    assert.equal(cosmeticPrice('skin', 'bird2-1'), 0)
+    assert.equal(cosmeticPrice('skin', 'kirkbird'), PAID_SKIN_PRICE)
+    assert.equal(cosmeticPrice('background', 'background3'), 0)
+    assert.equal(cosmeticPrice('background', 'background4'), 1000)
+    assert.equal(cosmeticPrice('skin', 'background1'), null)
+    assert.equal(cosmeticPrice('background', 'nope'), null)
+    assert.equal(cosmeticPrice('skin', 7), null)
+  })
+
+  it('allows free looks without an ownership list', () => {
+    assert.equal(ownsCosmeticIndex(empty, 'skin', 0), true)
+    assert.equal(ownsCosmeticIndex(empty, 'skin', 6), true)
+    assert.equal(ownsCosmeticIndex(empty, 'background', 2), true)
+  })
+
+  it('locks paid looks until the server ownership list contains them', () => {
+    assert.equal(ownsCosmeticIndex(empty, 'skin', 7), false)
+    assert.equal(ownsCosmeticIndex(empty, 'background', 3), false)
+    assert.equal(
+      ownsCosmeticIndex({ ownedSkinIds: ['kirkbird'] }, 'skin', 7),
+      true,
+    )
+    assert.equal(
+      ownsCosmeticIndex({ ownedBackgroundIds: ['background4'] },
+        'background', 3),
+      true,
+    )
+    // Ownership is per catalog: a skin id never unlocks a background index.
+    assert.equal(
+      ownsCosmeticIndex({ ownedSkinIds: ['kirkbird'] }, 'background', 3),
+      false,
+    )
+  })
+
+  it('never treats an out-of-catalog index as equippable', () => {
+    const everything = {
+      ownedSkinIds: [...SKIN_IDS],
+      ownedBackgroundIds: [...BACKGROUND_IDS],
+    }
+    assert.equal(ownsCosmeticIndex(everything, 'skin', SKIN_IDS.length), false)
+    assert.equal(ownsCosmeticIndex(everything, 'skin', -1), false)
+    assert.equal(ownsCosmeticIndex(everything, 'background', 99), false)
   })
 })

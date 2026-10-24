@@ -6,6 +6,11 @@
  * (the client copy) is only instant feedback, while validateChallengePayload()
  * and isValidInGameName() in src/index.ts are what actually accept or reject a
  * request. Valid input is accepted; every documented rule is broken in turn.
+ *
+ * CH-04 — since the economy extension the target is no longer any positive
+ * number: type + difficulty + targetValue must be one exact ECON-01 tier
+ * triple, and the returned rewardCoins is derived from CHALLENGE_TIERS (a
+ * client-supplied rewardCoins never reaches this function's output).
  */
 import "./setup.js";
 import assert from "node:assert/strict";
@@ -19,14 +24,21 @@ import {
   isValidInGameName,
   validateChallengePayload,
 } from "../src/index.js";
+import {
+  CHALLENGE_DIFFICULTIES,
+  CHALLENGE_TIERS,
+  CHALLENGE_TYPES,
+} from "../src/economy.js";
 
 /** A payload that passes every rule, with per-test overrides. */
 function validPayload(overrides: Record<string, unknown> = {}): unknown {
   return {
     title: "Weekend Sprint",
-    description: "Score 500 points in a single run this weekend.",
+    description: "Score 40 points in a single run this weekend.",
     type: "single_game_score",
-    targetValue: 500,
+    difficulty: "normal",
+    // single_game_score / normal / 40 → reward 60 in the ECON-01 table.
+    targetValue: 40,
     startDate: "2026-10-10T00:00:00.000Z",
     endDate: "2026-10-12T23:59:59.999Z",
     ...overrides,
@@ -49,10 +61,13 @@ describe("validateChallengePayload — valid input", () => {
     assert.equal(result.title, "Weekend Sprint");
     assert.equal(
       result.description,
-      "Score 500 points in a single run this weekend.",
+      "Score 40 points in a single run this weekend.",
     );
     assert.equal(result.type, "single_game_score");
-    assert.equal(result.targetValue, 500);
+    assert.equal(result.difficulty, "normal");
+    assert.equal(result.targetValue, 40);
+    // CH-04 — the reward comes from the tier table, not from the request.
+    assert.equal(result.rewardCoins, 60);
     assert.equal(result.startDate.toISOString(), "2026-10-10T00:00:00.000Z");
     assert.equal(result.endDate.toISOString(), "2026-10-12T23:59:59.999Z");
   });
@@ -65,11 +80,28 @@ describe("validateChallengePayload — valid input", () => {
     assert.equal(result.description, "Ten chars+");
   });
 
-  it("accepts both challenge types", () => {
+  it("accepts both original challenge types", () => {
     assert.equal(
-      validateChallengePayload(validPayload({type: "games_played"})).type,
+      validateChallengePayload(
+        validPayload({type: "games_played", targetValue: 10}),
+      ).type,
       "games_played",
     );
+  });
+
+  it("accepts all four types at a tier of each difficulty (CH-04)", () => {
+    for (const type of CHALLENGE_TYPES) {
+      for (const difficulty of CHALLENGE_DIFFICULTIES) {
+        const tier = CHALLENGE_TIERS[type][difficulty][0];
+        const result = validateChallengePayload(
+          validPayload({type, difficulty, targetValue: tier.targetValue}),
+        );
+        assert.equal(result.type, type);
+        assert.equal(result.difficulty, difficulty);
+        assert.equal(result.targetValue, tier.targetValue);
+        assert.equal(result.rewardCoins, tier.rewardCoins, `${type}/${difficulty}`);
+      }
+    }
   });
 
   it("accepts the boundary values", () => {
@@ -88,14 +120,22 @@ describe("validateChallengePayload — valid input", () => {
       ).description.length,
       CHALLENGE_DESCRIPTION_MAX,
     );
+    // The lowest and highest tier targets in the whole table are accepted
+    // (CH-04: numbers between tiers are NOT — see the invalid cases below).
+    const lowest = CHALLENGE_TIERS.total_jumps.normal[0].targetValue;
+    const hardestList = CHALLENGE_TIERS.total_score.hard;
+    const highest = hardestList[hardestList.length - 1].targetValue;
     assert.equal(
-      validateChallengePayload(validPayload({targetValue: 1})).targetValue,
-      1,
+      validateChallengePayload(
+        validPayload({type: "total_jumps", difficulty: "normal", targetValue: lowest}),
+      ).targetValue,
+      lowest,
     );
     assert.equal(
-      validateChallengePayload(validPayload({targetValue: 1_000_000}))
-        .targetValue,
-      1_000_000,
+      validateChallengePayload(
+        validPayload({type: "total_score", difficulty: "hard", targetValue: highest}),
+      ).targetValue,
+      highest,
     );
   });
 
@@ -156,6 +196,30 @@ describe("validateChallengePayload — invalid input", () => {
       "invalid-argument",
     );
     assert.equal(rejectionCode(validPayload({type: undefined})), "invalid-argument");
+  });
+
+  it("rejects a missing or unknown difficulty (CH-04)", () => {
+    assert.equal(
+      rejectionCode(validPayload({difficulty: undefined})),
+      "invalid-argument",
+    );
+    assert.equal(
+      rejectionCode(validPayload({difficulty: "expert"})),
+      "invalid-argument",
+    );
+    // The stored value is 'normal' — the display label 'Easy' never counts.
+    assert.equal(rejectionCode(validPayload({difficulty: "Easy"})), "invalid-argument");
+    assert.equal(rejectionCode(validPayload({difficulty: 42})), "invalid-argument");
+  });
+
+  it("rejects a target outside the tier table (CH-04)", () => {
+    // 500 was a legal free-text target before CH-04; under
+    // single_game_score / normal the tiers are 20, 30, 40.
+    assert.equal(rejectionCode(validPayload({targetValue: 500})), "invalid-argument");
+    // 50 is a tier of the same type but the OTHER difficulty (hard).
+    assert.equal(rejectionCode(validPayload({targetValue: 50})), "invalid-argument");
+    // 10 is a tier of ANOTHER type (games_played / normal).
+    assert.equal(rejectionCode(validPayload({targetValue: 10})), "invalid-argument");
   });
 
   it("rejects a target that is not a positive whole number in range", () => {

@@ -31,6 +31,11 @@ import {
   type ChallengeFormValues,
 } from './challengeValidation.ts'
 import { LOCALES, setLocale, t } from '../i18n.ts'
+import {
+  CHALLENGE_DIFFICULTIES,
+  CHALLENGE_TIERS,
+  CHALLENGE_TYPES,
+} from './economy.ts'
 import type { Challenge } from './challenges.ts'
 
 /** A payload that passes every rule — each case breaks exactly one field. */
@@ -38,7 +43,8 @@ const VALID: ChallengeFormValues = {
   title: 'Spring Sprint',
   description: 'Score as high as you can during the spring event.',
   type: 'single_game_score',
-  targetValue: '100',
+  difficulty: 'normal',
+  targetValue: '30',
   startDate: '2026-03-01',
   endDate: '2026-03-10',
 }
@@ -53,6 +59,7 @@ describe('CH-03 — kļūdas obligātajos laukos', () => {
     const errors = validateChallengeForm(EMPTY_CHALLENGE_FORM)
     assert.deepEqual(Object.keys(errors).sort(), [
       'description',
+      'difficulty',
       'endDate',
       'startDate',
       'targetValue',
@@ -164,7 +171,54 @@ describe('CH-03 — kļūdas obligātajos laukos', () => {
     const atLimit = validateChallengeForm(
       withField({ targetValue: String(CHALLENGE_TARGET_MAX) }),
     )
-    assert.equal(atLimit.targetValue, undefined)
+    // At the old boundary the NUMBER is fine but no such tier exists —
+    // membership decides from CH-04 on.
+    assert.equal(atLimit.targetValue?.key, 'validate.targetNotAllowed')
+  })
+
+  it('neizvēlēts grūtības līmenis tiek noraidīts (CH-04)', () => {
+    assert.deepEqual(
+      validateChallengeForm(withField({ difficulty: '' })).difficulty,
+      { key: 'validate.difficulty' },
+    )
+    assert.deepEqual(
+      validateChallengeForm(
+        withField({ difficulty: 'expert' as ChallengeFormValues['difficulty'] }),
+      ).difficulty,
+      { key: 'validate.difficulty' },
+    )
+  })
+
+  it('mērķis āpus ECON-01 tabules tiek noraidīts ar atļauto sarakstu (CH-04)', () => {
+    // single_game_score / normal allows 20, 30, 40 — 100 (the old free-text
+    // favourite) is no tier at all, so it is refused listing the allowed ones.
+    const errors = validateChallengeForm(withField({ targetValue: '100' }))
+    assert.deepEqual(errors.targetValue, {
+      key: 'validate.targetNotAllowed',
+      params: { allowed: '20, 30, 40' },
+    })
+  })
+
+  it('mērķis, kas derīgs tikai citam grūtības līmenim, tiek noraidīts', () => {
+    // 50 exists only in the single_game_score / HARD cell.
+    assert.equal(
+      validateChallengeForm(withField({ targetValue: '50' })).targetValue?.key,
+      'validate.targetNotAllowed',
+    )
+    assert.equal(
+      validateChallengeForm(
+        withField({ difficulty: 'hard', targetValue: '50' }),
+      ).targetValue,
+      undefined,
+    )
+  })
+
+  it('mērķis, kas derīgs tikai citam veidam, tiek noraidīts', () => {
+    // 5 is a games_played / normal tier, not a single_game_score one.
+    assert.equal(
+      validateChallengeForm(withField({ targetValue: '5' })).targetValue?.key,
+      'validate.targetNotAllowed',
+    )
   })
 
   it('tukšs sākuma datums tiek noraidīts', () => {
@@ -226,7 +280,11 @@ describe('CH-03 — no validētiem laukiem uz payload', () => {
       { title: 'x' },
       { description: 'short' },
       { type: 'bogus' as ChallengeFormValues['type'] },
+      { difficulty: '' as ChallengeFormValues['difficulty'] },
+      { difficulty: 'expert' as ChallengeFormValues['difficulty'] },
       { targetValue: '0' },
+      // Well-formed but outside the tier table for this type/difficulty:
+      { targetValue: '100' },
       { startDate: '2026-02-31' },
       { endDate: '2026-01-01' },
     ]) {
@@ -238,7 +296,10 @@ describe('CH-03 — no validētiem laukiem uz payload', () => {
     const payload = toChallengeInput(VALID)
     assert.ok(payload)
     assert.equal(payload.title, 'Spring Sprint')
-    assert.equal(payload.targetValue, 100)
+    assert.equal(payload.difficulty, 'normal')
+    assert.equal(payload.targetValue, 30)
+    // CH-04 — the client never sends a reward; the server derives it.
+    assert.ok(!('rewardCoins' in payload))
     assert.equal(payload.startDate.getHours(), 0)
     assert.equal(payload.endDate.getHours(), 23)
     assert.equal(payload.endDate.getMinutes(), 59)
@@ -257,10 +318,75 @@ describe('CH-03 — no validētiem laukiem uz payload', () => {
       title: VALID.title,
       description: VALID.description,
       type: VALID.type,
+      difficulty: VALID.difficulty,
       targetValue: VALID.targetValue,
       startDate: VALID.startDate,
       endDate: VALID.endDate,
     })
+  })
+})
+
+describe('CH-04 — visi četri veidi un abi grūtības līmeņi', () => {
+  it('katras tipa/grūtības kombinācijas pirmais mērķis ir derīgs', () => {
+    for (const type of CHALLENGE_TYPES) {
+      for (const difficulty of CHALLENGE_DIFFICULTIES) {
+        const tier = CHALLENGE_TIERS[type][difficulty][0]
+        const values = withField({
+          type,
+          difficulty,
+          targetValue: String(tier.targetValue),
+        })
+        assert.deepEqual(validateChallengeForm(values), {}, `${type}/${difficulty}`)
+        const payload = toChallengeInput(values)
+        assert.ok(payload, `${type}/${difficulty}`)
+        assert.equal(payload.type, type)
+        assert.equal(payload.difficulty, difficulty)
+        assert.equal(payload.targetValue, tier.targetValue)
+      }
+    }
+  })
+
+  it('grūtā līmeņa mērķis noraidīts zem „normal” katram veidam', () => {
+    for (const type of CHALLENGE_TYPES) {
+      const tier = CHALLENGE_TIERS[type].hard[0]
+      const errors = validateChallengeForm(
+        withField({ type, difficulty: 'normal', targetValue: String(tier.targetValue) }),
+      )
+      assert.equal(
+        errors.targetValue?.key,
+        'validate.targetNotAllowed',
+        `${type}/${tier.targetValue}`,
+      )
+    }
+  })
+})
+
+describe('CH-04 — vecs izaicinājums bez atlīdzības konfigurācijas', () => {
+  const LEGACY: Challenge = {
+    id: 'legacy-1',
+    title: 'Old challenge',
+    description: 'Created before the economy configuration existed.',
+    type: 'single_game_score',
+    targetValue: 500,
+    startDate: new Date('2026-03-01T00:00:00'),
+    endDate: new Date('2026-03-10T23:59:59.999'),
+    // no difficulty / rewardCoins — the pre-CH-04 document shape
+  }
+
+  it('paliek rediģējams, bet saglabāšana prasa eksplicitu konfigurāciju', () => {
+    const seeded = formValuesFromChallenge(LEGACY)
+    assert.equal(seeded.difficulty, '')
+    assert.equal(seeded.targetValue, '500')
+    // Until a difficulty is chosen there is no triple to check the target on…
+    const before = validateChallengeForm(seeded)
+    assert.equal(before.difficulty?.key, 'validate.difficulty')
+    assert.equal(before.targetValue, undefined)
+    // …and once one is picked, the legacy free-text target is never a tier:
+    const after = validateChallengeForm({ ...seeded, difficulty: 'normal' })
+    assert.equal(after.targetValue?.key, 'validate.targetNotAllowed')
+    // No payload in either state → no silent coins, no unvalidated save.
+    assert.equal(toChallengeInput(seeded), null)
+    assert.equal(toChallengeInput({ ...seeded, difficulty: 'normal' }), null)
   })
 })
 
@@ -277,6 +403,8 @@ describe('I18N — kļūdu ziņojumi ir tulkoti visās valodās', () => {
     ['validate.positive'],
     ['validate.maxTarget', { max: '1 000 000' }],
     ['validate.type'],
+    ['validate.difficulty'],
+    ['validate.targetNotAllowed', { allowed: '20, 30, 40' }],
     ['validate.startRequired'],
     ['validate.startInvalid'],
     ['validate.endRequired'],

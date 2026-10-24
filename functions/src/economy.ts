@@ -39,10 +39,11 @@ export const DAILY_CHALLENGE_COUNT = 3;
  *   single_game_score max score in one accepted game in the period
  *   total_score       sum of score over accepted games in the period
  *
- * single_game_score and games_played also back the original admin challenges
- * (CH-01/ADM-01); existing challenges/{id} documents keep working unchanged —
- * the admin CRUD still offers only those two, this list is the economy-wide
- * superset the daily assignments draw from.
+ * All four also back the admin challenges (CH-01/ADM-01, extended to this
+ * full list by CH-04); existing challenges/{id} documents keep working
+ * unchanged — legacy docs WITHOUT a difficulty/reward configuration stay
+ * viewable and non-rewarding until an admin explicitly edits them into a
+ * valid tier triple (lookupTierReward rejects anything else).
  */
 export const CHALLENGE_TYPES = [
   "total_jumps",
@@ -146,6 +147,29 @@ export function lookupTierReward(
   if (!list) return null;
   const tier = list.find((candidate) => candidate.targetValue === targetValue);
   return tier ? tier.rewardCoins : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Gameplay coins (ECON-03).                                           */
+/* ------------------------------------------------------------------ */
+
+/** Score points needed for one gameplay coin (1 coin per full 5 points). */
+export const COINS_PER_SCORE_POINTS = 5;
+
+/**
+ * ECON-03 — coins awarded for ONE accepted run: one coin per full 5 score
+ * points, rounded DOWN per game (0 → 0, 4 → 0, 5 → 1, 9 → 1, 10 → 2, 49 → 9,
+ * 50 → 10, 54 → 10). Unused remainders never carry between games, and this is
+ * only ever called on the server with an already-validated integer score.
+ *
+ * MIRRORED in birdenergy/src/features/economy.ts (pinned by the client economy
+ * mirror test).
+ */
+export function coinsForScore(score: unknown): number {
+  if (typeof score !== "number" || !Number.isFinite(score) || score <= 0) {
+    return 0;
+  }
+  return Math.floor(score / COINS_PER_SCORE_POINTS);
 }
 
 /* ------------------------------------------------------------------ */
@@ -286,9 +310,10 @@ export interface ChallengeClaimDoc {
 /* ------------------------------------------------------------------ */
 
 /** Ids that exist in the catalog AND are granted (free) or already owned,
- *  emitted in catalog order so the comparison below is stable. Unknown or
- *  non-string stored ids are corrupt and do not count as ownership. */
-function mergeOwned(
+ *  emitted in catalog order so every comparison/response is stable. Unknown
+ *  or non-string stored ids are corrupt and do not count as ownership.
+ *  Shared by the sign-in backfill and the purchase/equip path. */
+export function ownedCatalogIds(
   catalog: readonly string[],
   free: readonly string[],
   stored: unknown,
@@ -332,6 +357,25 @@ function ownsAt(
  *     default (a previously selected but now-locked cosmetic),
  *   - economyVersion → filled or raised to ECONOMY_VERSION, never lowered.
  */
+/**
+ * True when a stored catalog index may be equipped: the index is a real
+ * catalog entry AND its id is free or explicitly owned. This is the server
+ * half of "free or owned cosmetics only" (updateProfile); a client-selected
+ * paid id never becomes the persisted appearance just because it was sent.
+ */
+export function canEquipCosmetic(
+  catalog: readonly string[],
+  free: readonly string[],
+  storedOwned: unknown,
+  index: unknown,
+): boolean {
+  if (typeof index !== "number" || !Number.isInteger(index)) return false;
+  const id = catalog[index];
+  if (id === undefined) return false;
+  if (free.includes(id)) return true;
+  return Array.isArray(storedOwned) && storedOwned.includes(id);
+}
+
 export function buildEconomyPatch(
   profile: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
@@ -343,12 +387,12 @@ export function buildEconomyPatch(
     patch.coins = 0;
   }
 
-  const ownedSkins = mergeOwned(SKIN_IDS, FREE_SKIN_IDS, data.ownedSkinIds);
+  const ownedSkins = ownedCatalogIds(SKIN_IDS, FREE_SKIN_IDS, data.ownedSkinIds);
   if (!sameIdList(data.ownedSkinIds, ownedSkins)) {
     patch.ownedSkinIds = ownedSkins;
   }
 
-  const ownedBackgrounds = mergeOwned(
+  const ownedBackgrounds = ownedCatalogIds(
     BACKGROUND_IDS,
     FREE_BACKGROUND_IDS,
     data.ownedBackgroundIds,
@@ -383,4 +427,33 @@ export function buildEconomyPatch(
   }
 
   return patch;
+}
+
+/**
+ * The economy fields every NEW profile starts with — spread into the
+ * users/{uid} create payload of the consent paths (authenticateTelegram,
+ * acceptDataProcessing). Fresh arrays per call, same field names the
+ * claim/purchase paths will use.
+ */
+export function initialUserEconomy(): EconomyUserFields {
+  return {
+    coins: 0,
+    ownedSkinIds: [...FREE_SKIN_IDS],
+    ownedBackgroundIds: [...FREE_BACKGROUND_IDS],
+    economyVersion: ECONOMY_VERSION,
+  };
+}
+
+/**
+ * The idempotent backfill for an EXISTING profile, as a patch the consent
+ * transaction spreads into its update: buildEconomyPatch's object-returning
+ * form — empty once the profile is current, so established balances,
+ * ownership and equipped cosmetics are never overwritten on a later login.
+ * (economyInit.initializeEconomy applies the same rules in its own
+ * transaction for sign-ins that skip the consent upsert.)
+ */
+export function planUserEconomy(
+  profile: Record<string, unknown> | undefined,
+): {patch: Record<string, unknown>} {
+  return {patch: buildEconomyPatch(profile)};
 }

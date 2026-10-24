@@ -18,6 +18,7 @@ import {
   type PipeSetImages,
 } from './sprites'
 import { t } from '../../i18n'
+import { coinsForScore } from '../economy'
 import { prefersReducedMotion } from '../reducedMotion'
 import {
   BIRD_X,
@@ -368,9 +369,20 @@ function drawDeadBirds(
  * the text directly through the canvas transform.
  */
 let hudScale = 1
-let hudLayer: HTMLCanvasElement | null = null
-let hudLayerCtx: CanvasRenderingContext2D | null = null
-let hudKey = ''
+
+/**
+ * One cached text layer per HUD slot. The score layer and the ECON-03 coin
+ * counter change independently (the coins change every 5 points), so they
+ * cannot share one cache entry — a single shared layer would rasterize both
+ * texts on every frame they disagree.
+ */
+interface HudLayer {
+  canvas: HTMLCanvasElement | null
+  ctx: CanvasRenderingContext2D | null
+  key: string
+}
+
+const hudLayers = new Map<string, HudLayer>()
 
 /** Horizontal padding in the layer so the 4px stroke is not clipped. */
 const HUD_PAD = 8
@@ -384,6 +396,7 @@ function drawCachedHudText(
   fontPx: number,
   centerX: number,
   baselineY: number,
+  slot = 'score',
 ): void {
   // Press Start 2P glyphs are 1em wide → the text is exactly text×fontPx wide.
   const textW = text.length * fontPx
@@ -394,18 +407,23 @@ function drawCachedHudText(
       ? document.fonts.check(`${fontPx}px "Press Start 2P"`)
       : true
   const key = `${fontPx}|${text}|${hudScale}|${fontReady}`
-  if (key !== hudKey || !hudLayer || !hudLayerCtx) {
-    hudKey = key
-    if (!hudLayer) hudLayer = document.createElement('canvas')
-    if (!hudLayerCtx) hudLayerCtx = hudLayer.getContext('2d')
-    const layer = hudLayer
+  let cache = hudLayers.get(slot)
+  if (!cache) {
+    cache = {canvas: null, ctx: null, key: ''}
+    hudLayers.set(slot, cache)
+  }
+  if (key !== cache.key || !cache.canvas || !cache.ctx) {
+    cache.key = key
+    if (!cache.canvas) cache.canvas = document.createElement('canvas')
+    if (!cache.ctx) cache.ctx = cache.canvas.getContext('2d')
+    const layer = cache.canvas
     const lw = Math.max(1, Math.ceil(layerW * hudScale))
     const lh = Math.max(1, Math.ceil(layerH * hudScale))
     if (layer.width !== lw || layer.height !== lh) {
       layer.width = lw // assigning a size resets ctx settings — re-set below
       layer.height = lh
     }
-    const lc = hudLayerCtx
+    const lc = cache.ctx
     if (lc) {
       lc.setTransform(hudScale, 0, 0, hudScale, 0, 0) // logical px → device px
       lc.clearRect(0, 0, layerW, layerH)
@@ -420,13 +438,13 @@ function drawCachedHudText(
       lc.fillText(text, layerW / 2, HUD_BASELINE)
     }
   }
-  if (hudLayer) {
+  if (cache.canvas) {
     ctx.drawImage(
-      hudLayer,
+      cache.canvas,
       0,
       0,
-      hudLayer.width,
-      hudLayer.height,
+      cache.canvas.width,
+      cache.canvas.height,
       centerX - layerW / 2,
       baselineY - HUD_BASELINE,
       layerW,
@@ -456,6 +474,14 @@ function drawScore(ctx: CanvasRenderingContext2D, s: GameState): void {
   // itself, not the result panel (which must never flash over them).
   if (s.phase !== 'game-over') {
     drawCachedHudText(ctx, String(s.score), 32, LOGICAL_W / 2, 60)
+    // ECON-03 preview: 1 coin per full 5 points, tucked under the score so it
+    // reads as this run's tally (the top corners belong to the DEV overlay and
+    // the DOM controls). It is a PREVIEW only — the balance is written by
+    // submitGameResult, never by this screen.
+    const preview = t('canvas.coinsHud', {
+      n: coinsForScore(s.score),
+    })
+    drawCachedHudText(ctx, preview, 8, LOGICAL_W / 2, 88, 'coins')
     return
   }
 

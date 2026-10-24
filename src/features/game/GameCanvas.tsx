@@ -39,16 +39,10 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-// AUDIO: pre-decode the optional files + start the loop; both are no-ops
-// until something is dropped into src/assets/Sound (see features/audio.ts).
-import {
-  audioStatus,
-  loadAudioAssets,
-  playMusic,
-  playSfx,
-  stopMusic,
-  unlockAudio,
-} from '../audio'
+// AUDIO: the menu loop is started once at app level (App.tsx) and keeps
+// playing across screens; this screen only plays the run's sound effects.
+// Both are no-ops without files in src/assets/Sound (see features/audio.ts).
+import { audioStatus, playSfx, unlockAudio } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
@@ -145,6 +139,9 @@ export function GameCanvas({
   onRunEnd,
   serverBest = 0,
   challenge = null,
+  coinState = 'idle',
+  coinReward = null,
+  onRetryCoins,
 }: {
   onPhaseChange?: (phase: GamePhase) => void
   /** DATA-01: fired once per finished run with its final numbers. */
@@ -153,6 +150,12 @@ export function GameCanvas({
   serverBest?: number
   /** C — the active challenge, when one is running (GamePage resolves it). */
   challenge?: GameChallengeView | null
+  /** ECON-03 — the Game Over coin line (server-confirmed reward only). */
+  coinState?: 'idle' | 'saving' | 'pending' | 'confirmed'
+  /** ECON-03 — coins paid for this run + the authoritative balance. */
+  coinReward?: { earned: number; balance: number } | null
+  /** ECON-03 — replay the unconfirmed attempt (same submission id). */
+  onRetryCoins?: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -676,7 +679,6 @@ export function GameCanvas({
     window.addEventListener(GROUND_CHANGE_EVENT, onGroundChange)
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
-      stopMusic()
       actionsRef.current = null
       cancelAnimationFrame(raf)
       observer.disconnect()
@@ -804,6 +806,36 @@ export function GameCanvas({
           safe on the device and will sync by itself. */}
       {uiPhase === 'game-over' && (
         <div className="game-over-actions">
+          {/* ECON-03 — the reward shown here is the server-confirmed amount
+              (nothing is added locally); the wallet is the balance the same
+              response returned. A lost save stays retryable with the same
+              submission id instead of hiding the reward. */}
+          {coinState === 'confirmed' && coinReward && (
+            <p className="game-coins" role="status">
+              <span className="game-coins-earned">
+                {t('canvas.coinsEarned', { n: coinReward.earned })}
+              </span>
+              <span className="game-coins-wallet">
+                {t('canvas.wallet', { n: coinReward.balance })}
+              </span>
+            </p>
+          )}
+          {coinState === 'pending' && (
+            <>
+              <p className="game-coins game-coins-pending" role="status">
+                {t('canvas.coinsPending')}
+              </p>
+              {onRetryCoins && (
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={onRetryCoins}
+                >
+                  {t('canvas.retryCoins')}
+                </button>
+              )}
+            </>
+          )}
           <button
             type="button"
             className="btn btn-small game-share"

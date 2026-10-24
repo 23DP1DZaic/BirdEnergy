@@ -6,10 +6,16 @@
 //
 //   title        required, trimmed 3–80 characters
 //   description  required, trimmed 10–500 characters
-//   type         required, one of the two supported enum values
-//   targetValue  required whole number, > 0, ≤ 1 000 000
+//   type         required, one of the four ECON-01 challenge types
+//   difficulty   required, 'normal' or 'hard' (CH-04)
+//   targetValue  required whole number that is an ALLOWED TIER for that exact
+//                type + difficulty — the form offers dropdown choices from
+//                CHALLENGE_TIERS, an arbitrary target is never valid (CH-04)
 //   startDate    required, valid date
 //   endDate      required, valid date, not earlier than startDate
+//
+// rewardCoins is NOT a form value at all: the server derives it from the
+// tier table, so the form only PREVIEWS it (ChallengeForm) and never submits it.
 //
 // validateChallengeForm returns errors keyed BY FIELD, so the form can render
 // each message under its own input, mark that input invalid and focus the
@@ -21,12 +27,21 @@
 // language switch without re-validating.
 
 import type { Challenge, ChallengeInput, ChallengeType } from './challenges.ts'
+import {
+  CHALLENGE_DIFFICULTIES,
+  CHALLENGE_TIERS,
+  CHALLENGE_TYPES,
+  lookupTierReward,
+  type ChallengeDifficulty,
+  type EconomyChallengeType,
+} from './economy.ts'
 import { LOCALE_CODE, getLocale } from '../i18n.ts'
 
 export type ChallengeFormField =
   | 'title'
   | 'description'
   | 'type'
+  | 'difficulty'
   | 'targetValue'
   | 'startDate'
   | 'endDate'
@@ -36,6 +51,7 @@ export const CHALLENGE_FORM_FIELDS: readonly ChallengeFormField[] = [
   'title',
   'description',
   'type',
+  'difficulty',
   'targetValue',
   'startDate',
   'endDate',
@@ -58,6 +74,9 @@ export interface ChallengeFormValues {
   description: string
   /** '' until the admin picks one (the select's placeholder option). */
   type: ChallengeType | ''
+  /** '' until the admin picks one — required since CH-04; a legacy challenge
+   *  being edited seeds '' (it has no reward configuration yet). */
+  difficulty: ChallengeDifficulty | ''
   targetValue: string
   /** 'YYYY-MM-DD' from <input type="date">; '' when not chosen yet. */
   startDate: string
@@ -68,6 +87,7 @@ export const EMPTY_CHALLENGE_FORM: ChallengeFormValues = {
   title: '',
   description: '',
   type: '',
+  difficulty: '',
   targetValue: '',
   startDate: '',
   endDate: '',
@@ -90,6 +110,32 @@ export type ChallengeFormErrors = Partial<
 /** Shorthand for the message builders below. */
 const err = (key: string, params?: Record<string, string | number>) =>
   params ? { key, params } : { key }
+
+/** Runtime guards that narrow the form's string values back to the ECON-01
+ *  enums (a cast from a test or a stale edit still fails the check). */
+export function isChallengeType(
+  value: unknown,
+): value is EconomyChallengeType {
+  return CHALLENGE_TYPES.includes(value as EconomyChallengeType)
+}
+
+export function isChallengeDifficulty(
+  value: unknown,
+): value is ChallengeDifficulty {
+  return CHALLENGE_DIFFICULTIES.includes(value as ChallengeDifficulty)
+}
+
+/**
+ * The ONLY target values the form offers for one type/difficulty — straight
+ * from the shared ECON-01 tier table. Used for the target dropdown options and
+ * to explain a rejected target ("allowed: 20, 40, 60").
+ */
+export function allowedTargets(
+  type: Exclude<ChallengeFormValues['type'], ''>,
+  difficulty: Exclude<ChallengeFormValues['difficulty'], ''>,
+): number[] {
+  return CHALLENGE_TIERS[type][difficulty].map((tier) => tier.targetValue)
+}
 
 /**
  * 'YYYY-MM-DD' → local midnight. null when the text is not exactly that shape
@@ -155,7 +201,11 @@ function descriptionError(raw: string): ChallengeFormError | null {
   return null
 }
 
-function targetError(raw: string): ChallengeFormError | null {
+function targetError(
+  raw: string,
+  type: ChallengeFormValues['type'],
+  difficulty: ChallengeFormValues['difficulty'],
+): ChallengeFormError | null {
   const text = raw.trim()
   if (!text) return err('validate.targetRequired')
   const value = Number(text)
@@ -165,6 +215,18 @@ function targetError(raw: string): ChallengeFormError | null {
   if (value > CHALLENGE_TARGET_MAX) {
     return err('validate.maxTarget', {
       max: CHALLENGE_TARGET_MAX.toLocaleString(LOCALE_CODE[getLocale()]),
+    })
+  }
+  // CH-04 — the value must be an exact tier for THIS type + difficulty. The
+  // membership rule is evaluated once both are chosen; until then those two
+  // fields carry their own errors and block saving anyway.
+  if (
+    isChallengeType(type) &&
+    isChallengeDifficulty(difficulty) &&
+    lookupTierReward(type, difficulty, value) === null
+  ) {
+    return err('validate.targetNotAllowed', {
+      allowed: allowedTargets(type, difficulty).join(', '),
     })
   }
   return null
@@ -182,11 +244,15 @@ export function validateChallengeForm(
   const description = descriptionError(values.description)
   if (description) errors.description = description
 
-  if (values.type !== 'single_game_score' && values.type !== 'games_played') {
+  if (!isChallengeType(values.type)) {
     errors.type = err('validate.type')
   }
 
-  const target = targetError(values.targetValue)
+  if (!isChallengeDifficulty(values.difficulty)) {
+    errors.difficulty = err('validate.difficulty')
+  }
+
+  const target = targetError(values.targetValue, values.type, values.difficulty)
   if (target) errors.targetValue = target
 
   // Parsed once: the end-date rule compares against the start window.
@@ -227,8 +293,8 @@ export function toChallengeInput(
   const startDate = parseDateInput(values.startDate)
   const endDate = parseDateInput(values.endDate)
   if (!startDate || !endDate) return null // unreachable once valid
-  // Re-checked here so the narrow type is real, not a cast.
-  if (values.type !== 'single_game_score' && values.type !== 'games_played') {
+  // Re-checked here so the narrow types are real, not casts.
+  if (!isChallengeType(values.type) || !isChallengeDifficulty(values.difficulty)) {
     return null
   }
   endDate.setHours(23, 59, 59, 999)
@@ -236,13 +302,17 @@ export function toChallengeInput(
     title: values.title.trim(),
     description: values.description.trim(),
     type: values.type,
+    difficulty: values.difficulty,
     targetValue: Number(values.targetValue.trim()),
     startDate,
     endDate,
   }
 }
 
-/** Existing challenge → form values (edit mode). */
+/** Existing challenge → form values (edit mode). A legacy challenge without a
+ *  reward configuration seeds difficulty '' — the admin must explicitly pick a
+ *  difficulty + allowed target to save, which is what "updated to a valid
+ *  economy configuration" means; nothing adds coins by itself. */
 export function formValuesFromChallenge(
   challenge: Challenge,
 ): ChallengeFormValues {
@@ -250,6 +320,7 @@ export function formValuesFromChallenge(
     title: challenge.title,
     description: challenge.description,
     type: challenge.type,
+    difficulty: challenge.difficulty ?? '',
     targetValue: String(challenge.targetValue),
     startDate: toDateInputValue(challenge.startDate),
     endDate: toDateInputValue(challenge.endDate),

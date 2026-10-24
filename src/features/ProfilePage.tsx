@@ -29,6 +29,14 @@ import {
   type UpdateProfileInput,
   type UserProfile,
 } from './userProfile'
+import {
+  cosmeticIdAt,
+  cosmeticPrice,
+  ownsCosmeticIndex,
+  type CosmeticKind,
+} from './economy'
+import { purchaseCosmetic } from './cosmetics'
+import { ConfirmDialog } from './ConfirmDialog'
 import { birdSkinUrls } from './game/sprites'
 import { applyStoredBirdSkinIndex, useBirdSkinIndex } from './birdSkin'
 import { applyStoredGroundIndex, useGroundIndex } from './groundTile'
@@ -102,6 +110,23 @@ export function ProfilePage({
   // The one collapsible section on this screen: the wardrobe pickers stay
   // closed until the player asks for them.
   const [showAppearance, setShowAppearance] = useState(false)
+
+  // SHOP-01 — the purchase dialog. The server is the only source of prices,
+  // balance and ownership; this state just drives the confirmation UI.
+  const [purchaseTarget, setPurchaseTarget] = useState<{
+    kind: CosmeticKind
+    index: number
+    itemId: string
+    price: number
+  } | null>(null)
+  const [purchaseBusy, setPurchaseBusy] = useState(false)
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const [wardrobeNote, setWardrobeNote] = useState<{
+    tone: 'ok' | 'error'
+    text: string
+  } | null>(null)
+  /** Synchronous guard: a double click cannot start two purchase requests. */
+  const purchaseInFlight = useRef(false)
 
   useEffect(() => {
     if (!signedInUid) return
@@ -206,11 +231,34 @@ export function ProfilePage({
   }
   const activeOptions = appearanceOptions[appearanceTab]
 
-  /** Taps a grid tile: applies the shared index locally, then mirrors it. */
+  // ECON-01 balance on the profile doc; absent on a legacy profile = 0.
+  const balance =
+    typeof profile.coins === 'number' && Number.isFinite(profile.coins)
+      ? profile.coins
+      : 0
+
+  /** Catalog id, server price and lock state for one tile (grounds are free). */
+  const tileInfo = (kind: AppearanceTab, index: number) => {
+    if (kind === 'ground') return { itemId: null, price: 0, locked: false }
+    const itemId = cosmeticIdAt(kind, index)
+    return {
+      itemId,
+      price: cosmeticPrice(kind, itemId) ?? 0,
+      locked: !ownsCosmeticIndex(profile, kind, index),
+    }
+  }
+
+  /**
+   * Taps an OWNED tile: applies the shared index locally, then mirrors it.
+   * Locked tiles never reach here (they open the purchase dialog instead), and
+   * the guard keeps that true even if a disabled state is bypassed.
+   */
   const selectPref = (kind: AppearanceTab, i: number) => {
     const option = appearanceOptions[kind]
     if (i === option.index) return // already selected — nothing to save
+    if (kind !== 'ground' && !ownsCosmeticIndex(profile, kind, i)) return
     option.apply(i)
+    setWardrobeNote(null)
     setPrefError(null)
     const patch: UpdateProfileInput =
       kind === 'skin'
@@ -223,6 +271,64 @@ export function ProfilePage({
       setPrefError(err instanceof Error ? err.message : String(err))
     })
   }
+
+  /** Locked tile tap → confirmation, or an immediate insufficient-coin note. */
+  const openPurchase = (kind: CosmeticKind, index: number) => {
+    const itemId = cosmeticIdAt(kind, index)
+    const price = cosmeticPrice(kind, itemId)
+    if (itemId === null || price === null) return
+    setPrefError(null)
+    setWardrobeNote(null)
+    setPurchaseError(null)
+    if (balance < price) {
+      setWardrobeNote({
+        tone: 'error',
+        text: t('profile.insufficient', { price, balance }),
+      })
+      return
+    }
+    setPurchaseTarget({ kind, index, itemId, price })
+  }
+
+  const confirmPurchase = async () => {
+    if (!purchaseTarget || purchaseInFlight.current) return
+    const target = purchaseTarget
+    purchaseInFlight.current = true
+    setPurchaseBusy(true)
+    setPurchaseError(null)
+    try {
+      const result = await purchaseCosmetic(target.kind, target.itemId)
+      setProfile((current) =>
+        current
+          ? {
+              ...current,
+              coins: result.coins,
+              ownedSkinIds: result.ownedSkinIds,
+              ownedBackgroundIds: result.ownedBackgroundIds,
+            }
+          : current,
+      )
+      setPurchaseTarget(null)
+      setWardrobeNote({
+        tone: 'ok',
+        text: t(result.alreadyOwned ? 'profile.alreadyOwned' : 'profile.purchased'),
+      })
+    } catch (err) {
+      // Keep the dialog open: the server's reason is the useful next step.
+      setPurchaseError(err instanceof Error ? err.message : String(err))
+    } finally {
+      purchaseInFlight.current = false
+      setPurchaseBusy(false)
+    }
+  }
+
+  const purchaseName = purchaseTarget
+    ? `${t(
+        purchaseTarget.kind === 'skin'
+          ? 'profile.opt.skin'
+          : 'profile.opt.background',
+      )} ${purchaseTarget.index + 1}`
+    : ''
 
   const nameRule = t('profile.nameRule', {
     min: IN_GAME_NAME_MIN,
@@ -443,7 +549,12 @@ export function ProfilePage({
       <section className="profile-appearance" id="profile-appearance">
         {/* No second collapse control here: the wardrobe button above already
             shows the section's state and closes it. */}
-        <p className="profile-name-label">{t('profile.appearance')}</p>
+        <div className="appearance-top">
+          <p className="profile-name-label">{t('profile.appearance')}</p>
+          <span className="appearance-balance" aria-live="polite">
+            {t('profile.coins', { n: balance })}
+          </span>
+        </div>
         <div
           className="appearance-tabs"
           role="tablist"
@@ -471,26 +582,87 @@ export function ProfilePage({
         >
           {activeOptions.urls.map((url, i) => {
             const selected = activeOptions.index === i
+            const info = tileInfo(appearanceTab, i)
+            const tabKind = appearanceTab
+            const name = `${t(activeOptions.labelKey)} ${i + 1}`
             return (
-              <button
-                key={`${appearanceTab}-${i}`}
-                type="button"
-                className="appearance-tile"
-                aria-label={`${t(activeOptions.labelKey)} ${i + 1}${
-                  selected ? t('profile.selected') : ''
-                }`}
-                aria-pressed={selected}
-                onClick={() => selectPref(appearanceTab, i)}
-              >
-                <span
-                  className="appearance-thumb"
-                  style={{ backgroundImage: `url(${url})` }}
-                  aria-hidden="true"
-                />
-              </button>
+              <div key={`${tabKind}-${i}`} className="appearance-item">
+                <button
+                  type="button"
+                  className="appearance-tile"
+                  aria-label={`${name}${
+                    selected
+                      ? t('profile.selected')
+                      : info.locked
+                        ? ` — ${t('profile.lockedAria', {
+                            price: info.price,
+                          })}`
+                        : ''
+                  }`}
+                  aria-pressed={selected}
+                  disabled={purchaseBusy}
+                  onClick={() => {
+                    if (info.locked) {
+                      if (tabKind !== 'ground') openPurchase(tabKind, i)
+                      return
+                    }
+                    selectPref(tabKind, i)
+                  }}
+                >
+                  <span className="appearance-thumb-wrap">
+                    <span
+                      className="appearance-thumb"
+                      style={{ backgroundImage: `url(${url})` }}
+                      aria-hidden="true"
+                    />
+                    {info.locked && (
+                      <span className="appearance-lock" aria-hidden="true">
+                        <PixelIcon name="locked" size={20} />
+                      </span>
+                    )}
+                  </span>
+                  <span className="appearance-caption">
+                    {selected
+                      ? t('profile.selectedShort')
+                      : info.locked
+                        ? t('profile.locked')
+                        : t('profile.select')}
+                  </span>
+                </button>
+                {info.locked && (
+                  <button
+                    type="button"
+                    className="btn btn-small appearance-buy"
+                    disabled={purchaseBusy}
+                    aria-label={t('profile.buyAria', {
+                      item: name,
+                      price: info.price,
+                    })}
+                    onClick={() => {
+                      if (tabKind !== 'ground') openPurchase(tabKind, i)
+                    }}
+                  >
+                    <PixelIcon name="unlocked" size={14} />
+                    {t('profile.buy')}
+                    <span className="appearance-buy-price">{info.price}</span>
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>
+        {wardrobeNote && (
+          <p
+            className={
+              wardrobeNote.tone === 'error'
+                ? 'profile-name-error'
+                : 'profile-name-saved'
+            }
+            role={wardrobeNote.tone === 'error' ? 'alert' : 'status'}
+          >
+            {wardrobeNote.text}
+          </p>
+        )}
         {prefError && (
           <p className="profile-name-error" role="alert">
             {t('profile.prefError', { message: prefError })}
@@ -500,6 +672,32 @@ export function ProfilePage({
           {t('profile.appearanceHint')}
         </p>
       </section>
+      )}
+
+      {/* SHOP-01 — the purchase confirmation shares the ADM-02 dialog, with a
+          gold confirm button and the server's failure reason kept inside it. */}
+      {purchaseTarget && (
+        <ConfirmDialog
+          title={t('profile.buyTitle')}
+          message={t('profile.buyMessage', {
+            item: purchaseName,
+            price: purchaseTarget.price,
+            balance: Math.max(0, balance - purchaseTarget.price),
+          })}
+          confirmLabel={t('profile.buy')}
+          busyLabel={t('profile.buying')}
+          busy={purchaseBusy}
+          error={purchaseError}
+          confirmIcon="unlocked"
+          confirmTone="primary"
+          cancelLabel={t('common.cancel')}
+          onConfirm={() => void confirmPurchase()}
+          onCancel={() => {
+            if (purchaseBusy) return
+            setPurchaseTarget(null)
+            setPurchaseError(null)
+          }}
+        />
       )}
     </div>
   )

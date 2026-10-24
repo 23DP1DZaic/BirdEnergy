@@ -11,6 +11,13 @@
 // collection (backlog DoD):
 //   * single_game_score → best score among my runs inside [startDate, endDate]
 //   * games_played      → count of my runs inside [startDate, endDate]
+//   * total_score       → sum of score inside the window (CH-04)
+//   * total_jumps       → sum of jumpCount inside the window (CH-04)
+//
+// CH-04 — the admin form writes the four ECON-01 types with a difficulty and
+// an allowed tier target; rewardCoins is derived server-side (never sent by
+// the client). Legacy documents without difficulty/rewardCoins stay viewable
+// and are treated as non-rewarding until an admin explicitly edits them.
 //
 // `active` is never stored — the spec derives it as
 // startDate <= now <= endDate (see deriveStatus).
@@ -36,6 +43,7 @@ import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { LOCALE_CODE, getLocale, t } from '../i18n'
 import { describeMutationError } from './adminErrors.ts'
+import type { ChallengeDifficulty } from './economy.ts'
 import type {
   Challenge,
   ChallengeProgress,
@@ -58,14 +66,16 @@ export type {
 export type ChallengeStatus = 'upcoming' | 'active' | 'finished'
 
 /**
- * CH-03 — the validated challenge values the admin form produces, and the
- * challenge fields ADM-01 persists (createdAt/updatedAt/createdBy are added
- * server-side).
+ * CH-03 / CH-04 — the validated challenge values the admin form produces, and
+ * the challenge fields ADM-01 persists (createdAt/updatedAt/createdBy are added
+ * server-side). rewardCoins is deliberately NOT part of this input: the server
+ * derives it from the ECON-01 tier table and never trusts a client value.
  */
 export interface ChallengeInput {
   title: string
   description: string
   type: ChallengeType
+  difficulty: ChallengeDifficulty
   targetValue: number
   startDate: Date
   endDate: Date
@@ -106,9 +116,12 @@ function toDate(value: unknown): Date | null {
 }
 
 /**
- * Defensive parse: admin CRUD (ADM-01) does not exist yet, so docs may be
- * seeded/edited by hand — anything malformed is skipped instead of crashing
- * the screen.
+ * Defensive parse: hand-seeded or legacy docs may miss fields (a challenge
+ * saved before CH-04 has no difficulty/rewardCoins and any positive target),
+ * so anything malformed is skipped instead of crashing the screen. The reward
+ * configuration is OPTIONAL on purpose: legacy challenges stay viewable and
+ * simply carry no reward configuration until an admin edits them into a valid
+ * economy triple — old documents never gain coins silently.
  */
 function parseChallenge(id: string, data: DocumentData): Challenge | null {
   const title = typeof data.title === 'string' ? data.title.trim() : ''
@@ -119,7 +132,14 @@ function parseChallenge(id: string, data: DocumentData): Challenge | null {
   const startDate = toDate(data.startDate)
   const endDate = toDate(data.endDate)
   if (!title || !description) return null
-  if (type !== 'single_game_score' && type !== 'games_played') return null
+  if (
+    type !== 'total_jumps' &&
+    type !== 'games_played' &&
+    type !== 'single_game_score' &&
+    type !== 'total_score'
+  ) {
+    return null
+  }
   if (
     typeof targetValue !== 'number' ||
     !Number.isFinite(targetValue) ||
@@ -130,7 +150,27 @@ function parseChallenge(id: string, data: DocumentData): Challenge | null {
   if (!startDate || !endDate || endDate.getTime() < startDate.getTime()) {
     return null
   }
-  return { id, title, description, type, targetValue, startDate, endDate }
+  const difficulty =
+    data.difficulty === 'normal' || data.difficulty === 'hard'
+      ? data.difficulty
+      : undefined
+  const rewardCoins =
+    typeof data.rewardCoins === 'number' && Number.isFinite(data.rewardCoins)
+      ? data.rewardCoins
+      : undefined
+  return {
+    id,
+    title,
+    description,
+    type,
+    targetValue,
+    startDate,
+    endDate,
+    // Omitted entirely when absent, so a legacy doc stays recognisably
+    // configuration-less (formValuesFromChallenge seeds difficulty '').
+    ...(difficulty ? { difficulty } : {}),
+    ...(rewardCoins !== undefined ? { rewardCoins } : {}),
+  }
 }
 
 /**
@@ -231,6 +271,7 @@ interface AdminChallengeMutationRequest {
     title: string
     description: string
     type: ChallengeType
+    difficulty: ChallengeDifficulty
     targetValue: number
     /** ISO 8601 — the callable transport is JSON, so dates travel as strings. */
     startDate: string
@@ -256,7 +297,8 @@ async function invokeAdminMutation(
 
 /**
  * ADM-01 — create or update one challenge. The Cloud Function checks the
- * admin role, re-validates the payload and stamps createdBy/updatedAt. This
+ * admin role, re-validates the payload (including the CH-04 tier triple),
+ * derives rewardCoins server-side and stamps createdBy/updatedAt. This
  * wrapper ships already-validated values only (see toChallengeInput); it
  * rejects on failure so the form can keep the entered values and show why.
  */
@@ -272,6 +314,7 @@ export async function adminChallengeMutation(
       title: payload.title,
       description: payload.description,
       type: payload.type,
+      difficulty: payload.difficulty,
       targetValue: payload.targetValue,
       startDate: payload.startDate.toISOString(),
       endDate: payload.endDate.toISOString(),
@@ -305,12 +348,16 @@ export function formatDateRange(start: Date, end: Date): string {
   return `${fmt(start, !sameYear)} – ${fmt(end, true)}`
 }
 
-/** Target line: "Target: 100 points" / "Target: 10 games". */
+/** Target line: "Target: 100 points" / "Target: 10 games" / "Target: 40 jumps". */
 export function targetLabel(challenge: Challenge): string {
+  const unitKey =
+    challenge.type === 'games_played'
+      ? 'target.games'
+      : challenge.type === 'total_jumps'
+        ? 'target.jumps'
+        : 'target.points'
   return t('target.label', {
     n: challenge.targetValue,
-    unit: t(
-      challenge.type === 'games_played' ? 'target.games' : 'target.points',
-    ),
+    unit: t(unitKey),
   })
 }

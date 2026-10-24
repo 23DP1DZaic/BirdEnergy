@@ -8,12 +8,24 @@
 //   * single_game_score -> best score among my runs inside [startDate, endDate]
 //   * games_played      -> count of my runs inside [startDate, endDate]
 //
+// CH-04 — the admin CRUD now writes all four ECON-01 types, so the two sums
+// join the two originals:
+//   * total_score       -> sum of score over my runs inside the window
+//   * total_jumps       -> sum of jumpCount over my runs inside the window
+//
 // The displayed VALUE is capped at the target: a finished challenge reads
 // "2/2" or "100/100" — going past the goal changes nothing the player can
 // see (4/2 or 101/100 reads as a bug; the percentage bar was always capped,
 // now the number matches it).
 
-export type ChallengeType = 'single_game_score' | 'games_played'
+import type {
+  ChallengeDifficulty,
+  EconomyChallengeType,
+} from './economy.ts'
+
+/** The admin CRUD offers the full ECON-01 superset (CH-04); legacy two-type
+ *  documents remain valid members of this union. */
+export type ChallengeType = EconomyChallengeType
 
 export interface Challenge {
   id: string
@@ -23,12 +35,21 @@ export interface Challenge {
   targetValue: number
   startDate: Date
   endDate: Date
+  /** ECON-01 tier configuration (CH-04). ABSENT on legacy documents — a
+   *  challenge saved before the economy configuration existed is viewable
+   *  but non-rewarding until an admin explicitly edits it into a valid
+   *  type/difficulty/target triple. */
+  difficulty?: ChallengeDifficulty
+  /** Server-derived coins for the stored tier triple; absent like difficulty. */
+  rewardCoins?: number
 }
 
 /** One of my finished runs — everything progress needs. */
 export interface GameRun {
   score: number
   createdAt: Date
+  /** DATA-01 field; absent on runs stored before jumpCount existed. */
+  jumpCount?: number
 }
 
 export interface ChallengeProgress {
@@ -52,8 +73,20 @@ export function computeProgress(
   for (const run of runs) {
     const t = run.createdAt.getTime()
     if (t < start || t > end) continue
-    if (challenge.type === 'games_played') raw += 1
-    else if (run.score > raw) raw = run.score
+    switch (challenge.type) {
+      case 'games_played':
+        raw += 1
+        break
+      case 'total_score':
+        raw += run.score
+        break
+      case 'total_jumps':
+        raw += run.jumpCount ?? 0
+        break
+      default:
+        // single_game_score — the best single run, not a sum.
+        if (run.score > raw) raw = run.score
+    }
   }
   const target = challenge.targetValue
   // A finished challenge is DONE, not "better than done": both the number
