@@ -339,6 +339,7 @@ export function ProfilePage({
 
   /** Edit → the same field becomes editable, focused, and the button is Save. */
   const startEditingName = () => {
+    console.log('EDIT CLICKED')
     setNameError(null)
     setNameSaved(false)
     setEditingName(true)
@@ -346,24 +347,32 @@ export function ProfilePage({
     requestAnimationFrame(() => nameInputRef.current?.focus())
   }
 
-  const saveName = async () => {
+    const saveName = async () => {
     const candidate = nameDraft.trim()
+
     setNameSaved(false)
-    // Validation lives in one place (shared with the server's rules); the
-    // button is disabled while invalid, so this is the belt to that brace.
-    if (!isValidInGameName(candidate)) {
-      setNameError(nameRule)
-      return
-    }
     setNameError(null)
+
+    // Nothing changed -> just close edit mode.
     if (candidate === (profile.inGameName ?? '')) {
       setEditingName(false)
       return
     }
+
+    if (!isValidInGameName(candidate)) {
+      setNameError(nameRule)
+      return
+    }
+
     setNameBusy(true)
+
     try {
       const result = await updateProfile({ username: candidate })
-      setProfile((p) => (p ? { ...p, inGameName: result.inGameName } : p))
+
+      setProfile((p) =>
+        p ? { ...p, inGameName: result.inGameName } : p,
+      )
+
       setNameDraft(result.inGameName)
       setNameSaved(true)
       setEditingName(false)
@@ -373,7 +382,7 @@ export function ProfilePage({
       setNameBusy(false)
     }
   }
-
+  
   return (
     <div className="profile-screen">
       <div className="profile-card">
@@ -446,25 +455,27 @@ export function ProfilePage({
               autoComplete="off"
               spellCheck={false}
             />
-            {editingName ? (
-              <button
-                type="submit"
-                className="btn btn-small profile-name-action"
-                disabled={nameBusy || !nameValid || !nameChanged}
-              >
-                <PixelIcon name="check" size={20} />
-                {nameBusy ? t('common.saving') : t('profile.save')}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-small profile-name-action"
-                onClick={startEditingName}
-              >
-                <PixelIcon name="settings" size={20} />
-                {t('profile.edit')}
-              </button>
-            )}
+           {editingName ? (
+            <button
+              key="save-name"
+              type="submit"
+              className="btn btn-small profile-name-action"
+              disabled={nameBusy || (nameChanged && !nameValid)}
+            >
+              <PixelIcon name="check" size={20} />
+              {nameBusy ? t('common.saving') : t('profile.save')}
+            </button>
+          ) : (
+            <button
+              key="edit-name"
+              type="button"
+              className="btn btn-small profile-name-action"
+              onClick={startEditingName}
+            >
+              <PixelIcon name="settings" size={20} />
+              {t('profile.edit')}
+            </button>
+          )}
           </div>
           {/* Live rule check while typing: an invalid draft says why before the
               player presses Save (the button is disabled meanwhile). */}

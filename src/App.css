@@ -361,12 +361,23 @@ a.btn {
   right: 0;
   bottom: 0;
   z-index: 3;
+
   display: flex;
   justify-content: center;
   gap: 2px;
-  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
-}
 
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+
+  background: linear-gradient(
+    to top,
+    rgba(28, 24, 40, 0.96) 0%,
+    rgba(28, 24, 40, 0.88) 70%,
+    rgba(28, 24, 40, 0.72) 100%
+  );
+
+  border-top: 1px solid rgba(255, 210, 63, 0.22);
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.2);
+}
 /* Desktop: same transparent bottom nav — chips keep their natural size
    instead of stretching across the full row. */
 @media (min-width: 640px) {
