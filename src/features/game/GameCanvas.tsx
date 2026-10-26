@@ -54,7 +54,9 @@ import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
 import {
   SOUND_SETTINGS_CHANGE_EVENT,
+  isMusicEnabled,
   isSfxEnabled,
+  setMusicEnabled,
   setSfxEnabled,
 } from '../soundSettings'
 import {
@@ -180,6 +182,8 @@ export function GameCanvas({
   const [queued, setQueued] = useState(pendingRunCount)
   // AUDIO — the in-game speaker button mirrors the Sound effects switch.
   const [sfxOn, setSfxOn] = useState(isSfxEnabled)
+  // AUDIO - the in-game music button mirrors the Music switch.
+  const [musicOn, setMusicOn] = useState(isMusicEnabled)
   // Share feedback: the button doubles as its own confirmation.
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>(
     'idle',
@@ -216,9 +220,15 @@ export function GameCanvas({
   // AUDIO — Home's switches stay authoritative; the in-game button reflects a
   // change made there (and vice versa) through the shared settings event.
   useEffect(() => {
-    const sync = () => setSfxOn(isSfxEnabled())
+    const sync = () => {
+      setSfxOn(isSfxEnabled())
+      setMusicOn(isMusicEnabled())
+    }
+
     window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
-    return () => window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
+
+    return () => 
+      window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
   }, [])
 
   // SHARE — the native sheet where it exists (Telegram, iOS, Android), the
@@ -751,6 +761,16 @@ export function GameCanvas({
       {/* Top-right control cluster: clear of the canvas HUD (score is drawn
           top-centre) and of the DEV perf overlay (top-left). */}
       <div className="game-controls">
+        <button
+          type="button"
+          className="game-control"
+          aria-pressed={musicOn}
+          aria-label={t(musicOn ? 'music.turnOff' : 'music.turnOn')}
+          title={t(musicOn ? 'music.turnOff' : 'music.turnOn')}
+          onClick={() => setMusicEnabled(!musicOn)}
+        >
+          <PixelIcon name={musicOn ? 'music' : 'musicOff'} size={32} />
+        </button>
         <button
           type="button"
           className="game-control"
