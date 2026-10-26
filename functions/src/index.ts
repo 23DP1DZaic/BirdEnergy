@@ -29,6 +29,19 @@ import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {logger} from "firebase-functions";
 import {
+  BACKGROUND_IDS,
+  CHALLENGE_DIFFICULTIES,
+  CHALLENGE_TYPES,
+  FREE_BACKGROUND_IDS,
+  FREE_SKIN_IDS,
+  SKIN_IDS,
+  canEquipCosmetic,
+  coinsForScore,
+  lookupTierReward,
+  type ChallengeDifficulty,
+  type EconomyChallengeType,
+} from "./economy.js";
+import {
   buildTelegramUid, 
   parseAdminTelegramIds,
   resolveDevTelegramUser,
@@ -36,6 +49,24 @@ import {
   validateTelegramInitData,
   type TelegramAuthUser,
 } from "./telegramAuth.js";
+import {initializeEconomy} from "./economyInit.js";
+import {
+  cappedProgress,
+  computeChallengeProgress,
+  ensureDailyChallenge,
+  readGameResultsInWindow,
+  toDate,
+} from "./dailyChallenges.js";
+import {
+  claimChallengeRewardCore,
+  type ClaimChallengeRewardRequest,
+  type ClaimChallengeRewardResult,
+} from "./challengeRewards.js";
+import {
+  purchaseCosmeticCore,
+  type PurchaseCosmeticRequest,
+  type PurchaseCosmeticResult,
+} from "./cosmeticPurchases.js";
 
 setGlobalOptions({maxInstances: 10, region: "europe-north1"});
 
@@ -223,6 +254,16 @@ export const authenticateTelegram = onCall(
           // the client surfaces the error when it reads the profile instead.
           logger.error("users/ profile write failed", dbError);
         }
+
+        // ECON-01: backfill the economy fields (coins/ownership/version) now
+        // that the profile exists — own transaction, run AFTER the consent
+        // upsert above (Firestore transactions read before they write). A
+        // failure must not block sign-in either: the next login retries.
+        try {
+          await initializeEconomy(getFirestore(), uid);
+        } catch (economyError) {
+          logger.error("Economy initialization failed", economyError);
+        }
       }
 
       return {
@@ -298,7 +339,9 @@ export const acceptDataProcessing = onCall(
       await db.runTransaction(async (tx) => {
         const existing = await tx.get(userDoc);
         if (existing.exists) {
-          tx.update(userDoc, {acceptedDataProcessingAt: new Date()});
+          tx.update(userDoc, {
+            acceptedDataProcessingAt: new Date(),
+          });
         } else {
           tx.set(userDoc, {
             uid,
@@ -324,6 +367,14 @@ export const acceptDataProcessing = onCall(
         }
       });
       logger.info("Data-processing consent accepted", {uid, telegramId});
+      // ECON-01: backfill the economy fields on the profile (own transaction,
+      // after the consent upsert above; best-effort — consent already saved,
+      // so an economy failure is logged and retried on the next sign-in).
+      try {
+        await initializeEconomy(db, uid);
+      } catch (economyError) {
+        logger.error("Economy initialization failed", economyError);
+      }
       return {ok: true};
     } catch (error) {
       logger.error("Consent write failed", error);
@@ -366,10 +417,11 @@ export const IN_GAME_NAME_MIN = 3;
 export const IN_GAME_NAME_MAX = 20;
 const IN_GAME_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
 
-/** Appearance preference ranges — must cover the client asset lists
- *  (10 bird skins, 9 skies, 2 grounds) without being unbounded. */
-const PREFERRED_BIRD_MAX = 99;
-const PREFERRED_BACKGROUND_MAX = 99;
+/** Appearance preference ranges. Bird/background indices are the economy
+ *  catalogs (SKIN_IDS / BACKGROUND_IDS); EQUIPPING those additionally requires
+ *  ownership, checked in the updateProfile transaction. Grounds are free. */
+const PREFERRED_BIRD_MAX = SKIN_IDS.length - 1;
+const PREFERRED_BACKGROUND_MAX = BACKGROUND_IDS.length - 1;
 const PREFERRED_GROUND_MAX = 99;
 
 /** Validates a preference index: a non-negative integer within the range.
@@ -480,10 +532,44 @@ export const updateProfile = onCall(
             "No player profile — accept data processing first.",
           );
         }
-        const current = snap.data()?.inGameName;
+        const current = snap.data() ?? {};
+
+        // SHOP-01 — free or owned cosmetics only. The persisted appearance is
+        // re-checked here against the SERVER's ownership list, so a client
+        // that simply sends a paid index never equips it.
+        if (
+          data.preferredBird !== undefined &&
+          !canEquipCosmetic(
+            SKIN_IDS,
+            FREE_SKIN_IDS,
+            current.ownedSkinIds,
+            data.preferredBird,
+          )
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "That skin is locked — buy it first.",
+          );
+        }
+        if (
+          data.preferredBackground !== undefined &&
+          !canEquipCosmetic(
+            BACKGROUND_IDS,
+            FREE_BACKGROUND_IDS,
+            current.ownedBackgroundIds,
+            data.preferredBackground,
+          )
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "That background is locked — buy it first.",
+          );
+        }
+
         // Respond with the effective name (unchanged when only prefs changed).
         effectiveName =
-          inGameName ?? (typeof current === "string" ? current : "");
+          inGameName ??
+          (typeof current.inGameName === "string" ? current.inGameName : "");
         tx.update(userDoc, patch);
       });
 
@@ -511,11 +597,31 @@ export const updateProfile = onCall(
  * Reuses the authenticateTelegram CORS origins + europe-north1 region; the
  * caller must be signed in (Firebase ID token) AND have accepted data
  * processing (the users/{uid} doc must exist — created by the consent flow).
+ *
+ * ECON-03 — the same transaction awards gameplay coins: one per full 5 score
+ * points of THIS run (Math.floor(score / 5), no remainder carry-over) and
+ * stores the accepted amount on the result. The reward is derived from the
+ * validated score here, never read from the request; an idempotent retry
+ * returns the stored amount and the current balance without paying again.
  */
 interface SubmitGameResultData {
   score?: unknown;
   durationMs?: unknown;
   jumpCount?: unknown;
+  /**
+   * E — optional client-generated id. The offline queue in
+   * src/features/pendingRuns.ts resends a run after a network failure, and the
+   * same id makes that retry land on the SAME document so the score is never
+   * counted twice. Old builds do not send one, so it stays optional.
+   */
+  runId?: unknown;
+}
+
+/** A stored balance that is absent/corrupt reads as 0 (never reset here). */
+function storedCoins(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0;
 }
 
 /** Server-side range validation — the client is never trusted (card DoD). */
@@ -559,11 +665,21 @@ export const submitGameResult = onCall(
       throw new HttpsError("unauthenticated", "Sign in to submit results.");
     }
 
-    const run = validateRunData((request.data ?? {}) as SubmitGameResultData);
+    const data = (request.data ?? {}) as SubmitGameResultData;
+    const run = validateRunData(data);
+    // E — only a plain token is accepted, and a malformed one is treated as
+    // "no id": a broken id must never fail a run the player already played.
+    const runId =
+      typeof data.runId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.runId)
+        ? data.runId
+        : null;
     const uid = request.auth.uid;
     const db = getFirestore();
     const userDoc = db.collection("users").doc(uid);
     const now = new Date();
+    // ECON-03 — derived from the validated score, in the same transaction as
+    // the result and the aggregates; the client never sends a reward.
+    const coinsEarned = coinsForScore(run.score);
 
     try {
       const aggregates = await db.runTransaction(async (tx) => {
@@ -575,15 +691,61 @@ export const submitGameResult = onCall(
 
         const prev = userSnap.data() ?? {};
         const prevBest = typeof prev.bestScore === "number" ? prev.bestScore : 0;
+        const prevCoins = storedCoins(prev.coins);
         const newBest = run.score > prevBest;
 
         // One attempt document per finished run (never updated afterwards).
-        const resultRef = db.collection("gameResults").doc();
+        // E — a retry carries the same runId, so it resolves to the same
+        // document id and this check stops it from being counted twice.
+        const resultId = runId
+          ? `${uid}-${runId}`
+          : db.collection("gameResults").doc().id;
+        const resultRef = db.collection("gameResults").doc(resultId);
+        const alreadyStored = await tx.get(resultRef);
+        if (alreadyStored.exists) {
+          // ECON-02 — an idempotent retry must carry the SAME attempt. Reusing
+          // a runId for different data is a client bug (or an attempt to
+          // overwrite a stored result), so it is rejected instead of silently
+          // returning someone else's aggregates.
+          const stored = alreadyStored.data() ?? {};
+          if (
+            stored.score !== run.score ||
+            stored.durationMs !== run.durationMs ||
+            stored.jumpCount !== run.jumpCount
+          ) {
+            throw new HttpsError(
+              "already-exists",
+              "runId was already used with different result data.",
+            );
+          }
+          logger.info("Duplicate run ignored (retry)", {uid, resultId});
+          // ECON-03 — the retry returns the reward that was accepted with this
+          // attempt (0 for a result stored before this feature: coins are
+          // never awarded retroactively) and the unchanged balance. Nothing
+          // is written again, so a retry cannot pay twice.
+          const storedReward = storedCoins(stored.coinsEarned);
+          return {
+            bestScore: prevBest,
+            totalGames:
+              typeof prev.totalGames === "number" ? prev.totalGames : 0,
+            totalScore:
+              typeof prev.totalScore === "number" ? prev.totalScore : 0,
+            newBest: false,
+            coinsEarned: storedReward,
+            coins: prevCoins,
+          };
+        }
+
+        // createdAt is the SERVER completion time: the client never supplies
+        // it, and both challenge progress windows read this field.
         tx.set(resultRef, {
           uid,
           score: run.score,
           durationMs: run.durationMs,
           jumpCount: run.jumpCount,
+          // ECON-03 — the accepted reward travels with its result, so a retry
+          // can report it and audits can see what was actually paid.
+          coinsEarned,
           createdAt: now,
         });
 
@@ -591,6 +753,10 @@ export const submitGameResult = onCall(
           bestScore: newBest ? run.score : prevBest,
           totalGames: FieldValue.increment(1),
           totalScore: FieldValue.increment(run.score),
+          // ECON-03 — atomic with the result row: a failed transaction rolls
+          // both back, so coins are never paid for an unsaved run. An absent
+          // field increments from 0; an established balance is preserved.
+          coins: FieldValue.increment(coinsEarned),
           lastPlayedAt: now,
         });
 
@@ -600,6 +766,8 @@ export const submitGameResult = onCall(
           totalScore: (typeof prev.totalScore === "number" ? prev.totalScore : 0) +
             run.score,
           newBest,
+          coinsEarned,
+          coins: prevCoins + coinsEarned,
         };
       });
 
@@ -758,6 +926,522 @@ export const getLeaderboard = onCall(
       if (error instanceof HttpsError) throw error;
       logger.error("getLeaderboard failed", error);
       throw new HttpsError("internal", "Could not load the leaderboard.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ CH-05 ---
+
+/** One assignment as the client receives it — no document ids of other users,
+ *  no raw timestamps, no game history. */
+interface DailyChallengeResponseItem {
+  id: string;
+  type: EconomyChallengeType;
+  difficulty: ChallengeDifficulty;
+  targetValue: number;
+  rewardCoins: number;
+  title: string;
+  /** ISO 8601 of the claim, or null while unclaimed (claiming is a later
+   *  task — CH-05 only stores the null). */
+  claimedAt: string | null;
+  /** Progress clamped to targetValue ("40/40", never "97/40"). */
+  progress: number;
+  completed: boolean;
+}
+
+interface DailyChallengesResponse {
+  dateKey: string;
+  timezone: string;
+  /** Start and expiry of the day window (ISO 8601). */
+  startsAt: string;
+  expiresAt: string;
+  assignments: DailyChallengeResponseItem[];
+}
+
+/**
+ * CH-05 — the player's personal daily challenge assignments for TODAY.
+ *
+ * The server, not the client, decides the day: `now` is read inside the
+ * function and converted to the Europe/Riga calendar day (dateKey), with the
+ * true UTC bounds of that local day — DST days are 23 or 25 hours long and
+ * the next day starts exactly when this one expires. Nothing date- or
+ * timezone-shaped is accepted from the request.
+ *
+ * First request of a day creates the document (exactly 3 assignments: two
+ * normal + one hard, three distinct types, targets from the ECON-01 tiers)
+ * inside a transaction; every later request, from any tab or device, returns
+ * that stored set unchanged. The next Riga day lazily creates its own
+ * document; the old one stays as history (previous unclaimed rewards are
+ * never carried forward).
+ *
+ * Progress is calculated on the fly from this player's accepted gameResults
+ * rows with startsAt <= createdAt < expiresAt — no progress state is stored
+ * and no result limit is applied.
+ */
+export const getDailyChallenges = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<DailyChallengesResponse> => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in to load your daily challenges.",
+      );
+    }
+
+    const uid = request.auth.uid;
+    const db = getFirestore();
+
+    try {
+      const daily = await ensureDailyChallenge(db, uid, new Date());
+      // Scoped to this uid + the stored day window — never other players.
+      const results = await readGameResultsInWindow(db, uid, {
+        startsAt: daily.startsAt,
+        expiresAt: daily.expiresAt,
+      });
+
+      const assignments: DailyChallengeResponseItem[] = daily.assignments.map(
+        (assignment) => {
+          const progress = computeChallengeProgress(assignment.type, results);
+          const claimedAt = toDate(assignment.claimedAt);
+          return {
+            id: assignment.id,
+            type: assignment.type,
+            difficulty: assignment.difficulty,
+            targetValue: assignment.targetValue,
+            rewardCoins: assignment.rewardCoins,
+            title: assignment.title,
+            claimedAt: claimedAt ? claimedAt.toISOString() : null,
+            progress: cappedProgress(progress, assignment.targetValue),
+            completed: progress >= assignment.targetValue,
+          };
+        },
+      );
+
+      return {
+        dateKey: daily.dateKey,
+        timezone: daily.timezone,
+        startsAt: daily.startsAt.toISOString(),
+        expiresAt: daily.expiresAt.toISOString(),
+        assignments,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("getDailyChallenges failed", error);
+      throw new HttpsError("internal", "Could not load daily challenges.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ ECON-02 ---
+
+/**
+ * ECON-02 — claim the reward for one completed challenge.
+ *
+ * Input: {source: "daily" | "admin", challengeId}. Nothing else is read from
+ * the request — the reward amount, progress, balance and the caller's uid are
+ * all resolved here (uid from the ID token, the rest from Firestore).
+ *
+ * Completion is computed from accepted gameResults inside the challenge's own
+ * window (the CH-05 calculation), so claiming cannot reset or fake progress.
+ * The claim document and the coin increment are written in one transaction:
+ * repeated/clashing claims award once, and an already-claimed request answers
+ * {alreadyClaimed: true} with the original reward and the current balance
+ * instead of paying again.
+ */
+export const claimChallengeReward = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<ClaimChallengeRewardResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to claim rewards.");
+    }
+
+    try {
+      return await claimChallengeRewardCore(
+        getFirestore(),
+        request.auth.uid,
+        (request.data ?? {}) as ClaimChallengeRewardRequest,
+      );
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("claimChallengeReward failed", error);
+      throw new HttpsError("internal", "Could not claim the reward.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ SHOP-01 ---
+
+/**
+ * SHOP-01 — buy one cosmetic for the authenticated player.
+ *
+ * Input: {kind: "skin" | "background", itemId}. Only those two fields are
+ * read: the price comes from the trusted ECON-01 catalogs, the balance and
+ * ownership come from users/{uid}. Free items never charge, an already-owned
+ * item is an idempotent no-op, and the coin deduction + ownership grant are
+ * one transaction (no negative balance under concurrent purchases).
+ */
+export const purchaseCosmetic = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<PurchaseCosmeticResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in to buy cosmetics.");
+    }
+
+    try {
+      return await purchaseCosmeticCore(
+        getFirestore(),
+        request.auth.uid,
+        (request.data ?? {}) as PurchaseCosmeticRequest,
+      );
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("purchaseCosmetic failed", error);
+      throw new HttpsError("internal", "Could not complete the purchase.");
+    }
+  },
+);
+
+// ------------------------------------------------------------------ ADM-01 ---
+
+/**
+ * ADM-01 / ADM-02 — adminChallengeMutation: the ONE writer for the
+ * challenges/ collection.
+ *
+ * Called from the Admin Panel form (src/features/AdminPage.tsx via
+ * src/features/challenges.ts). Firestore rules (SEC-01) deny all client writes
+ * to challenges/, so create/update/delete can only happen here, with the Admin
+ * SDK.
+ *
+ * DoD:
+ *  - requests without the admin role are rejected with permission-denied;
+ *  - create and update persist to Firestore (and are visible to the Challenges
+ *    screen, which reads challenges/ ordered by startDate desc);
+ *  - delete (ADM-02) irreversibly removes the doc, and reports not-found for
+ *    an id that is already gone instead of silently succeeding;
+ *  - the payload is re-validated server-side (the client rules in
+ *    src/features/challengeValidation.ts are instant feedback, never the trust
+ *    boundary), and createdAt/updatedAt/createdBy are stamped here;
+ *  - CH-04: type/difficulty/targetValue must match ONE exact ECON-01 tier
+ *    triple, and rewardCoins is derived from CHALLENGE_TIERS here — any
+ *    rewardCoins in the request is ignored, the client never sends one;
+ *  - the update/delete paths write ONLY challenges/{id}: personal daily
+ *    assignments (users/{uid}/dailyChallenges) and claimed rewards
+ *    (users/{uid}/challengeClaims) are separate documents this function never
+ *    touches, so editing a challenge cannot reset/duplicate a claim and
+ *    deleting one cannot remove a player's daily assignments. A claim doc is
+ *    keyed by challengeId alone, so a user who already claimed cannot claim
+ *    the same challenge again after an edit.
+ *
+ * The role is read from the Firebase ID-token custom claims set by
+ * authenticateTelegram (AUTH-03) — never from client-supplied data. The
+ * request shape mirrors AdminChallengeMutationRequest in
+ * src/features/challenges.ts:
+ *   {
+ *     operation: "create" | "update" | "delete",
+ *     challengeId?: string,
+ *     payload?: {
+ *       title, description, type, difficulty, targetValue, startDate, endDate
+ *     }
+ *   }
+ *
+ * The Admin Panel's confirmation dialog is UX only — this function performs its
+ * own authorisation and existence checks and never trusts that a dialog was
+ * shown (spec: "Backends nedrīkst paļauties uz šo logu autorizācijai").
+ */
+
+/** Challenge kinds supported by the app (CH-04: the four ECON-01 economy
+ *  types, mirroring src/features/challenges.ts). */
+type ChallengeType = EconomyChallengeType;
+
+/** Raw payload as it arrives from the callable (every field unvalidated). */
+interface AdminChallengePayload {
+  title?: unknown;
+  description?: unknown;
+  type?: unknown;
+  difficulty?: unknown;
+  targetValue?: unknown;
+  /** ISO 8601 string — the callable transport is JSON. */
+  startDate?: unknown;
+  endDate?: unknown;
+}
+
+interface AdminChallengeMutationData {
+  operation?: unknown;
+  challengeId?: unknown;
+  payload?: unknown;
+}
+
+/** Validated challenge fields, ready to persist. rewardCoins is ALWAYS the
+ *  server-derived tier value (see validateChallengePayload) — it never comes
+ *  from the request. */
+interface ValidatedChallenge {
+  title: string;
+  description: string;
+  type: ChallengeType;
+  difficulty: ChallengeDifficulty;
+  targetValue: number;
+  rewardCoins: number;
+  startDate: Date;
+  endDate: Date;
+}
+
+/** Validation bounds — MUST mirror src/features/challengeValidation.ts. */
+export const CHALLENGE_TITLE_MIN = 3;
+export const CHALLENGE_TITLE_MAX = 80;
+export const CHALLENGE_DESCRIPTION_MIN = 10;
+export const CHALLENGE_DESCRIPTION_MAX = 500;
+export const CHALLENGE_TARGET_MAX = 1_000_000;
+
+/** ISO 8601 string → Date; throws invalid-argument for missing/corrupt values. */
+function parseIsoDate(value: unknown, field: string): Date {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("invalid-argument", `${field} is required.`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be a valid ISO 8601 date.`,
+    );
+  }
+  return date;
+}
+
+/**
+ * Server-side re-validation of the admin payload (the trust boundary).
+ * Same rules as validateChallengeForm in src/features/challengeValidation.ts:
+ * title 3–80, description 10–500, a known type, a known difficulty, whole-
+ * number target 1–1 000 000 that is ALSO an allowed tier for that
+ * type/difficulty (ECON-01), and endDate on or after startDate. Everything is
+ * trimmed like the form does.
+ */
+export function validateChallengePayload(payload: unknown): ValidatedChallenge {
+  if (payload === null || typeof payload !== "object") {
+    throw new HttpsError("invalid-argument", "Missing challenge payload.");
+  }
+  const p = payload as AdminChallengePayload;
+
+  const title = typeof p.title === "string" ? p.title.trim() : "";
+  if (title.length < CHALLENGE_TITLE_MIN || title.length > CHALLENGE_TITLE_MAX) {
+    throw new HttpsError(
+      "invalid-argument",
+      `title must be ${CHALLENGE_TITLE_MIN}-${CHALLENGE_TITLE_MAX} characters.`,
+    );
+  }
+
+  const description =
+    typeof p.description === "string" ? p.description.trim() : "";
+  if (
+    description.length < CHALLENGE_DESCRIPTION_MIN ||
+    description.length > CHALLENGE_DESCRIPTION_MAX
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `description must be ${CHALLENGE_DESCRIPTION_MIN}-` +
+        `${CHALLENGE_DESCRIPTION_MAX} characters.`,
+    );
+  }
+
+  const type = CHALLENGE_TYPES.find((candidate) => candidate === p.type);
+  if (!type) {
+    throw new HttpsError(
+      "invalid-argument",
+      `type must be one of: ${CHALLENGE_TYPES.join(", ")}.`,
+    );
+  }
+
+  const difficulty = CHALLENGE_DIFFICULTIES.find(
+    (candidate) => candidate === p.difficulty,
+  );
+  if (!difficulty) {
+    throw new HttpsError(
+      "invalid-argument",
+      `difficulty must be one of: ${CHALLENGE_DIFFICULTIES.join(", ")}.`,
+    );
+  }
+
+  const targetValue = p.targetValue;
+  if (
+    typeof targetValue !== "number" ||
+    !Number.isInteger(targetValue) ||
+    targetValue <= 0 ||
+    targetValue > CHALLENGE_TARGET_MAX
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `targetValue must be a whole number between 1 and ${CHALLENGE_TARGET_MAX}.`,
+    );
+  }
+
+  // CH-04 — the exact ECON-01 tier triple decides validity AND the payout.
+  // lookupTierReward answers null for anything outside CHALLENGE_TIERS, so an
+  // arbitrary (legacy-style) target or a mismatched difficulty is rejected
+  // instead of guessing a reward. rewardCoins is derived here from the table;
+  // any rewardCoins sent by the client is deliberately never read.
+  const rewardCoins = lookupTierReward(type, difficulty, targetValue);
+  if (rewardCoins === null) {
+    throw new HttpsError(
+      "invalid-argument",
+      "type, difficulty and targetValue must match one of the allowed " +
+        "challenge tiers.",
+    );
+  }
+
+  const startDate = parseIsoDate(p.startDate, "startDate");
+  const endDate = parseIsoDate(p.endDate, "endDate");
+  if (endDate.getTime() < startDate.getTime()) {
+    throw new HttpsError(
+      "invalid-argument",
+      "endDate must be on or after startDate.",
+    );
+  }
+
+  return {
+    title,
+    description,
+    type,
+    difficulty,
+    targetValue,
+    rewardCoins,
+    startDate,
+    endDate,
+  };
+}
+
+/** The stored challenge fields, copied from the validated payload. The tier
+ *  triple (type/difficulty/targetValue) always travels WITH its server-derived
+ *  rewardCoins, so every document written from here on is a complete economy
+ *  configuration; legacy documents that predate CH-04 keep none of these
+ *  reward fields until they are explicitly edited through this function. */
+function challengeFields(validated: ValidatedChallenge) {
+  return {
+    title: validated.title,
+    description: validated.description,
+    type: validated.type,
+    difficulty: validated.difficulty,
+    targetValue: validated.targetValue,
+    rewardCoins: validated.rewardCoins,
+    startDate: validated.startDate,
+    endDate: validated.endDate,
+  };
+}
+
+export const adminChallengeMutation = onCall(
+  {
+    region: "europe-north1",
+    cors: CALLABLE_CORS,
+    invoker: ["public"],
+  },
+  async (request): Promise<{ok: boolean; challengeId: string}> => {
+    // ADM-01 DoD: no session → unauthenticated; a non-admin role → forbidden.
+    // The role comes from the ID-token custom claim (AUTH-03).
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Sign in as an administrator to manage challenges.",
+      );
+    }
+    if (request.auth.token.role !== "admin") {
+      throw new HttpsError(
+        "permission-denied",
+        "Only administrators may change challenges.",
+      );
+    }
+
+    const data = (request.data ?? {}) as AdminChallengeMutationData;
+    const operation = data.operation;
+    if (
+      operation !== "create" &&
+      operation !== "update" &&
+      operation !== "delete"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "operation must be create, update or delete.",
+      );
+    }
+
+    const db = getFirestore();
+    const now = new Date();
+
+    try {
+      if (operation === "create") {
+        const validated = validateChallengePayload(data.payload);
+        // Server-generated id; the Challenges screen sorts by startDate, so no
+        // extra index is needed for the list read.
+        const ref = db.collection("challenges").doc();
+        await ref.set({
+          ...challengeFields(validated),
+          createdBy: request.auth.uid,
+          createdAt: now,
+          updatedAt: now,
+        });
+        logger.info("Challenge created", {
+          challengeId: ref.id,
+          uid: request.auth.uid,
+        });
+        return {ok: true, challengeId: ref.id};
+      }
+
+      // update/delete — challengeId identifies an existing doc; createdAt/
+      // createdBy are stamped once on create and stay immutable.
+      const challengeId = data.challengeId;
+      if (typeof challengeId !== "string" || challengeId.trim().length === 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          `challengeId is required to ${operation} a challenge.`,
+        );
+      }
+      const ref = db.collection("challenges").doc(challengeId);
+
+      if (operation === "delete") {
+        // ADM-02 — permanent removal. The transaction keeps "is it there?"
+        // and "remove it" one decision, so a challenge deleted in the meantime
+        // answers not-found rather than reporting a false success.
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) {
+            throw new HttpsError("not-found", "Challenge not found.");
+          }
+          tx.delete(ref);
+        });
+        logger.info("Challenge deleted", {
+          challengeId,
+          uid: request.auth.uid,
+        });
+        return {ok: true, challengeId};
+      }
+
+      const validated = validateChallengePayload(data.payload);
+      const fields = challengeFields(validated);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) {
+          throw new HttpsError("not-found", "Challenge not found.");
+        }
+        tx.update(ref, {...fields, updatedAt: now});
+      });
+      logger.info("Challenge updated", {
+        challengeId,
+        uid: request.auth.uid,
+      });
+      return {ok: true, challengeId};
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.error("adminChallengeMutation failed", error);
+      throw new HttpsError("internal", "Could not save the challenge.");
     }
   },
 );

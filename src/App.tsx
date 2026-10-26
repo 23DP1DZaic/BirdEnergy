@@ -15,12 +15,26 @@ import {
 import { getDevTelegramId, shouldUseEmulators } from './devAuth'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
-import { applyStoredBackgroundIndex } from './features/homeBackground'
-import { applyStoredBirdSkinIndex } from './features/birdSkin'
+import { loadAudioAssets, playMusic } from './features/audio'
+import {
+  applyStoredBackgroundIndex,
+  getStoredBackgroundIndex,
+} from './features/homeBackground'
+import {
+  applyStoredBirdSkinIndex,
+  getStoredBirdSkinIndex,
+} from './features/birdSkin'
+import {
+  DEFAULT_BACKGROUND_INDEX,
+  DEFAULT_SKIN_INDEX,
+  ownsCosmeticIndex,
+} from './features/economy'
 import { applyStoredGroundIndex } from './features/groundTile'
 import type { UserProfile } from './features/userProfile'
 import { isTelegramEnvironment, telegramBotUsername } from './telegram'
 import { NAV_ITEMS, type Screen } from './navigation.ts'
+import { PixelIcon } from './features/ui/PixelIcon'
+import { t, useT } from './i18n'
 import { useAuthRole } from './useAuthRole.ts'
 import type { GamePhase } from './features/game/engine'
 import { AdminPage } from './features/AdminPage.tsx'
@@ -29,6 +43,7 @@ import { GamePage } from './features/GamePage.tsx'
 import { HomePage } from './features/HomePage.tsx'
 import { LeaderboardPage } from './features/LeaderboardPage.tsx'
 import { ProfilePage } from './features/ProfilePage.tsx'
+import { TutorialPage } from './features/TutorialPage.tsx'
 import './App.css'
 
 /**
@@ -39,12 +54,13 @@ import './App.css'
 function describeSignInError(err: unknown, inTelegram: boolean): string {
   const detail = err instanceof Error ? err.message : String(err)
   if (!inTelegram && shouldUseEmulators()) {
-    return `${detail} — are the local emulators running? Start them with "npx firebase-tools emulators:start --only auth,firestore,functions --project birdenergy-f1405", or open the app via @${telegramBotUsername}.`
+    return t('sign.emulatorHint', {message: detail, bot: telegramBotUsername})
   }
   return detail
 }
 
 function App() {
+  const {t} = useT()
   const [screen, setScreen] = useState<Screen>('home')
   // AUTH-03: reflect the live Firebase session (survives page reloads).
   const [signedInUid, setSignedInUid] = useState<string | null>(null)
@@ -56,7 +72,29 @@ function App() {
   // the layout only while a run is actively in progress (see navHidden).
   const [gamePhase, setGamePhase] = useState<GamePhase>('ready')
 
-  useEffect(() => observeAuthSession(setSignedInUid), [])
+  // AUTH-03: the live session. When it ends (sign-out, expired token) the
+  // sign-in outcome is cleared with it — otherwise Home would greet a guest
+  // with the previous player's name and keep showing "Signed in: …".
+  useEffect(
+    () =>
+      observeAuthSession((uid) => {
+        setSignedInUid(uid)
+        if (uid === null) {
+          setSession(null)
+          setAuthStatus('')
+        }
+      }),
+    [],
+  )
+
+  // AUDIO — the menu music. It is the app's background loop, so it starts once
+  // here (not on one screen) and keeps playing while the player moves between
+  // the menu and the game; the AudioContext unlocks on the first tap, which
+  // audio.ts handles. Both calls are silent no-ops when the file is missing.
+  useEffect(() => {
+    void loadAudioAssets()
+    playMusic()
+  }, [])
 
   // UI-04 — appearance preferences saved on the profile (preferredBird /
   // preferredBackground / preferredGround) seed the local switchers on
@@ -69,8 +107,28 @@ function App() {
       .then((snap) => {
         if (cancelled || !snap.exists()) return
         const profile = snap.data() as UserProfile
-        applyStoredBirdSkinIndex(profile.preferredBird)
-        applyStoredBackgroundIndex(profile.preferredBackground)
+        // SHOP-01 — only hydrate looks this account may equip (free or owned).
+        // A legacy/corrupt paid preference never reaches the local renderer;
+        // the server also repairs such a pick on sign-in (initializeEconomy).
+        // The LOCAL pick needs the same guard: it can outlive the economy
+        // (chosen before the item was priced), so an unowned one falls back to
+        // the free default instead of staying equipped without a purchase.
+        if (ownsCosmeticIndex(profile, 'skin', profile.preferredBird)) {
+          applyStoredBirdSkinIndex(profile.preferredBird)
+        } else if (!ownsCosmeticIndex(profile, 'skin', getStoredBirdSkinIndex())) {
+          applyStoredBirdSkinIndex(DEFAULT_SKIN_INDEX)
+        }
+        if (ownsCosmeticIndex(profile, 'background', profile.preferredBackground)) {
+          applyStoredBackgroundIndex(profile.preferredBackground)
+        } else if (
+          !ownsCosmeticIndex(
+            profile,
+            'background',
+            getStoredBackgroundIndex(),
+          )
+        ) {
+          applyStoredBackgroundIndex(DEFAULT_BACKGROUND_INDEX)
+        }
         applyStoredGroundIndex(profile.preferredGround)
       })
       .catch((err: unknown) => {
@@ -86,17 +144,21 @@ function App() {
   const inTelegram = isTelegramEnvironment()
 
   const handleSignIn = useCallback(async () => {
-    setAuthStatus('Signing in…')
+    setAuthStatus(t('sign.inProgress'))
     try {
       const result = await signInWithTelegram()
       setSession(result)
       setAuthStatus(
-        `Signed in: role=${result.role} id=${result.user.telegramId} @${result.user.username ?? '—'}`,
+        t('sign.signedIn', {
+          role: result.role,
+          id: result.user.telegramId,
+          name: result.user.username ?? result.user.firstName,
+        }),
       )
     } catch (err) {
-      setAuthStatus(`Failed: ${describeSignInError(err, inTelegram)}`)
+      setAuthStatus(t('sign.failed', {message: describeSignInError(err, inTelegram)}))
     }
-  }, [inTelegram])
+  }, [inTelegram, t])
 
   // Local dev convenience (AUTH-04/DOC-03): sign in straight away, once, when
   // VITE_TELEGRAM_ID is configured; the ref keeps StrictMode's double mount
@@ -154,13 +216,22 @@ function App() {
           />
         )
       case 'challenges':
-        return <ChallengesPage />
+        return (
+          <ChallengesPage
+            signedInUid={signedInUid}
+            onSignIn={requestSignIn}
+          />
+        )
       case 'profile':
         return (
           <ProfilePage signedInUid={signedInUid} onSignIn={requestSignIn} />
         )
       case 'admin':
         return role === 'admin' ? <AdminPage /> : null
+      // UI-02 — How to play, opened from Home's settings menu (Info). The
+      // bottom nav stays visible, so it is also the way back.
+      case 'tutorial':
+        return <TutorialPage />
     }
   }
 
@@ -171,7 +242,11 @@ function App() {
   // Active gameplay only: the nav bars are conditionally REMOVED (not made
   // transparent) so the run uses the full vertical space. They come back on
   // the ready screen, the game-over/result state and every other screen.
-  const navHidden = screen === 'game' && gamePhase === 'playing'
+  // PAUSE — the 3-2-1 countdown counts as gameplay: bringing the nav back for
+  // those three seconds would resize the canvas mid-countdown (the frozen run
+  // would jump under the player) and then hide it again.
+  const navHidden =
+    screen === 'game' && (gamePhase === 'playing' || gamePhase === 'countdown')
 
   return (
     <div className="shell">
@@ -187,7 +262,13 @@ function App() {
               aria-current={screen === item.screen ? 'page' : undefined}
               onClick={() => navigate(item.screen)}
             >
-              {item.label}
+              <PixelIcon
+                name={item.icon}
+                size={24}
+                pressed={screen === item.screen}
+                className="navlink-icon"
+              />
+              <span className="navlink-label">{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>

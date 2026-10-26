@@ -22,5 +22,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // *.test.ts runs in Node (see tsconfig.test.json) and is not browser code.
+  "exclude": ["src/**/*.test.ts"]
 }

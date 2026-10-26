@@ -147,6 +147,162 @@
   gap: 10px;
 }
 
+/* ------------------------------------------------------------------ */
+/* UI-02 — Home settings button (top-right) + its left-opening menu.   */
+/* ------------------------------------------------------------------ */
+
+.settings {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 12px;
+  z-index: 2;
+}
+
+/* The gear key alone: no word, no plate around it — the sprite IS the button,
+   so the corner shows one physical key instead of a key inside a box. */
+.settings-button {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.45));
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-button:active {
+  transform: translateY(1px);
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid #fff4d6;
+  outline-offset: 3px;
+}
+
+/* Anchored to the button's right edge and growing LEFTWARD, so it stays on
+   screen from the corner position. */
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #fff8e1;
+  border: 3px solid #a5420c;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #a5420c;
+}
+
+/* The three one-tap settings, as sprite glyph buttons. The gear row is the
+   menu's headline; the two text rows below it are the switches the sheet has
+   no symbol for. */
+.settings-icons {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-icon-button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.35));
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-icon-button:focus-visible {
+  outline: 2px solid #5a1e05;
+  outline-offset: 2px;
+}
+
+.settings-icon-button:active {
+  transform: translateY(1px);
+}
+
+.settings-item {
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settings-item:hover,
+.settings-item:focus-visible {
+  background: #ffe07a;
+}
+
+/* ------------------------------------------------------------------ */
+/* UI-02 — "How to play" tutorial screen (Home → Settings → Info).     */
+/* ------------------------------------------------------------------ */
+
+/* Same frame as .board-screen / .challenges-screen: fills the screen area,
+   scrolls, and keeps the last element clear of the floating bottom nav. */
+.tutorial-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.tutorial-title {
+  margin: 0;
+  font-family: var(--heading);
+  font-size: clamp(14px, 4vw, 20px);
+  color: #5a1e05;
+  text-align: center;
+}
+
+.tutorial-text {
+  margin: 0;
+  font-size: clamp(10px, 3vw, 12px);
+  line-height: 1.9;
+  color: #5a1e05;
+  text-align: center;
+}
+
+/* Square slot for the tutorial GIF (1:1 so the real asset drops straight in
+   without touching this rule). */
+.tutorial-media {
+  width: min(78vw, 320px);
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.32);
+  border: 3px dashed #a5420c;
+  border-radius: 14px;
+  image-rendering: pixelated;
+}
+
+.tutorial-media-note {
+  font-size: 9px;
+  color: #8a6a4a;
+}
+
 .btn {
   font-family: var(--sans);
   font-size: clamp(11px, 3vw, 14px);
@@ -159,6 +315,12 @@
   cursor: pointer;
   box-shadow: 0 4px 0 #a5420c;
   transition: transform 0.05s ease, box-shadow 0.05s ease;
+  /* Sprite glyphs sit inside most buttons now, so the box is a centred row:
+     label-only buttons look exactly as before, icon buttons line up. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .btn:active {
@@ -220,47 +382,64 @@ a.btn {
   font-family: var(--sans);
   font-size: 11px;
   font-weight: 400;
-  color: #ffd23f;
+  color: #fff4d6;
   background: transparent;
   border: none;
   border-radius: 8px;
   padding: 8px 14px;
   cursor: pointer;
+  /* Halo instead of a chip: the labels sit straight on the art (brick, ground
+     or a pale settings page), and a tight dark glow keeps them legible on
+     all three without drawing a second border around the button. */
+  text-shadow:
+    0 1px 0 rgba(90, 30, 5, 0.9),
+    0 0 3px rgba(90, 30, 5, 0.8);
+  /* Pixel sprite above the word: the sprite is the button face, the label is
+     its caption — the nav reads like a row of arcade keys. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
 }
 
+.navlink-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* No chip, no frame, no second border: the key IS the button. The selected
+   screen is simply its key held down (pressed sheet) plus a gold caption, so
+   the nav speaks the same two-state language as every other sprite button. */
 .navlink-active {
-  background: #ffd23f;
-  color: #5a1e05;
-  box-shadow: 0 2px 0 #a5420c;
+  color: #ffd23f;
 }
 
-/* Floating bottom-nav buttons: light translucent chips (no bar behind them)
-   with a text shadow so they stay readable on top of the ground art. They
-   flex to fill the row — tighter padding/font than the desktop links so all
-   five labels fit without horizontal overflow. */
 .bottomnav .navlink {
   flex: 1 1 auto;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   text-align: center;
-  padding: 8px 6px;
+  padding: 5px 4px 6px;
   font-size: 10px;
-  background: rgba(90, 30, 5, 0.3);
-  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
 }
 
-@media (max-width: 359.98px) {
+/* Phones: six pixel-font labels plus icons do not fit above ~480px, so the
+   caption drops to 8px and the padding tightens — the icons carry the
+   recognition, the words stay readable underneath. */
+@media (max-width: 479.98px) {
   .bottomnav .navlink {
-    padding: 8px 3px;
+    padding: 4px 2px 5px;
     font-size: 8px;
+  }
+
+  .bottomnav {
+    gap: 1px;
   }
 }
 
-.bottomnav .navlink-active {
-  text-shadow: none;
-}
 
 /* DATA-01 — consent dialog on the Game screen (inside a placeholder page). */
 .consent {
@@ -306,7 +485,48 @@ a.btn {
   margin-top: 14px;
 }
 
-/* Play button + (for admins) the Admin Panel shortcut on Home. */
+/* Home tap-to-play: once signed in, the whole screen starts a run, so the page
+   itself is the target (its controls opt out — see HomePage.tsx). */
+.page-playable {
+  cursor: pointer;
+}
+
+/* The play key. Deliberately not a .btn: no yellow chrome — the sprite
+   sheet's arrow cell IS the button, pulsing over the sky. It stays a real
+   button for keyboard users; hover/press swap to the pressed sheet via
+   pixelIcons.css, like every other sprite key. */
+.tap-to-play {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+  animation: tap-to-play-pulse 1.8s ease-in-out infinite;
+}
+
+.tap-to-play:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+@keyframes tap-to-play-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tap-to-play {
+    animation: none;
+  }
+}
+
+/* Tap-to-play line + (for admins) the Admin Panel shortcut on Home. */
 .home-actions {
   display: flex;
   align-items: center;
@@ -511,7 +731,6 @@ a.btn {
 }
 
 .profile-card,
-.profile-name-editor,
 .profile-appearance {
   width: 100%;
   display: flex;
@@ -521,6 +740,18 @@ a.btn {
   background: rgba(255, 210, 63, 0.12);
   border: 2px solid #ffd23f;
   border-radius: 14px;
+  box-sizing: border-box;
+}
+
+/* The in-game name editor is part of the identity card now (no second panel):
+   a divider above it, then label, field and Edit/Save on one row. */
+.profile-name-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(255, 210, 63, 0.3);
   box-sizing: border-box;
 }
 
@@ -601,6 +832,53 @@ a.btn {
   grid-template-columns: 1fr auto;
 }
 
+/* Last-used look under the scores: skin, sky and ground in the order they are
+   chosen, with the way into the wardrobe right after them. */
+.profile-look {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(255, 210, 63, 0.3);
+}
+
+.profile-look-thumbs {
+  display: flex;
+  gap: 8px;
+}
+
+.look-thumb {
+  width: 42px;
+  height: 42px;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  background-color: rgba(90, 30, 5, 0.15);
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* Same crops as the wardrobe tiles (see .appearance-grid-*). */
+.look-thumb-skin {
+  background-size: 400% auto;
+  background-position: left center;
+}
+
+.look-thumb-background {
+  background-size: cover;
+  background-position: center;
+}
+
+.look-thumb-ground {
+  background-size: cover;
+  background-position: center 30%;
+}
+
+.profile-wardrobe {
+  gap: 6px;
+}
+
 /* In-game name editor. */
 .profile-name-label {
   font-size: 10px;
@@ -632,6 +910,17 @@ a.btn {
   outline-offset: 1px;
 }
 
+/* Read-only until Edit: same field, quieter ink, so the state is visible. */
+.profile-name-input[readonly] {
+  background: rgba(255, 248, 225, 0.55);
+  color: #7a4a2a;
+  cursor: default;
+}
+
+.profile-name-action {
+  white-space: nowrap;
+}
+
 .profile-name-error,
 .profile-name-saved {
   margin: 0;
@@ -647,34 +936,730 @@ a.btn {
   color: #ffd23f;
 }
 
-/* UI-04 — appearance switchers (bird skin / sky background / ground strip),
-   moved here from Home's corner buttons. Each button carries a live
-   thumbnail of the current choice. */
-.profile-choices {
+/* UI-04 rev / SHOP-01 — appearance picker: three tabs switch one grid of
+   options. Each option is a square thumb with a caption (Select / Selected /
+   Locked); locked shop items add a lock badge and a compact Buy button. */
+.appearance-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.profile-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  /* Let the three chips share a row on narrow phones without overflowing. */
+.appearance-tab {
   flex: 1 1 auto;
   min-width: 0;
-  justify-content: center;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
-/* Thumbnail = a 24px crop of the current pick (sheet/strip/sky art is wider
-   than tall, so cover + left alignment shows its first frame/section). */
-.profile-choice-thumb {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  border: 1px solid #a5420c;
-  border-radius: 6px;
-  object-fit: cover;
-  object-position: left top;
+.appearance-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.appearance-balance {
+  font-size: 10px;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 10px 8px;
+}
+
+.appearance-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.appearance-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.appearance-tile:disabled {
+  cursor: wait;
+}
+
+.appearance-thumb-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 3px solid #a5420c;
+  border-radius: 10px;
+  background: rgba(90, 30, 5, 0.12);
+  box-sizing: border-box;
+}
+
+.appearance-tile:hover .appearance-thumb-wrap,
+.appearance-tile:focus-visible .appearance-thumb-wrap {
+  border-color: #ffd23f;
+}
+
+.appearance-tile[aria-pressed='true'] .appearance-thumb-wrap {
+  border-color: #ffd23f;
+  box-shadow: inset 0 0 0 3px #5a1e05;
+}
+
+.appearance-tile:disabled:hover .appearance-thumb-wrap {
+  border-color: #a5420c;
+}
+
+.appearance-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
   image-rendering: pixelated;
+}
+
+.appearance-caption {
+  font-size: 9px;
+  line-height: 1.3;
+  color: #5a1e05;
+  text-align: center;
+}
+
+.appearance-tile[aria-pressed='true'] .appearance-caption {
+  color: #a5420c;
+  font-weight: 700;
+}
+
+.appearance-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(90, 30, 5, 0.5);
+}
+
+.appearance-buy {
+  width: 100%;
+  gap: 4px;
+  padding: 5px 4px;
+  font-size: 9px;
+  box-shadow: 0 2px 0 #a5420c;
+}
+
+.appearance-buy-price {
+  color: #8e1c1c;
+  font-weight: 700;
+}
+
+/* Skins are 4-frame sheets — frame 1 fills the tile (25% of the width). */
+.appearance-grid-skins .appearance-thumb {
+  background-size: 400% auto;
+  background-position: left center;
+}
+
+.appearance-grid-backgrounds .appearance-thumb {
+  background-size: cover;
+  background-position: center;
+}
+
+/* Grounds are wide strips — center on the grass/dirt texture. */
+.appearance-grid-grounds .appearance-thumb {
+  background-size: cover;
+  background-position: center 30%;
+}
+
+/* ------------------------------------------------------------------ */
+/* CH-01 — Challenges screen: cards with status pill + progress bar.  */
+/* ------------------------------------------------------------------ */
+
+/* Mirrors .board-screen: width includes padding (no sideways scroll),
+   bottom padding keeps the last card clear of the floating nav. */
+.challenges-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.challenge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* CH-02 — Challenges search box + All/Active/Finished filter tabs.    */
+/* ------------------------------------------------------------------ */
+
+.challenge-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.challenge-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* Same field look as .profile-name-input, kept as its own class so the
+   challenges screen can restyle independently. */
+.challenge-search {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #fff8e1;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+.challenge-search::placeholder {
+  color: #8a6a4a;
+}
+
+.challenge-search:focus {
+  outline: 2px solid #ffd23f;
+  outline-offset: 1px;
+}
+
+/* "7 challenges" / "3 of 7 shown" — the search's live feedback line. */
+.challenge-count {
+  margin: 0;
+  font-size: 9px;
+  color: #5a1e05;
+  text-align: center;
+}
+
+/* Filters matched nothing: message + Clear button, both centered. */
+.challenge-none {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.challenge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.challenge-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.challenge-title {
+  margin: 0;
+  font-size: 12px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+/* Status pill: solid amber = running now, outlined = not started yet,
+   muted = over. Status is derived from the dates, never stored. */
+.challenge-status {
+  flex-shrink: 0;
+  font-size: 8px;
+  line-height: 1.6;
+  padding: 4px 8px;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  color: #5a1e05;
+  white-space: nowrap;
+}
+
+.challenge-status-active {
+  background: #ffd23f;
+}
+
+.challenge-status-upcoming {
+  background: transparent;
+  color: #a5420c;
+}
+
+.challenge-status-finished {
+  background: rgba(90, 30, 5, 0.15);
+  color: rgba(90, 30, 5, 0.75);
+}
+
+.challenge-desc {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.challenge-meta {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #a5420c;
+}
+
+/* Progress: rounded track + amber fill, then "value / target · pct". */
+.challenge-bar {
+  width: 100%;
+  height: 14px;
+  background: rgba(90, 30, 5, 0.18);
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.challenge-bar-fill {
+  display: block;
+  height: 100%;
+  background: #ffd23f;
+  transition: width 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-bar-fill {
+    transition: none;
+  }
+}
+
+.challenge-pct {
+  margin: 0;
+  font-size: 10px;
+  color: #5a1e05;
+}
+
+/* ------------------------------------------------------------------ */
+/* CH-06 — two labelled sections: Daily (personal, claimable) + Admin. */
+/* ------------------------------------------------------------------ */
+
+.challenge-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Heading and balance share one line; the balance reads as a quiet chip so
+   it never competes with the challenges themselves. */
+.challenge-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.challenge-section-title {
+  margin: 0;
+  font-size: 13px;
+  color: #5a1e05;
+}
+
+.challenge-balance {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1.6;
+  padding: 4px 9px;
+  color: #5a1e05;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* The reset clock is a single quiet line: the countdown is the point, the
+   label is not. */
+.daily-reset {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.8;
+  color: #a5420c;
+}
+
+.challenge-section-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Difficulty reads as intensity, not colour-coding: Easy is an outline,
+   Hard is filled solid (the same fill the Active status pill uses). */
+.challenge-difficulty {
+  flex-shrink: 0;
+  font-size: 8px;
+  line-height: 1.6;
+  padding: 4px 8px;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  color: #5a1e05;
+  white-space: nowrap;
+}
+
+.challenge-difficulty-normal {
+  background: transparent;
+  color: #a5420c;
+}
+
+.challenge-difficulty-hard {
+  background: #ffd23f;
+}
+
+/* Reward sits at the end of the meta line: "+20 coins". */
+.daily-reward {
+  display: inline-block;
+  margin-left: 8px;
+  color: #a5420c;
+  white-space: nowrap;
+}
+
+.claim-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* Claimed / Expired are states, not actions: they read as pills, never as
+   something to press. */
+.claim-state {
+  font-size: 9px;
+  line-height: 1.6;
+  padding: 5px 12px;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+  color: #5a1e05;
+  white-space: nowrap;
+}
+
+.claim-state-claimed {
+  background: rgba(255, 210, 63, 0.55);
+}
+
+.claim-state-expired {
+  border-color: rgba(90, 30, 5, 0.35);
+  color: rgba(90, 30, 5, 0.7);
+}
+
+/* Only a completed, unexpired reward gets the full amber call to action; the
+   disabled (incomplete) button is visibly inert. */
+.claim-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: 0 3px 0 rgba(165, 66, 12, 0.35);
+}
+
+.claim-button:disabled:active {
+  transform: none;
+  box-shadow: 0 3px 0 rgba(165, 66, 12, 0.35);
+}
+
+.challenge-error {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #b3261e;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ */
+/* CH-03 — Admin Panel: the validated challenge form + edit list.      */
+/* ------------------------------------------------------------------ */
+
+/* Mirrors .challenges-screen: the panel scrolls, and the bottom padding
+   keeps the last row clear of the floating nav. */
+.admin-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 16px 96px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.admin-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(255, 210, 63, 0.12);
+  border: 2px solid #ffd23f;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.admin-title {
+  margin: 0;
+  font-size: 12px;
+  color: #5a1e05;
+}
+
+.challenge-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Two fields side by side (type/target, start/end); they wrap on narrow
+   screens instead of squeezing the pixel font. */
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.form-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Only inside a .form-row do fields share the width; as a direct child of the
+   column form a flex-basis would be read as a minimum HEIGHT. */
+.form-row > .form-field {
+  flex: 1 1 180px;
+}
+
+.form-label {
+  font-size: 10px;
+  color: #a5420c;
+}
+
+/* Same field look as .challenge-search / .profile-name-input. */
+.form-input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: #5a1e05;
+  background: #fff8e1;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: 2px solid #ffd23f;
+  outline-offset: 1px;
+}
+
+textarea.form-input {
+  min-height: 74px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.form-input::placeholder {
+  color: #8a6a4a;
+}
+
+/* Invalid state: red border + pale red fill, so a bad field is visible even
+   before its message is read. */
+.form-input-invalid,
+.form-input-invalid:focus {
+  border-color: #c62828;
+  background: #fff3f2;
+}
+
+/* The message under an invalid field. */
+.form-error {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #c62828;
+}
+
+/* "Nothing was saved — 3 fields need fixing." / backend failures. */
+.form-error-general {
+  padding: 8px 10px;
+  font-size: 10px;
+  background: rgba(198, 40, 40, 0.12);
+  border: 2px solid #c62828;
+  border-radius: 10px;
+}
+
+.form-saved {
+  margin: 0;
+  font-size: 10px;
+  color: #2e7d32;
+  text-align: center;
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.7;
+  color: #8a6a4a;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-challenge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-challenge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 210, 63, 0.16);
+  border: 2px solid #ffd23f;
+  border-radius: 10px;
+}
+
+.admin-challenge-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-challenge-title {
+  font-size: 10px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.admin-challenge-meta {
+  font-size: 8px;
+  color: #a5420c;
+}
+
+/* ADM-02 — row actions: Edit + Delete share one right-aligned cluster. */
+.admin-challenge-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Destructive action: the same raised button shape as .btn, in the alert red
+   the invalid-field state already uses. */
+.btn-danger {
+  color: #8e1c1c;
+  background: #ffe0de;
+  border-color: #c62828;
+  box-shadow: 0 3px 0 #c62828;
+}
+
+.btn-danger:active {
+  box-shadow: 0 1px 0 #c62828;
+}
+
+/* ------------------------------------------------------------------ */
+/* ADM-02 — the confirmation dialog (ConfirmDialog.tsx).              */
+/* ------------------------------------------------------------------ */
+
+/* Fixed overlay: covers the app shell (nav included) so a stray tap cannot
+   reach the screen behind the decision. It scrolls, and the dialog is capped
+   to the viewport, so it still fits a short mobile screen (spec: modālajām
+   formām jāietilpst mobilā ekrānā). */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(90, 30, 5, 0.55);
+  overflow-y: auto;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 380px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px;
+  background: #fff8e1;
+  border: 3px solid #a5420c;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(90, 30, 5, 0.35);
+  box-sizing: border-box;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 13px;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.modal-text {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #5a1e05;
+  overflow-wrap: anywhere;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }

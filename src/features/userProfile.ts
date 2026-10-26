@@ -31,10 +31,20 @@ export interface UserProfile {
   totalGames?: number
   totalScore?: number
   /** UI-04 — preferred bird skin index (birdSkinUrls), background index and
-   *  ground tile index; hydrated into localStorage on sign-in. */
+   *  ground tile index; hydrated into localStorage on sign-in. These indices
+   *  ARE the equipped-cosmetic state (ECON-01 reuses them instead of adding
+   *  an equippedSkinId field) — index-aligned with features/economy.ts
+   *  SKIN_IDS/BACKGROUND_IDS. */
   preferredBird?: number
   preferredBackground?: number
   preferredGround?: number
+  /** ECON-01 — economy fields, written only by the server
+   *  (initializeEconomy backfills them at sign-in; legacy docs simply lack
+   *  them until then — coins absent counts as 0). See features/economy.ts. */
+  coins?: number
+  ownedSkinIds?: string[]
+  ownedBackgroundIds?: string[]
+  economyVersion?: number
   acceptedDataProcessingAt?: { toDate(): Date }
   createdAt?: { toDate(): Date }
 }
@@ -121,6 +131,8 @@ export interface SubmitRunInput {
   score: number
   durationMs: number
   jumpCount: number
+  /** E — client id that makes an offline-queue retry idempotent server-side. */
+  runId?: string
 }
 
 export interface SubmitRunResponse {
@@ -129,6 +141,10 @@ export interface SubmitRunResponse {
   totalGames: number
   totalScore: number
   newBest: boolean
+  /** ECON-03 — coins this accepted run paid: Math.floor(score / 5). */
+  coinsEarned: number
+  /** The authoritative coin balance after the write (unchanged on a retry). */
+  coins: number
 }
 
 /**

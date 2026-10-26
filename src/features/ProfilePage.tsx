@@ -1,7 +1,8 @@
 // UI-04 — Profile screen: Telegram identity (photo + name fallbacks), role,
 // and the score aggregates from the users/{uid} doc — plus the in-game
-// username editor and the appearance switchers (bird skin, sky background,
-// ground strip) moved over from Home.
+// username editor and the appearance picker (three tabs — Skins, Backgrounds,
+// Grounds — each showing a grid of options you tap to pick; moved over from
+// Home).
 //
 // Name fallback chain (same as the server's leaderboardName): in-game name →
 // @username → first name → "Player" (the DoD's "korekts fallback"). The
@@ -17,7 +18,7 @@
 // case points at the Game screen, where the consent dialog lives. Load state
 // is derived (uid vs loadedUid) so the effect only sets state in async
 // callbacks — no cascading synchronous renders.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import {
@@ -28,25 +29,50 @@ import {
   type UpdateProfileInput,
   type UserProfile,
 } from './userProfile'
+import {
+  cosmeticIdAt,
+  cosmeticPrice,
+  ownsCosmeticIndex,
+  type CosmeticKind,
+} from './economy'
+import { purchaseCosmetic } from './cosmetics'
+import { ConfirmDialog } from './ConfirmDialog'
 import { birdSkinUrls } from './game/sprites'
-import { useBirdSkinIndex } from './birdSkin'
-import { useGroundIndex } from './groundTile'
-import { useBackgroundIndex } from './homeBackground'
+import { applyStoredBirdSkinIndex, useBirdSkinIndex } from './birdSkin'
+import { applyStoredGroundIndex, useGroundIndex } from './groundTile'
+import {
+  applyStoredBackgroundIndex,
+  useBackgroundIndex,
+} from './homeBackground'
 import { backgrounds, groundUrls } from '../sprites'
+import { useT, type t as TFn } from '../i18n'
 import { PlaceholderPage } from './PlaceholderPage'
+import { PixelIcon } from './ui/PixelIcon'
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
 const birdAvatarUrl = birdSkinUrls[0]
 
-/** Display name: in-game name → @username → first name → "Player". */
-function profileDisplayName(profile: UserProfile): string {
+/** The Profile appearance pickers — each tab shows one grid of options. */
+type AppearanceTab = 'skin' | 'background' | 'ground'
+
+const APPEARANCE_TABS: { kind: AppearanceTab; labelKey: string }[] = [
+  { kind: 'skin', labelKey: 'profile.tabs.skins' },
+  { kind: 'background', labelKey: 'profile.tabs.backgrounds' },
+  { kind: 'ground', labelKey: 'profile.tabs.grounds' },
+]
+
+/**
+ * Display name: in-game name → @username → first name → "Player".
+ * `t` comes from the caller so the fallback follows the active language.
+ */
+function profileDisplayName(profile: UserProfile, t: typeof TFn): string {
   const inGame = profile.inGameName?.trim()
   if (inGame) return inGame
   const username = profile.username?.trim()
   if (username) return `@${username}`
   const first = profile.firstName?.trim()
   if (first) return first
-  return 'Player'
+  return t('profile.player')
 }
 
 export function ProfilePage({
@@ -56,6 +82,7 @@ export function ProfilePage({
   signedInUid: string | null
   onSignIn: () => void
 }) {
+  const { t } = useT()
   // The profile/error + the uid it was loaded for. `loading` is derived:
   // anything the current uid hasn't loaded yet shows the loading state (this
   // also covers sign-out → sign-in back to the same account).
@@ -63,20 +90,43 @@ export function ProfilePage({
   const [loadedUid, setLoadedUid] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // In-game name editor state.
+  // In-game name editor state. The field is read-only until Edit is pressed —
+  // tapping Edit turns the SAME field editable and the button into Save, with
+  // no dialog and no section opening (UI-04 rev).
   const [nameDraft, setNameDraft] = useState('')
   const [nameBusy, setNameBusy] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
   const [nameSaved, setNameSaved] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
-  // Appearance switchers (UI-04): shared localStorage index + a best-effort
-  // mirror into users/{uid} (a failed save keeps the local choice working).
-  const [skinIndex, cycleSkin] = useBirdSkinIndex()
-  const [backgroundIndex, cycleBackground] = useBackgroundIndex(
-    backgrounds.length,
-  )
-  const [groundIndex, cycleGround] = useGroundIndex()
+  // Appearance picker (UI-04 rev): one shared index per kind, live in
+  // localStorage; the three tabs switch which grid is shown below them.
+  const [skinIndex] = useBirdSkinIndex()
+  const [backgroundIndex] = useBackgroundIndex(backgrounds.length)
+  const [groundIndex] = useGroundIndex()
+  const [appearanceTab, setAppearanceTab] = useState<AppearanceTab>('skin')
   const [prefError, setPrefError] = useState<string | null>(null)
+  // The one collapsible section on this screen: the wardrobe pickers stay
+  // closed until the player asks for them.
+  const [showAppearance, setShowAppearance] = useState(false)
+
+  // SHOP-01 — the purchase dialog. The server is the only source of prices,
+  // balance and ownership; this state just drives the confirmation UI.
+  const [purchaseTarget, setPurchaseTarget] = useState<{
+    kind: CosmeticKind
+    index: number
+    itemId: string
+    price: number
+  } | null>(null)
+  const [purchaseBusy, setPurchaseBusy] = useState(false)
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const [wardrobeNote, setWardrobeNote] = useState<{
+    tone: 'ok' | 'error'
+    text: string
+  } | null>(null)
+  /** Synchronous guard: a double click cannot start two purchase requests. */
+  const purchaseInFlight = useRef(false)
 
   useEffect(() => {
     if (!signedInUid) return
@@ -105,10 +155,10 @@ export function ProfilePage({
       <PlaceholderPage card="UI-04">
         <div className="guard">
           <p className="guard-text">
-            Sign in with Telegram to see your profile and stats.
+            {t('profile.guard')}
           </p>
           <button type="button" className="btn" onClick={onSignIn}>
-            Sign in with Telegram
+            {t('sign.signIn')}
           </button>
         </div>
       </PlaceholderPage>
@@ -118,7 +168,7 @@ export function ProfilePage({
   if (signedInUid !== loadedUid) {
     return (
       <PlaceholderPage card="UI-04">
-        <p className="guard-text">Loading your profile…</p>
+        <p className="guard-text">{t('profile.loading')}</p>
       </PlaceholderPage>
     )
   }
@@ -127,7 +177,7 @@ export function ProfilePage({
     return (
       <PlaceholderPage card="UI-04">
         <div className="guard">
-          <p className="guard-text">Could not load your profile.</p>
+          <p className="guard-text">{t('profile.error')}</p>
           <p className="placeholder-note">{error}</p>
         </div>
       </PlaceholderPage>
@@ -140,49 +190,183 @@ export function ProfilePage({
       <PlaceholderPage card="UI-04">
         <div className="guard">
           <p className="guard-text">
-            No player profile yet. Open the Game screen and accept data
-            processing to create it.
+            {t('profile.none')}
           </p>
         </div>
       </PlaceholderPage>
     )
   }
 
-  const displayName = profileDisplayName(profile)
-  const nameTouched = nameDraft.trim() !== (profile.inGameName ?? '')
+  const displayName = profileDisplayName(profile, t)
 
-  /** Cycles one switcher locally, then mirrors it into users/{uid}. */
-  const changePref = (
-    cycle: () => void,
-    field: 'preferredBird' | 'preferredBackground' | 'preferredGround',
-    next: number,
-  ) => {
-    cycle()
+  // The active grid's data: preview urls, the current pick, and the shared
+  // setter (applyStored* validates, stores and broadcasts via window event).
+  const appearanceOptions: Record<
+    AppearanceTab,
+    {
+      urls: readonly string[]
+      index: number
+      apply: (n: number) => void
+      labelKey: string
+    }
+  > = {
+    skin: {
+      urls: birdSkinUrls,
+      index: skinIndex,
+      apply: applyStoredBirdSkinIndex,
+      labelKey: 'profile.opt.skin',
+    },
+    background: {
+      urls: backgrounds,
+      index: backgroundIndex,
+      apply: applyStoredBackgroundIndex,
+      labelKey: 'profile.opt.background',
+    },
+    ground: {
+      urls: groundUrls,
+      index: groundIndex,
+      apply: applyStoredGroundIndex,
+      labelKey: 'profile.opt.ground',
+    },
+  }
+  const activeOptions = appearanceOptions[appearanceTab]
+
+  // ECON-01 balance on the profile doc; absent on a legacy profile = 0.
+  const balance =
+    typeof profile.coins === 'number' && Number.isFinite(profile.coins)
+      ? profile.coins
+      : 0
+
+  /** Catalog id, server price and lock state for one tile (grounds are free). */
+  const tileInfo = (kind: AppearanceTab, index: number) => {
+    if (kind === 'ground') return { itemId: null, price: 0, locked: false }
+    const itemId = cosmeticIdAt(kind, index)
+    return {
+      itemId,
+      price: cosmeticPrice(kind, itemId) ?? 0,
+      locked: !ownsCosmeticIndex(profile, kind, index),
+    }
+  }
+
+  /**
+   * Taps an OWNED tile: applies the shared index locally, then mirrors it.
+   * Locked tiles never reach here (they open the purchase dialog instead), and
+   * the guard keeps that true even if a disabled state is bypassed.
+   */
+  const selectPref = (kind: AppearanceTab, i: number) => {
+    const option = appearanceOptions[kind]
+    if (i === option.index) return // already selected — nothing to save
+    if (kind !== 'ground' && !ownsCosmeticIndex(profile, kind, i)) return
+    option.apply(i)
+    setWardrobeNote(null)
     setPrefError(null)
-    const patch: UpdateProfileInput = { [field]: next }
+    const patch: UpdateProfileInput =
+      kind === 'skin'
+        ? { preferredBird: i }
+        : kind === 'background'
+          ? { preferredBackground: i }
+          : { preferredGround: i }
     updateProfile(patch).catch((err: unknown) => {
       // Keep the local choice — only the cross-device save failed.
       setPrefError(err instanceof Error ? err.message : String(err))
     })
   }
 
-  const saveName = async () => {
-    const candidate = nameDraft.trim()
-    setNameError(null)
-    setNameSaved(false)
-    if (!isValidInGameName(candidate)) {
-      setNameError(
-        `Must be ${IN_GAME_NAME_MIN}–${IN_GAME_NAME_MAX} characters: letters, digits, underscore.`,
-      )
+  /** Locked tile tap → confirmation, or an immediate insufficient-coin note. */
+  const openPurchase = (kind: CosmeticKind, index: number) => {
+    const itemId = cosmeticIdAt(kind, index)
+    const price = cosmeticPrice(kind, itemId)
+    if (itemId === null || price === null) return
+    setPrefError(null)
+    setWardrobeNote(null)
+    setPurchaseError(null)
+    if (balance < price) {
+      setWardrobeNote({
+        tone: 'error',
+        text: t('profile.insufficient', { price, balance }),
+      })
       return
     }
-    if (candidate === (profile.inGameName ?? '')) return
+    setPurchaseTarget({ kind, index, itemId, price })
+  }
+
+  const confirmPurchase = async () => {
+    if (!purchaseTarget || purchaseInFlight.current) return
+    const target = purchaseTarget
+    purchaseInFlight.current = true
+    setPurchaseBusy(true)
+    setPurchaseError(null)
+    try {
+      const result = await purchaseCosmetic(target.kind, target.itemId)
+      setProfile((current) =>
+        current
+          ? {
+              ...current,
+              coins: result.coins,
+              ownedSkinIds: result.ownedSkinIds,
+              ownedBackgroundIds: result.ownedBackgroundIds,
+            }
+          : current,
+      )
+      setPurchaseTarget(null)
+      setWardrobeNote({
+        tone: 'ok',
+        text: t(result.alreadyOwned ? 'profile.alreadyOwned' : 'profile.purchased'),
+      })
+    } catch (err) {
+      // Keep the dialog open: the server's reason is the useful next step.
+      setPurchaseError(err instanceof Error ? err.message : String(err))
+    } finally {
+      purchaseInFlight.current = false
+      setPurchaseBusy(false)
+    }
+  }
+
+  const purchaseName = purchaseTarget
+    ? `${t(
+        purchaseTarget.kind === 'skin'
+          ? 'profile.opt.skin'
+          : 'profile.opt.background',
+      )} ${purchaseTarget.index + 1}`
+    : ''
+
+  const nameRule = t('profile.nameRule', {
+    min: IN_GAME_NAME_MIN,
+    max: IN_GAME_NAME_MAX,
+  })
+  const nameValid = isValidInGameName(nameDraft)
+  const nameChanged = nameDraft.trim() !== (profile.inGameName ?? '')
+
+  /** Edit → the same field becomes editable, focused, and the button is Save. */
+  const startEditingName = () => {
+    setNameError(null)
+    setNameSaved(false)
+    setEditingName(true)
+    // Focus after the readOnly flip lands, so mobile keyboards open at once.
+    requestAnimationFrame(() => nameInputRef.current?.focus())
+  }
+
+  const saveName = async () => {
+    const candidate = nameDraft.trim()
+    setNameSaved(false)
+    // Validation lives in one place (shared with the server's rules); the
+    // button is disabled while invalid, so this is the belt to that brace.
+    if (!isValidInGameName(candidate)) {
+      setNameError(nameRule)
+      return
+    }
+    setNameError(null)
+    if (candidate === (profile.inGameName ?? '')) {
+      setEditingName(false)
+      return
+    }
     setNameBusy(true)
     try {
       const result = await updateProfile({ username: candidate })
       setProfile((p) => (p ? { ...p, inGameName: result.inGameName } : p))
       setNameDraft(result.inGameName)
       setNameSaved(true)
+      setEditingName(false)
     } catch (err) {
       setNameError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -198,7 +382,7 @@ export function ProfilePage({
             <img
               className="profile-avatar"
               src={profile.photoUrl}
-              alt={`${displayName} avatar`}
+              alt={t('profile.avatar', { name: displayName })}
               referrerPolicy="no-referrer"
             />
           ) : (
@@ -215,157 +399,306 @@ export function ProfilePage({
               <p className="profile-username">@{profile.username}</p>
             )}
             {profile.role === 'admin' && (
-              <span className="profile-role">admin</span>
+              <span className="profile-role">{t('profile.role')}</span>
             )}
           </div>
         </div>
 
+        <form
+          className="profile-name-editor"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void saveName()
+          }}
+        >
+          <label className="profile-name-label" htmlFor="in-game-name">
+            {t('profile.inGameName')}
+          </label>
+          <div className="profile-name-row">
+            <input
+              ref={nameInputRef}
+              id="in-game-name"
+              className={`profile-name-input${
+                editingName ? ' profile-name-input-editing' : ''
+              }`}
+              type="text"
+              value={nameDraft}
+              maxLength={IN_GAME_NAME_MAX}
+              readOnly={!editingName}
+              aria-readonly={!editingName}
+              onChange={(e) => {
+                setNameDraft(e.target.value)
+                setNameSaved(false)
+                setNameError(null)
+              }}
+              onKeyDown={(e) => {
+                // Escape leaves edit mode without saving; the value rolls back.
+                if (e.key === 'Escape' && editingName) {
+                  setNameDraft(profile.inGameName ?? '')
+                  setNameError(null)
+                  setEditingName(false)
+                }
+              }}
+              placeholder={t('profile.chars', {
+                min: IN_GAME_NAME_MIN,
+                max: IN_GAME_NAME_MAX,
+              })}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {editingName ? (
+              <button
+                type="submit"
+                className="btn btn-small profile-name-action"
+                disabled={nameBusy || !nameValid || !nameChanged}
+              >
+                <PixelIcon name="check" size={20} />
+                {nameBusy ? t('common.saving') : t('profile.save')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-small profile-name-action"
+                onClick={startEditingName}
+              >
+                <PixelIcon name="settings" size={20} />
+                {t('profile.edit')}
+              </button>
+            )}
+          </div>
+          {/* Live rule check while typing: an invalid draft says why before the
+              player presses Save (the button is disabled meanwhile). */}
+          {editingName && nameDraft.length > 0 && !nameValid && (
+            <p className="profile-name-error" role="alert">
+              {nameRule}
+            </p>
+          )}
+          {nameError && (
+            <p className="profile-name-error" role="alert">
+              {nameError}
+            </p>
+          )}
+          {nameSaved && (
+            <p className="profile-name-saved" role="status">
+              {t('profile.nameSaved')}
+            </p>
+          )}
+          <p className="placeholder-note">
+            {t('profile.nameHint')}
+          </p>
+        </form>
+
         <ul className="profile-stats">
           <li className="lrow">
-            <span className="lrow-name">Best score</span>
+            <span className="lrow-name">{t('profile.best')}</span>
             <span className="lrow-score">{profile.bestScore ?? 0}</span>
           </li>
           <li className="lrow">
-            <span className="lrow-name">Total games</span>
+            <span className="lrow-name">{t('profile.totalGames')}</span>
             <span className="lrow-score">{profile.totalGames ?? 0}</span>
           </li>
           <li className="lrow">
-            <span className="lrow-name">Total score</span>
+            <span className="lrow-name">{t('profile.totalScore')}</span>
             <span className="lrow-score">{profile.totalScore ?? 0}</span>
           </li>
         </ul>
+
+        {/* Last-used look, right under the scores: the three picks in the
+            order they are chosen, then the way into the wardrobe. */}
+        <div className="profile-look">
+          <div className="profile-look-thumbs">
+            <span
+              className="look-thumb look-thumb-skin"
+              style={{ backgroundImage: `url(${birdSkinUrls[skinIndex]})` }}
+              title={t('profile.opt.skin')}
+              aria-label={t('profile.opt.skin')}
+              role="img"
+            />
+            <span
+              className="look-thumb look-thumb-background"
+              style={{ backgroundImage: `url(${backgrounds[backgroundIndex]})` }}
+              title={t('profile.opt.background')}
+              aria-label={t('profile.opt.background')}
+              role="img"
+            />
+            <span
+              className="look-thumb look-thumb-ground"
+              style={{ backgroundImage: `url(${groundUrls[groundIndex]})` }}
+              title={t('profile.opt.ground')}
+              aria-label={t('profile.opt.ground')}
+              role="img"
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-small profile-wardrobe"
+            aria-expanded={showAppearance}
+            aria-controls="profile-appearance"
+            onClick={() => setShowAppearance((open) => !open)}
+          >
+            {t('profile.wardrobe')}
+            <PixelIcon name="hanger" size={20} pressed={showAppearance} />
+          </button>
+        </div>
       </div>
 
-      <form
-        className="profile-name-editor"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void saveName()
-        }}
-      >
-        <label className="profile-name-label" htmlFor="in-game-name">
-          In-game name
-        </label>
-        <div className="profile-name-row">
-          <input
-            id="in-game-name"
-            className="profile-name-input"
-            type="text"
-            value={nameDraft}
-            maxLength={IN_GAME_NAME_MAX}
-            onChange={(e) => {
-              setNameDraft(e.target.value)
-              setNameSaved(false)
-              setNameError(null)
-            }}
-            placeholder={`${IN_GAME_NAME_MIN}–${IN_GAME_NAME_MAX} chars`}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="submit"
-            className="btn btn-small"
-            disabled={
-              nameBusy ||
-              !nameTouched ||
-              nameDraft.trim() === (profile.inGameName ?? '')
-            }
-          >
-            {nameBusy ? 'Saving…' : 'Save'}
-          </button>
+
+      {/* The one collapsible section: closed until the wardrobe button (or the
+          chevron in this header) asks for it. */}
+      {showAppearance && (
+      <section className="profile-appearance" id="profile-appearance">
+        {/* No second collapse control here: the wardrobe button above already
+            shows the section's state and closes it. */}
+        <div className="appearance-top">
+          <p className="profile-name-label">{t('profile.appearance')}</p>
+          <span className="appearance-balance" aria-live="polite">
+            {t('profile.coins', { n: balance })}
+          </span>
         </div>
-        {nameError && (
-          <p className="profile-name-error" role="alert">
-            {nameError}
+        <div
+          className="appearance-tabs"
+          role="tablist"
+          aria-label={t('profile.tabsAria')}
+        >
+          {APPEARANCE_TABS.map((tab) => (
+            <button
+              key={tab.kind}
+              type="button"
+              role="tab"
+              className={`btn btn-small appearance-tab${
+                appearanceTab === tab.kind ? ' btn-active' : ''
+              }`}
+              aria-selected={appearanceTab === tab.kind}
+              onClick={() => setAppearanceTab(tab.kind)}
+            >
+              {t(tab.labelKey)}
+            </button>
+          ))}
+        </div>
+        <div
+          className={`appearance-grid appearance-grid-${appearanceTab}s`}
+          role="tabpanel"
+          aria-label={t(activeOptions.labelKey)}
+        >
+          {activeOptions.urls.map((url, i) => {
+            const selected = activeOptions.index === i
+            const info = tileInfo(appearanceTab, i)
+            const tabKind = appearanceTab
+            const name = `${t(activeOptions.labelKey)} ${i + 1}`
+            return (
+              <div key={`${tabKind}-${i}`} className="appearance-item">
+                <button
+                  type="button"
+                  className="appearance-tile"
+                  aria-label={`${name}${
+                    selected
+                      ? t('profile.selected')
+                      : info.locked
+                        ? ` — ${t('profile.lockedAria', {
+                            price: info.price,
+                          })}`
+                        : ''
+                  }`}
+                  aria-pressed={selected}
+                  disabled={purchaseBusy}
+                  onClick={() => {
+                    if (info.locked) {
+                      if (tabKind !== 'ground') openPurchase(tabKind, i)
+                      return
+                    }
+                    selectPref(tabKind, i)
+                  }}
+                >
+                  <span className="appearance-thumb-wrap">
+                    <span
+                      className="appearance-thumb"
+                      style={{ backgroundImage: `url(${url})` }}
+                      aria-hidden="true"
+                    />
+                    {info.locked && (
+                      <span className="appearance-lock" aria-hidden="true">
+                        <PixelIcon name="locked" size={20} />
+                      </span>
+                    )}
+                  </span>
+                  <span className="appearance-caption">
+                    {selected
+                      ? t('profile.selectedShort')
+                      : info.locked
+                        ? t('profile.locked')
+                        : t('profile.select')}
+                  </span>
+                </button>
+                {info.locked && (
+                  <button
+                    type="button"
+                    className="btn btn-small appearance-buy"
+                    disabled={purchaseBusy}
+                    aria-label={t('profile.buyAria', {
+                      item: name,
+                      price: info.price,
+                    })}
+                    onClick={() => {
+                      if (tabKind !== 'ground') openPurchase(tabKind, i)
+                    }}
+                  >
+                    <PixelIcon name="unlocked" size={14} />
+                    {t('profile.buy')}
+                    <span className="appearance-buy-price">{info.price}</span>
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {wardrobeNote && (
+          <p
+            className={
+              wardrobeNote.tone === 'error'
+                ? 'profile-name-error'
+                : 'profile-name-saved'
+            }
+            role={wardrobeNote.tone === 'error' ? 'alert' : 'status'}
+          >
+            {wardrobeNote.text}
           </p>
         )}
-        {nameSaved && (
-          <p className="profile-name-saved" role="status">
-            Saved — the leaderboard now shows this name.
-          </p>
-        )}
-        <p className="placeholder-note">
-          Shown on the leaderboard instead of your Telegram @username. 3–20
-          characters: letters, digits, underscore.
-        </p>
-      </form>
-
-      <section className="profile-appearance">
-        <p className="profile-name-label">Appearance</p>
-        <div className="profile-choices">
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleSkin,
-                'preferredBird',
-                (skinIndex + 1) % birdSkinUrls.length,
-              )
-            }
-            aria-label={`Change bird skin (${skinIndex + 1} of ${birdSkinUrls.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={birdSkinUrls[skinIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Skin {skinIndex + 1}/{birdSkinUrls.length}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleBackground,
-                'preferredBackground',
-                (backgroundIndex + 1) % backgrounds.length,
-              )
-            }
-            aria-label={`Change background (${backgroundIndex + 1} of ${backgrounds.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={backgrounds[backgroundIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Background {backgroundIndex + 1}/{backgrounds.length}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-small profile-choice"
-            onClick={() =>
-              changePref(
-                cycleGround,
-                'preferredGround',
-                (groundIndex + 1) % groundUrls.length,
-              )
-            }
-            aria-label={`Change ground (${groundIndex + 1} of ${groundUrls.length})`}
-          >
-            <img
-              className="profile-choice-thumb"
-              src={groundUrls[groundIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            Ground {groundIndex + 1}/{groundUrls.length}
-          </button>
-        </div>
         {prefError && (
           <p className="profile-name-error" role="alert">
-            Saved on this device only — {prefError}
+            {t('profile.prefError', { message: prefError })}
           </p>
         )}
         <p className="placeholder-note">
-          The game and Home use these right away; your choice is also saved to
-          your profile for other devices.
+          {t('profile.appearanceHint')}
         </p>
       </section>
+      )}
+
+      {/* SHOP-01 — the purchase confirmation shares the ADM-02 dialog, with a
+          gold confirm button and the server's failure reason kept inside it. */}
+      {purchaseTarget && (
+        <ConfirmDialog
+          title={t('profile.buyTitle')}
+          message={t('profile.buyMessage', {
+            item: purchaseName,
+            price: purchaseTarget.price,
+            balance: Math.max(0, balance - purchaseTarget.price),
+          })}
+          confirmLabel={t('profile.buy')}
+          busyLabel={t('profile.buying')}
+          busy={purchaseBusy}
+          error={purchaseError}
+          confirmIcon="unlocked"
+          confirmTone="primary"
+          cancelLabel={t('common.cancel')}
+          onConfirm={() => void confirmPurchase()}
+          onCancel={() => {
+            if (purchaseBusy) return
+            setPurchaseTarget(null)
+            setPurchaseError(null)
+          }}
+        />
+      )}
     </div>
   )
 }

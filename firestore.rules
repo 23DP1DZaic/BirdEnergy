@@ -2,28 +2,69 @@ rules_version = '2';
 
 // SEC-01 — BirdEnergy Firestore security rules.
 //
-// Model:
-//  - users/{uid}: one profile doc per player, uid is `tg-<telegramId>`.
-//    * The owner may READ their own profile (the app shows "your data" state).
-//    * WRITES happen only server-side (Cloud Functions via the Admin SDK —
-//      authenticateTelegram / acceptDataProcessing / submitGameResult later),
-//      because identity, consent and scores must never be trusted from the
-//      client. The Admin SDK bypasses these rules by design.
-//    * No public reads yet: the leaderboard (DATA-02/UI-03) will be served by
-//      a Cloud Function or a rules change when it actually exists — until then
-//      other players' profiles (telegram ids) stay private.
-//  - Everything else: closed until a backlog card needs it.
+// Access matrix (enforced by test/firestore.rules.test.ts, which runs these
+// rules against the emulator in the guest / player / admin scenarios):
+//
+//   path                        guest   player (role:user)      admin (role:admin)
+//   users/{uid}        get      —       own uid only            own uid only
+//   users              list     —       —                       —
+//   users              write    —       —                       —
+//   challenges/{id}    get/list —       yes                     yes
+//   challenges         write    —       —                       —
+//   gameResults        list     —       own uid only            own uid only
+//   gameResults/{id}   get      —       —                       —
+//   gameResults        write    —       —                       —
+//   anything else      read/write —     —                       —
+//
+// The invariant: NO direct client write is possible on users/, gameResults/ or
+// challenges/ — not by the document's own owner, and not by an admin. The
+// `role: 'admin'` custom claim only unlocks UI (the Admin nav link); it grants
+// no Firestore privilege, because every write is authorised INSIDE the Cloud
+// Function that performs it. Those functions run on the Admin SDK, which
+// bypasses these rules by design — so these rules are what protect the data
+// from the client, and the function is what authorises the change.
+//
+// Writers, all server-side: authenticateTelegram / acceptDataProcessing and
+// updateProfile (users), submitGameResult (users + gameResults),
+// adminChallengeMutation (challenges), getDailyChallenges (dailyChallenges)
+// and claimChallengeReward (challengeClaims + the daily snapshot + coins).
+// The economy subcollections under users/{uid} match the default deny below:
+// only the callables (Admin SDK, rules bypassed) can read or write them.
+//
+// Reads stay open only where the app needs them:
+//  - users/{uid}: the owner reads their own profile (App/Profile "your data").
+//    No list — the leaderboard is served by the getLeaderboard callable, so
+//    other players' profiles (telegramId, username, photoUrl) stay private.
+//  - challenges: the Challenges screen reads the whole list (CH-01 sorts and
+//    filters it client-side).
+//  - gameResults: a player lists ONLY their own runs, and the query must be
+//    constrained to where('uid', '==', request.auth.uid) for the rule to hold
+//    (CH-01 computes challenge progress that way); unscoped or other-scoped
+//    queries are rejected. Reading a run by id is not offered to the client.
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // One profile per player; uid is `tg-<telegramId>`.
     match /users/{uid} {
-      // Owner-only read; create/update/delete stay server-only.
       allow get: if request.auth != null && request.auth.uid == uid;
       allow list: if false;
       allow write: if false;
     }
 
-    // Default deny for any other path.
+    // ADM-01's adminChallengeMutation is the only writer.
+    match /challenges/{challengeId} {
+      allow get, list: if request.auth != null;
+      allow write: if false;
+    }
+
+    // One document per finished run; submitGameResult is the only writer.
+    match /gameResults/{resultId} {
+      allow list: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow get, write: if false;
+    }
+
+    // Default deny for any other path — including sub-collections of the
+    // collections above.
     match /{document=**} {
       allow read, write: if false;
     }

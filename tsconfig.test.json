@@ -1,0 +1,31 @@
+{
+  /*
+   * Type-checks the game-logic tests (TEST-01) on their own: the app project
+   * (tsconfig.app.json) excludes *.test.ts, because it is compiled for the
+   * browser and deliberately has no Node types. `npm test` runs this first, so
+   * a type error in a test fails the run even though Node strips the types
+   * without checking them.
+   */
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    /* "vite/client" brings import.meta.env, which the modules under test
+     * (challengeValidation → challenges → firebase → devAuth) refer to. */
+    "types": ["node", "vite/client"],
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.test.ts", "test/**/*.test.ts"]
+}

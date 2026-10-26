@@ -15,7 +15,7 @@ module.exports = [
     ignores: ["lib/**", "node_modules/**", "*.config.js"],
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "test/**/*.ts"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

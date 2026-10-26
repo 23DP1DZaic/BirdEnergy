@@ -9,7 +9,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "predeploy": "npm run build"
+    "predeploy": "npm run build",
+    "test": "tsc -p tsconfig.test.json && node --test \"lib-test/test/**/*.test.js\""
   },
   "engines": {
     "node": "24"
@@ -26,6 +27,11 @@
     "eslint": "^8.57.0",
     "firebase-functions-test": "^3.4.1",
     "typescript": "^6.0.0"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.14.5"
+    }
   },
   "private": true
 }

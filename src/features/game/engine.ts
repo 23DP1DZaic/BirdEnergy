@@ -26,6 +26,33 @@ const FLAP_VELOCITY = -420
 const MAX_FALL_SPEED = 650
 
 /**
+ * Small jump at the collision that kills the bird (feedback): the corpse
+ * hops up a little before gravity takes over — deliberately weaker than a
+ * real flap (FLAP_VELOCITY), so it reads as a bounce, not a flight.
+ */
+const DEATH_HOP_VELOCITY = -260
+
+/**
+ * Snappier death fall (feedback: the animation should be a bit faster than
+ * the ~1s it took): the dead-phase uses these instead of GRAVITY and
+ * MAX_FALL_SPEED — a stronger gravity AND a higher terminal speed, since at
+ * 650 px/s the cap (not gravity) dominates most of the path. The hop keeps
+ * the same initial velocity, so it stays visible but briefer.
+ * Rotation is distance-based, so it still lands on exactly -180° no matter
+ * how fast the fall is.
+ */
+const DEATH_GRAVITY = 2400
+const DEATH_FALL_SPEED = 1100
+
+/**
+ * AUDIO — the 'die' cue fires once the fall has covered this fraction of its
+ * path (apex → ground). It used to fire only on touchdown, which made it
+ * trail the crash — and the game-over panel — noticeably; 0.7 keeps it in
+ * the death animation but a beat before the bird lands.
+ */
+const DIE_SFX_FALL_PROGRESS = 0.7
+
+/**
  * Visual (render-only) scale for the bird and pipes: logical/world coordinates
  * stay 1:1 with the source art, and the renderer draws every game object
  * SPRITE_SCALE× bigger with nearest-neighbour so the pixel art stays crisp.
@@ -34,8 +61,16 @@ const MAX_FALL_SPEED = 650
  */
 export const SPRITE_SCALE = 3
 
-/** World constants. */
-export const PIPE_SPEED = 130
+/**
+ * On-screen bird sprite box (logical px): 16px art frame × SPRITE_SCALE —
+ * the same 48px box every skin is drawn into (BIRD_FRAME_W × SPRITE_SCALE in
+ * sprites.ts). Engine-local so the pure engine never imports the asset
+ * manifest.
+ */
+const BIRD_BOX = 16 * SPRITE_SCALE
+
+/** World constants. Pipes 1.1× faster per feedback (was 130 — ×1.1 = 143). */
+export const PIPE_SPEED = 143
 export const PIPE_SPACING = 240
 export const PIPE_GAP = 150
 export const PIPE_CAP_W = 32
@@ -48,13 +83,149 @@ export const BIRD_X = 120
  * reuses this for pipe collisions.
  */
 export const BIRD_R = 13
-const FLAP_FRAME_MS = 180 // 120ms × 1.5 — slower, calmer wing cycle
+const FLAP_FRAME_MS = 150 // 4 frames × 150ms = 600ms full wing cycle (250 felt too slow)
+
+/**
+ * GAME-05 — one-time world-speed increase.
+ *
+ * The world (sky, ground, every pipe) scrolls at PIPE_SPEED until the score
+ * reaches SPEED_INCREASE_SCORE, then ramps to HIGH_SCORE_SPEED_MULTIPLIER ×
+ * PIPE_SPEED over SPEED_RAMP_SECONDS and stays there: 100, 150, … never
+ * increase it again. The target is always derived from the SCORE over the
+ * BASE speed (never by multiplying the current multiplier), so repeated
+ * updates or rerenders cannot compound it, and the ramp is time-based, so it
+ * settles in the same wall-clock second on any frame rate.
+ *
+ * Speeds are logical px per second, not distances per frame — everything that
+ * moves with the world uses the same worldSpeed inside one stepGame call.
+ */
+export const SPEED_INCREASE_SCORE = 50
+export const HIGH_SCORE_SPEED_MULTIPLIER = 1.1
+export const SPEED_RAMP_SECONDS = 1
+
+/** The multiplier the world speed is easing toward for a given score. */
+export function targetSpeedMultiplier(score: number): number {
+  return score >= SPEED_INCREASE_SCORE ? HIGH_SCORE_SPEED_MULTIPLIER : 1
+}
+
+/** PAUSE — seconds counted down (3-2-1) over the frozen world before play continues. */
+export const RESUME_COUNTDOWN_S = 3
 
 /** Gap spawn bounds relative to the current view: 60px sky margin above the
  *  gap, 30px floor margin below it. */
 const GAP_TOP_MIN = 60
 
-export type GamePhase = 'ready' | 'playing' | 'game-over'
+// PAUSE — 'paused' is the pause screen over a frozen run; 'countdown' is the
+// 3-2-1 that both leaving the pause screen (resume AND Play again) goes
+// through. Both freeze the world exactly like 'game-over' does (stepGame).
+export type GamePhase =
+  | 'ready'
+  | 'playing'
+  | 'paused'
+  | 'countdown'
+  | 'dead'
+  | 'game-over'
+
+/**
+ * AUDIO — feedback the engine reports to the wrapper. `flap`/`score` fire
+ * while playing, `hit` on the collision that ends the run and `die` when the
+ * bird touches down. The engine stays DOM-free: it queues DATA, never sound —
+ * GameCanvas drains these into the audio layer.
+ */
+export type GameEvent = 'flap' | 'score' | 'hit' | 'die'
+
+/**
+ * C — the active challenge as the Game Over panel shows it. GamePage resolves
+ * it from the challenge list + this player's runs (always with celebrate:
+ * false — the ENGINE derives the completion celebration from the values
+ * themselves, see syncChallenge).
+ */
+export interface GameChallengeView {
+  id: string
+  title: string
+  /** Best score in the window, or games played — the challenge's own measure. */
+  value: number
+  target: number
+  /** True only for the game-over right after the target was reached. */
+  celebrate: boolean
+  /** s.time when `celebrate` was set — the banner pulses, then goes static. */
+  celebrateAt: number
+}
+
+/**
+ * A corpse left on the map after the death animation finished (frontend
+ * memory only — never written to Firestore or localStorage). x is the
+ * WORLD-space left edge of the 48x48 sprite box (worldX = scroll at death +
+ * screen x): the renderer draws it at x - s.scroll, so the corpse lies at
+ * the spot — and pipe slot — where the bird actually died and drifts off
+ * with the scrolling ground on later attempts instead of stacking under the
+ * flying bird. y is the top-left in view coords (re-anchored to the ground
+ * line on every canvas reflow). rotation is the final -180° pose
+ * (-π radians), and skinId is the birdSkin.ts index as a string so the
+ * renderer draws the EXACT sheet the player was using when they died.
+ */
+export interface DeadBird {
+  id: string
+  x: number
+  y: number
+  rotation: number
+  skinId: string
+  width: number
+  height: number
+  /** Final wing frame ("final animation state") — the glide frame. */
+  frame: number
+  animationFinished: boolean
+}
+
+/**
+ * Corpses left behind by this page session (frontend memory only — never
+ * written to Firestore or localStorage).
+ *
+ * It survives Play Again restarts and screen navigation within the session;
+ * a full page reload re-evaluates this module, which starts empty again.
+ *
+ * This used to be a bare module-level array plus a counter — it worked, but it
+ * hid its own rules (who assigns ids, how a corpse is re-glued to the ground)
+ * and could not be reset from a test. As a store it owns that bookkeeping and
+ * only hands out a readonly view of the birds.
+ */
+export class DeadBirdStore {
+  private birds: DeadBird[] = []
+  private sequence = 0
+
+  /** Every bird that died, in death order. The renderer draws these first. */
+  all(): readonly DeadBird[] {
+    return this.birds
+  }
+
+  get size(): number {
+    return this.birds.length
+  }
+
+  /** Records a landing and returns the stored snapshot (with its id). */
+  add(bird: Omit<DeadBird, 'id'>): DeadBird {
+    this.sequence += 1
+    const recorded: DeadBird = {id: `dead-${this.sequence}`, ...bird}
+    this.birds.push(recorded)
+    return recorded
+  }
+
+  /**
+   * Re-glues every corpse to a ground line after a resize/reflow: corpses rest
+   * ON the ground by construction, and the view height is what moves.
+   */
+  restOn(floorTopY: number): void {
+    for (const bird of this.birds) bird.y = floorTopY - bird.height / 2
+  }
+
+  /** Drops everything — a full reload does this by construction. */
+  clear(): void {
+    this.birds = []
+  }
+}
+
+/** The session's corpses — one store instance, shared by engine and renderer. */
+export const deadBirds = new DeadBirdStore()
 
 export interface BirdState {
   /** Vertical center of the bird in logical px. */
@@ -62,6 +233,9 @@ export interface BirdState {
   vy: number
   /** Accumulated ms — drives the 4-frame flap animation. */
   frameTime: number
+  /** Visual tilt in radians (render-only): nose up on flap, nose-right
+   *  (clockwise) while falling; eased toward the velocity target each step. */
+  angle: number
 }
 
 export interface PipePair {
@@ -86,6 +260,12 @@ export interface GameState {
   jumpCount: number
   /** Total world scroll — drives sky/ground parallax. */
   scroll: number
+  /**
+   * GAME-05 — current world-speed multiplier (1 → HIGH_SCORE_SPEED_MULTIPLIER).
+   * Eased once per playing step toward targetSpeedMultiplier(score); a fresh
+   * run starts back at 1 (createGameState / startGame).
+   */
+  speedMultiplier: number
   time: number
   /** Logical view height (follows the container, >= ~2 screens worth of sky). */
   viewH: number
@@ -93,6 +273,47 @@ export interface GameState {
   backgroundIndex: number
   /** Which ground strip to draw (index into the shared ground list). */
   groundIndex: number
+  /** Skin index of the ACTIVE bird — synced by GameCanvas from birdSkin.ts
+   *  and snapshotted into the corpse when the bird dies. */
+  skinIndex: number
+  /**
+   * PAUSE — seconds left of the resume countdown (0 = none). It is the only
+   * thing that advances while the phase is 'countdown'.
+   */
+  countdownLeft: number
+  /**
+   * PAUSE — where the countdown goes when it reaches 0: false = the frozen
+   * run continues (resumeGame), true = a fresh run starts (replayGame).
+   */
+  countdownRestarts: boolean
+  /** Death-animation bookkeeping: the tilt at the moment of collision and
+   *  the highest point reached (the impact hop's apex). Rotation progress is
+   *  measured from that apex down to the landing spot, so the spin spans the
+   *  whole fall and lands on exactly -180°. */
+  deathStartAngle: number
+  deathApexY: number
+  /** AUDIO — the 'die' cue has been queued for this death (fires mid-fall,
+   *  see DIE_SFX_FALL_PROGRESS; starts false with the rest of a fresh run). */
+  dieSoundQueued: boolean
+  currentPipeColorIndex?: number
+  lastPipeColorChangeScore: number
+  /** Pipe-palette cross-fade (GAME-05 smooth animation): the palette we are
+   *  fading FROM and the s.time the swap happened (render-only state;
+   *  colorSwapAt = -1 means “no fade in progress”). */
+  previousPipeColorIndex: number
+  colorSwapAt: number
+  /** AUDIO — queued events, drained once per frame (see drainEvents). */
+  events: GameEvent[]
+  /** C — the player's real (server) personal best; 0 until it has loaded. */
+  serverBest: number
+  /** C — the active challenge, when one is running (resolved by GamePage). */
+  challenge: GameChallengeView | null
+  /**
+   * C — alpha of the completion banner for THIS frame. The wrapper drives it
+   * from real time (see GameCanvas): s.time stops advancing once the run is
+   * over, so the engine itself cannot animate the pulse.
+   */
+  celebrateAlpha: number
 }
 
 /** DATA-01 — the per-run numbers submitGameResult persists. */
@@ -110,17 +331,32 @@ export function floorTop(s: GameState): number {
 export function createGameState(viewH: number = DEFAULT_VIEW_H): GameState {
   return {
     phase: 'ready',
-    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0 },
+    bird: { y: readyBirdY(viewH, 0), vy: 0, frameTime: 0, angle: 0 },
     pipes: [],
     score: 0,
     best: 0,
     runTime: 0,
     jumpCount: 0,
     scroll: 0,
+    speedMultiplier: 1,
     time: 0,
     viewH,
     backgroundIndex: 0,
     groundIndex: 0,
+    skinIndex: 0,
+    deathStartAngle: 0,
+    deathApexY: 0,
+    dieSoundQueued: false,
+    countdownLeft: 0,
+    countdownRestarts: false,
+    currentPipeColorIndex: 0,
+    lastPipeColorChangeScore: 0,
+    previousPipeColorIndex: 0,
+    colorSwapAt: -1,
+    events: [],
+    serverBest: 0,
+    challenge: null,
+    celebrateAlpha: 1,
   }
 }
 
@@ -131,14 +367,83 @@ function readyBirdY(viewH: number, time: number): number {
 /** In-place reset (the state object lives in the render loop closure). */
 export function resetGame(s: GameState): void {
   const best = s.best // session best survives restarts
+  // createGameState() defaults these to 0 — carry the player's live choices
+  // (Profile-preference sky/ground, hydrated on mount) across restarts too.
+  const backgroundIndex = s.backgroundIndex
+  const groundIndex = s.groundIndex
+  const skinIndex = s.skinIndex
+  const serverBest = s.serverBest
+  const challenge = s.challenge
   Object.assign(s, createGameState(s.viewH))
   s.best = best
+  s.backgroundIndex = backgroundIndex
+  s.groundIndex = groundIndex
+  s.skinIndex = skinIndex
+  // C — the best and the active challenge are fetched once and must survive
+  // "Play Again" too; only the run's own numbers start over. The completion
+  // celebration belongs to the game-over it happened on, so a fresh run
+  // starts with the numbers but no banner.
+  s.serverBest = serverBest
+  s.challenge =
+    challenge === null
+      ? null
+      : { ...challenge, celebrate: false, celebrateAt: 0 }
+  s.currentPipeColorIndex = 0
+  s.lastPipeColorChangeScore = 0
 }
 
-/** Ends the run: freezes the world and records the session best (GAME-04). */
+/**
+ * Ends the run: freezes the world and records the session best (GAME-04).
+ * The phase goes to 'dead' — the death animation then runs inside stepGame
+ * (fall under gravity while rotating to -180°) and, on landing, appends the
+ * corpse snapshot to deadBirds; only then does the game-over screen appear.
+ * The impact also injects a small upward hop (DEATH_HOP_VELOCITY) and records
+ * the rotation bookkeeping, so a bird that dies on the ground or a pipe
+ * bounces before it goes down.
+ * Collision re-enters endRun only from 'playing', so a bird can never start
+ * a second death animation (and the run result is reported exactly once).
+ */
+/**
+ * PAUSE — freezes a live run (playing → paused). Every other phase is
+ * ignored, so a stray tap can never pause the ready screen, the death
+ * animation or the result panel.
+ */
+export function pauseGame(s: GameState): void {
+  if (s.phase === 'playing') s.phase = 'paused'
+}
+
+/**
+ * PAUSE — leaves the pause screen into the 3-2-1 countdown; when it reaches 0
+ * the SAME run continues exactly where it froze (bird position/velocity, pipes,
+ * score and run time are all untouched — the countdown only stops them).
+ */
+export function resumeGame(s: GameState): void {
+  if (s.phase !== 'paused') return
+  s.phase = 'countdown'
+  s.countdownLeft = RESUME_COUNTDOWN_S
+  s.countdownRestarts = false
+}
+
+/**
+ * PAUSE — "Play again" from the pause screen: the run is reset the same way
+ * the game-over restart resets it, and the countdown leads into a FRESH run
+ * instead of the frozen one.
+ */
+export function replayGame(s: GameState): void {
+  if (s.phase !== 'paused') return
+  resetGame(s)
+  s.phase = 'countdown'
+  s.countdownLeft = RESUME_COUNTDOWN_S
+  s.countdownRestarts = true
+}
+
 function endRun(s: GameState): void {
-  s.phase = 'game-over'
+  s.phase = 'dead'
   s.best = Math.max(s.best, s.score)
+  s.bird.vy = DEATH_HOP_VELOCITY // small jump on impact
+  s.deathStartAngle = s.bird.angle
+  s.deathApexY = s.bird.y
+  s.events.push('hit')
 }
 
 /**
@@ -153,19 +458,92 @@ export function runResult(s: GameState): RunResult {
   }
 }
 
+/**
+ * AUDIO — takes the queued events and clears the queue, so each one is
+ * reported exactly once. Called by the wrapper once per frame.
+ */
+export function drainEvents(s: GameState): GameEvent[] {
+  if (s.events.length === 0) return []
+  const events = s.events
+  s.events = []
+  return events
+}
+
+/**
+ * C — true for the whole game-over the challenge was completed on. The Game
+ * Over scene is otherwise drawn once and left alone (see GameCanvas); the
+ * renderer gates the banner on this, and the wrapper bounds the VISIBLE pulse
+ * to a few real seconds on top of it ("pulses, then goes static"). The flag
+ * is cleared by resetGame — the only way off that screen — so the world
+ * clock ticking at game-over can never expire a celebration early.
+ */
+export function isCelebrating(s: GameState): boolean {
+  return s.challenge !== null && s.challenge.celebrate
+}
+
+/**
+ * C — copies the newest best/challenge view into the engine's frozen state.
+ * The completion celebration is derived HERE, from the values themselves: the
+ * update that takes `value` from below `target` to >= target is the one that
+ * completed the challenge, and it starts pulsing on that game-over. Reading
+ * the crossing off the numbers (instead of trusting a flag in the view) makes
+ * it a one-shot — a view that keeps a stale flag, a reload with an
+ * already-finished challenge or "Play Again" can never re-fire it, and
+ * resetGame ends it for the next run.
+ */
+export function syncChallenge(
+  state: GameState,
+  view: { serverBest: number; challenge: GameChallengeView | null },
+): void {
+  state.serverBest = view.serverBest
+  if (!view.challenge) {
+    state.challenge = null
+    return
+  }
+  const current = state.challenge
+  if (current === null || current.id !== view.challenge.id) {
+    // First sighting of this challenge: show the numbers, never celebrate —
+    // arriving with value >= target only means it was finished earlier.
+    state.challenge = { ...view.challenge, celebrate: false, celebrateAt: 0 }
+    return
+  }
+  const crossed =
+    current.value < current.target &&
+    view.challenge.value >= view.challenge.target
+  const celebrate = current.celebrate || crossed
+  state.challenge = {
+    ...current,
+    title: view.challenge.title,
+    value: view.challenge.value,
+    target: view.challenge.target,
+    celebrate,
+    // Bookkeeping: when the celebration started. resetGame ends it for
+    // the next run (isCelebrating).
+    celebrateAt:
+      crossed && !current.celebrate ? state.time : current.celebrateAt,
+  }
+}
+
 /** Begin a run from the ready screen. The starting tap counts as flap #1. */
 export function startGame(s: GameState): void {
   s.phase = 'playing'
   s.bird.y = s.viewH / 2 - 40
   s.bird.vy = FLAP_VELOCITY
   s.bird.frameTime = 0
+  s.bird.angle = 0
   s.pipes = []
   s.score = 0
   s.runTime = 0
   s.jumpCount = 1
+  s.speedMultiplier = 1 // every run starts at the normal world speed
+  s.events.push('flap') // the starting tap counts as a jump (and a sound)
 }
 
-/** One input: tap / click / space. Starts the run from ready, flaps in air. */
+/**
+ * One input: tap / click / space. Starts the run from ready, flaps in air.
+ * Deliberately ignored during 'dead' and 'game-over' — no jump input is
+ * accepted after the collision that started the death animation.
+ */
 export function flap(s: GameState): void {
   if (s.phase === 'ready') {
     startGame(s)
@@ -173,6 +551,7 @@ export function flap(s: GameState): void {
     s.bird.vy = FLAP_VELOCITY
     s.bird.frameTime = 0
     s.jumpCount++
+    s.events.push('flap')
   }
 }
 
@@ -215,24 +594,116 @@ export function stepGame(s: GameState, dtRaw: number): void {
 
   if (s.phase === 'game-over') return // freeze the world on the death screen
 
+  // PAUSE — the pause screen and the resume countdown freeze everything the
+  // same way (no gravity, no scroll, no spawns, no run time): only the
+  // countdown itself ticks, and at 0 it either resumes the frozen run in
+  // place or — after "Play again" — starts a fresh one (startGame).
+  if (s.phase === 'paused') return
+  if (s.phase === 'countdown') {
+    s.countdownLeft -= dt
+    if (s.countdownLeft <= 0) {
+      s.countdownLeft = 0
+      if (s.countdownRestarts) startGame(s)
+      else s.phase = 'playing'
+    }
+    return
+  }
+
   if (s.phase === 'ready') {
-    // Idle hover: gentle bob, slowly scrolling scenery.
-    s.scroll += PIPE_SPEED * 0.5 * dt
+    // Idle hover: the bird bobs and flaps, but the scenery stays STILL —
+    // sky and ground only start scrolling on the first tap (startGame →
+    // playing), so the ready screen has no parallax drift.
     s.bird.y = readyBirdY(s.viewH, s.time)
     s.bird.frameTime += dt * 1000
+    updateTilt(s, dt, 0) // level while waiting
+    return
+  }
+
+  // Death animation: the world is frozen (no scroll, no pipes, no score, no
+  // runTime, no collision checks — this branch touches none of them) while
+  // the bird alone keeps moving: the impact hop carries it up, gravity pulls
+  // it down, and the rotation spans the ENTIRE fall — from the hop's apex to
+  // the ground — so it is still turning right until it touches down and
+  // arrives at EXACTLY -180°. On landing the bird is snapped to its final
+  // pose (center on the ground line, half in the grass) and a corpse snapshot
+  // is appended to deadBirds (memory only), then the game-over screen appears
+  // — the map itself is NOT reset (Play Again does that, and the corpse stays
+  // lying there).
+  if (s.phase === 'dead') {
+    s.bird.vy = Math.min(s.bird.vy + DEATH_GRAVITY * dt, DEATH_FALL_SPEED)
+    s.bird.y += s.bird.vy * dt
+    if (s.bird.y < s.deathApexY) s.deathApexY = s.bird.y // impact-hop apex
+    // Rotation progress measured along the fall path: 0 at the highest point,
+    // 1 the instant the bird reaches the landing spot. Clamped to [0,1] and
+    // lerped toward -π, the angle can never pass -180° (no overshoot, no
+    // extra spin) and can never finish early — it is still rotating as it
+    // hits the ground.
+    const landY = floorTop(s) // center lands ON the ground line: the 48px
+    // sprite rests half in the grass — a few px lower than the old
+    // radius-based stop, where it only touched the surface.
+    const span = landY - s.deathApexY
+    const p = span > 0 ? Math.min(1, Math.max(0, (s.bird.y - s.deathApexY) / span)) : 1
+    s.bird.angle = Math.max(
+      -Math.PI,
+      s.deathStartAngle + (-Math.PI - s.deathStartAngle) * p,
+    )
+    // AUDIO — queue the 'die' cue once the fall is most of the way down, a
+    // beat before touchdown (it used to fire only on landing). p grows
+    // monotonically along the fall, so the guard makes it fire exactly once.
+    if (!s.dieSoundQueued && p >= DIE_SFX_FALL_PROGRESS) {
+      s.dieSoundQueued = true
+      s.events.push('die')
+    }
+    if (s.bird.y >= landY) {
+      s.bird.y = landY
+      s.bird.vy = 0
+      s.bird.angle = -Math.PI // exactly -180° — the corpse keeps this forever
+      const size = BIRD_BOX
+      deadBirds.add({
+        x: s.scroll + BIRD_X - size / 2, // world coords — where it died
+        y: landY - size / 2,
+        rotation: -Math.PI,
+        skinId: String(s.skinIndex),
+        width: size,
+        height: size,
+        frame: birdFrame(s),
+        animationFinished: true,
+      })
+      s.phase = 'game-over'
+    }
     return
   }
 
   // Playing: gravity, flap handled by flap(); ground/ceiling contact ends the run.
-  s.scroll += PIPE_SPEED * dt
+  //
+  // GAME-05 — the world speed for THIS step, derived from the score over the
+  // base speed. The ease is linear in seconds (0.1 × base over 1 s), so its
+  // duration does not depend on the frame rate, and it stops exactly on the
+  // target instead of creeping toward it forever.
+  const targetMultiplier = targetSpeedMultiplier(s.score)
+  const rampPerSecond = (HIGH_SCORE_SPEED_MULTIPLIER - 1) / SPEED_RAMP_SECONDS
+  const previousMultiplier = s.speedMultiplier
+  s.speedMultiplier =
+    targetMultiplier > s.speedMultiplier
+      ? Math.min(targetMultiplier, s.speedMultiplier + rampPerSecond * dt)
+      : Math.max(targetMultiplier, s.speedMultiplier - rampPerSecond * dt)
+  // Integrate the ramp at its midpoint: the frame carries the AVERAGE of the
+  // multipliers at its two ends. Without it, summing either endpoint makes
+  // the distance covered during the ramp depend slightly on the frame rate
+  // (a 24 fps run would travel ~0.2px further than a 60 fps run here).
+  const worldSpeed =
+    PIPE_SPEED * ((previousMultiplier + s.speedMultiplier) / 2)
+  s.scroll += worldSpeed * dt
   s.runTime += dt
   s.bird.vy = Math.min(s.bird.vy + GRAVITY * dt, MAX_FALL_SPEED)
   s.bird.y += s.bird.vy * dt
   s.bird.frameTime += dt * 1000
+  // Visual tilt follows velocity: a click flings it back up, falling noses right.
+  updateTilt(s, dt, rotationForVelocity(s.bird.vy))
 
   const last = s.pipes[s.pipes.length - 1]
   if (!last || last.x < LOGICAL_W - PIPE_SPACING) spawnPipe(s)
-  for (const p of s.pipes) p.x -= PIPE_SPEED * dt
+  for (const p of s.pipes) p.x -= worldSpeed * dt
   // Despawn only when the scaled cap has fully left the screen.
   if (s.pipes[0] && s.pipes[0].x < -PIPE_CAP_W * SPRITE_SCALE) s.pipes.shift()
 
@@ -263,12 +734,101 @@ export function stepGame(s: GameState, dtRaw: number): void {
     if (!p.passed && p.x + capW < BIRD_X - BIRD_R) {
       p.passed = true
       s.score++
+      s.events.push('score')
     }
   }
 }
 
-/** Flap-cycle frame 0-3: animates while rising/hovering, holds mid-flap otherwise. */
+/**
+ * Flap-cycle frame 0-3 (mandatory 4 sprite frames). Every jump plays the
+ * FULL cycle — frameTime resets on each flap, so all four frames show over
+ * 4 × FLAP_FRAME_MS = 1s even though the rise itself lasts only ~300ms —
+ * then the wing settles on the glide frame. The ready screen loops forever;
+ * the frozen death screen always shows the glide frame.
+ */
 export function birdFrame(s: GameState): number {
-  const animating = s.phase === 'ready' || s.bird.vy < 0
-  return animating ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+  // Dead + game-over: wings frozen on the glide frame — the corpse snapshot
+  // records this frame as its "final animation state".
+  if (s.phase === 'dead' || s.phase === 'game-over') return 1
+  const cycling = s.phase === 'ready' || s.bird.frameTime < 4 * FLAP_FRAME_MS
+  return cycling ? Math.floor(s.bird.frameTime / FLAP_FRAME_MS) % 4 : 1
+}
+
+/** Score step until the pipe palette rotates (GAME-05): 0-19 green, 20-39 next… */
+export const PIPE_COLOR_SCORE_STEP = 20
+
+/**
+ * GAME-05 — pipe palette index for the current score. Green (index 0) for the
+ * first PIPE_COLOR_SCORE_STEP points, then the next color in pipeColorUrls
+ * order, wrapping after the last one.
+ */
+/**
+ * G — a palette index that differs from the current one (when there is more
+ * than one to pick from). Pure: the randomness is an ARGUMENT, so tests can
+ * pin the outcome and the draw path never rolls dice.
+ */
+export function pickPipePalette(
+  current: number,
+  count: number,
+  random: () => number = Math.random,
+): number {
+  if (count <= 1) return 0
+  const first = Math.floor(random() * count)
+  return first === current ? (first + 1) % count : first
+}
+
+/**
+ * GAME-05 — advances the pipe palette when the score enters a new
+ * PIPE_COLOR_SCORE_STEP bracket, remembering the outgoing palette and the
+ * swap time so the renderer can cross-fade instead of popping.
+ *
+ * G — this used to run INSIDE drawPipes(), where every repaint re-rolled the
+ * colour (a render call was mutating game state with Math.random()). It now
+ * runs once per frame from the engine loop (see GameCanvas) and the renderer
+ * only reads the result through pipePalette().
+ */
+export function advancePipePalette(
+  s: GameState,
+  colorCount: number,
+  random: () => number = Math.random,
+): void {
+  if (s.phase !== 'playing' || colorCount <= 0) return
+  const bracket = Math.floor(s.score / PIPE_COLOR_SCORE_STEP)
+  const last = Math.floor(s.lastPipeColorChangeScore / PIPE_COLOR_SCORE_STEP)
+  if (bracket <= last) return
+
+  const previous = s.currentPipeColorIndex ?? 0
+  s.previousPipeColorIndex = previous
+  s.currentPipeColorIndex = pickPipePalette(previous, colorCount, random)
+  s.lastPipeColorChangeScore = s.score
+  s.colorSwapAt = s.time
+}
+
+/**
+ * The palette the renderer draws — read-only, and clamped to what actually
+ * exists, so a removed pipe set can never turn into an undefined drawImage.
+ */
+export function pipePalette(s: GameState, colorCount: number): number {
+  const index = s.currentPipeColorIndex ?? 0
+  return index >= 0 && index < colorCount ? index : 0
+}
+
+
+/** Visual tilt limits (radians): slight nose-up on flap, nose-right falling. */
+const BIRD_TILT_UP = (-10 * Math.PI) / 180
+const BIRD_TILT_DOWN = (25 * Math.PI) / 180
+
+/**
+ * Target tilt for a vertical speed: FLAP_VELOCITY → nose-up, MAX_FALL_SPEED →
+ * nose-right (clockwise). Linear in between, clamped outside the range.
+ */
+export function rotationForVelocity(vy: number): number {
+  const t = (vy - FLAP_VELOCITY) / (MAX_FALL_SPEED - FLAP_VELOCITY)
+  const c = Math.min(1, Math.max(0, t))
+  return BIRD_TILT_UP + c * (BIRD_TILT_DOWN - BIRD_TILT_UP)
+}
+
+/** Ease the bird's visual tilt toward `target` (≈100ms to snap into place). */
+function updateTilt(s: GameState, dt: number, target: number): void {
+  s.bird.angle += (target - s.bird.angle) * Math.min(1, dt * 10)
 }

@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Generated Firebase Data Connect SDK (checked in, not authored here).
+  globalIgnores(['dist', 'src/dataconnect-generated']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

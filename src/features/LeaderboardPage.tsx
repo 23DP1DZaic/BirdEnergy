@@ -15,11 +15,12 @@ import {
 } from './leaderboard'
 import type { UserProfile } from './userProfile'
 import { birdSkinUrls } from './game/sprites'
+import { useT } from '../i18n'
 
-const PERIODS: { id: LeaderboardPeriod; label: string }[] = [
-  { id: 'daily', label: 'Daily' },
-  { id: 'weekly', label: 'Weekly' },
-  { id: 'all', label: 'All Time' },
+const PERIODS: { id: LeaderboardPeriod; labelKey: string }[] = [
+  { id: 'daily', labelKey: 'leaderboard.daily' },
+  { id: 'weekly', labelKey: 'leaderboard.weekly' },
+  { id: 'all', labelKey: 'leaderboard.all' },
 ]
 
 /** First frame of the default bird sheet — the avatar fallback (16x16 crop). */
@@ -61,6 +62,7 @@ export function LeaderboardPage({
   signedInUid: string | null
   onSignIn: () => void
 }) {
+  const { t } = useT()
   const [period, setPeriod] = useState<LeaderboardPeriod>('daily')
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -82,8 +84,11 @@ export function LeaderboardPage({
         const snap = await getDoc(doc(db, 'users', signedInUid as string))
         const profile = snap.data() as UserProfile | undefined
         const myName = profile
-          ? (profile.inGameName ?? profile.username ?? profile.firstName ?? 'Player')
-          : 'Player'
+          ? (profile.inGameName ??
+            profile.username ??
+            profile.firstName ??
+            t('profile.player'))
+          : t('profile.player')
         const myPhoto = profile?.photoUrl ?? null
         if (p === 'all') {
           mine = { name: myName, score: profile?.bestScore ?? 0, photoUrl: myPhoto }
@@ -109,7 +114,7 @@ export function LeaderboardPage({
     } finally {
       setLoading(false)
     }
-  }, [signedInUid])
+  }, [signedInUid, t])
 
   // Refetch whenever the period changes — DoD: "Saraksts korekti atjaunojas,
   // mainot periodu". Guarded so StrictMode's double invoke stays one request.
@@ -125,7 +130,7 @@ export function LeaderboardPage({
       <div
         className="period-toggle"
         role="tablist"
-        aria-label="Leaderboard period"
+        aria-label={t('leaderboard.period')}
       >
         {PERIODS.map((p) => (
           <button
@@ -136,25 +141,23 @@ export function LeaderboardPage({
             className={`btn btn-small${period === p.id ? ' btn-active' : ''}`}
             onClick={() => setPeriod(p.id)}
           >
-            {p.label}
+            {t(p.labelKey)}
           </button>
         ))}
       </div>
 
       {!signedInUid ? (
         <div className="guard">
-          <p className="guard-text">
-            Sign in with Telegram to see the leaderboard and record your runs.
-          </p>
+          <p className="guard-text">{t('leaderboard.guard')}</p>
           <button type="button" className="btn" onClick={onSignIn}>
-            Sign in with Telegram
+            {t('sign.signIn')}
           </button>
         </div>
       ) : loading ? (
-        <p className="board-status">Loading…</p>
+        <p className="board-status">{t('common.loading')}</p>
       ) : error ? (
         <div className="guard">
-          <p className="guard-text">Could not load the leaderboard.</p>
+          <p className="guard-text">{t('leaderboard.error')}</p>
           <p className="placeholder-note">{error}</p>
           <button
             type="button"
@@ -164,7 +167,7 @@ export function LeaderboardPage({
               void load(period)
             }}
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : entries && entries.length > 0 ? (
@@ -179,14 +182,15 @@ export function LeaderboardPage({
           ))}
         </ol>
       ) : (
-        <p className="board-status">
-          No scores yet for this period — go set one!
-        </p>
+        <p className="board-status">{t('leaderboard.empty')}</p>
       )}
 
       {signedInUid && myEntry && !loading && !error && (
         <p className="board-mine">
-          Your best: {myEntry.name} — {myEntry.score}
+          {t('leaderboard.yourBest', {
+            name: myEntry.name,
+            score: myEntry.score,
+          })}
         </p>
       )}
     </div>
