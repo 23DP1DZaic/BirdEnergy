@@ -287,14 +287,18 @@
 /* Square slot for the tutorial GIF (1:1 so the real asset drops straight in
    without touching this rule). */
 .tutorial-media {
-  width: min(78vw, 320px);
+  display: block;
+  width: min(82vw, 360px);
+  max-width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  object-fit: contain;
+  box-sizing: border-box;
+
+  border: 3px solid #a5420c;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.32);
-  border: 3px dashed #a5420c;
-  border-radius: 14px;
+
   image-rendering: pixelated;
 }
 
