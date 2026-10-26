@@ -1,4 +1,5 @@
-import { Telegraf, Markup, type Context } from "telegraf";
+import { Telegraf, Markup, Input, type Context } from "telegraf";
+import path from "node:path";
 import { getFirestore } from "firebase-admin/firestore";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -134,12 +135,27 @@ async function sendHowToPlay(ctx: Context) {
     "4. Avoid obstacles to keep playing.\n" +
     "5. Beat your personal best and climb the leaderboard!";
 
-  await ctx.reply(
-    message,
-    Markup.inlineKeyboard([
+    const keyboard = Markup.inlineKeyboard([
       Markup.button.url("🎮 Start Playing", GAME_URL),
-    ])
-  );
+    ]);
+
+    try {
+      const gifPath = path.join(
+        __dirname,
+        "../assets/howtoplay.gif"
+      );
+    
+      await ctx.replyWithAnimation(
+        Input.fromLocalFile(gifPath),
+        {
+          caption: message,
+          ...keyboard,
+        }
+      );
+  } catch (error) {
+    console.error("Failed to send tutorial GIF:", error);
+    await ctx.reply(message, keyboard);
+  }
 }
 
 // Slash commands
