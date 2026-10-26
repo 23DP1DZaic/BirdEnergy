@@ -1,4 +1,4 @@
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf, Markup, type Context } from "telegraf";
 import { getFirestore } from "firebase-admin/firestore";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -14,17 +14,21 @@ const GAME_URL =
 
 bot.start(async (ctx) => {
   await ctx.reply(
-    "🐦 Welcome to Bird Energy!\nTap the button below to start playing.",
+    "🐦 Welcome to BirdEnergy!\n\n" +
+    "Ready to fly? Choose an option below to get started!",
     Markup.inlineKeyboard([
-      Markup.button.url(
-        "🎮 Play",
-        GAME_URL
-      ),
+      [Markup.button.url("🎮 Play BirdEnergy", GAME_URL)],
+      [
+        Markup.button.callback("👤 Profile", "show_profile"),
+        Markup.button.callback("🏆 Leaderboard", "show_top"),
+      ],
+      [Markup.button.callback("❓ How to Play", "show_howtoplay")],
     ])
   );
 });
 
-bot.command(["top", "leaderboard"], async (ctx) => {
+
+async function sendLeaderboard(ctx: Context) {
   try {
     const db = getFirestore();
 
@@ -51,42 +55,39 @@ bot.command(["top", "leaderboard"], async (ctx) => {
         "Player";
 
       const score = data.bestScore ?? 0;
-
+      
       const position = medals[index] || `${index + 1}.`;
 
       return `${position} ${name} — ${score} points`;
     });
 
-    const message =
-      "🏆 BirdEnergy Leaderboard\n\n" +
-      players.join("\n");
-
     await ctx.reply(
-      message,
+      "🏆 BirdEnergy Leaderboard\n\n" + players.join("\n"),
       Markup.inlineKeyboard([
         Markup.button.url("🎮 Play BirdEnergy", GAME_URL),
       ])
     );
   } catch (error) {
     console.error("Leaderboard command failed:", error);
-
-    await ctx.reply(
-      "Could not load the leaderboard. Please try again later."
-    );
+    await ctx.reply("Could not load the leaderboard.");
   }
-});
+}
 
-bot.command(["me", "profile"], async (ctx) => {
+async function sendProfile(ctx: Context) {
   try {
-    const telegramId = ctx.from.id;
-    const uid = `tg-${telegramId}`;
+    if (!ctx.from) {
+      await ctx.reply("Could not identify your Telegram account.");
+      return;
+    }
 
+    const uid = `tg-${ctx.from.id}`;
     const db = getFirestore();
+
     const userDoc = await db.collection("users").doc(uid).get();
 
     if (!userDoc.exists) {
       await ctx.reply(
-        "You don't have a BirdEnergy profile yet. Open the game and play your first match!",
+        "You don't have a BirdEnergy profile yet. Open the game first!",
         Markup.inlineKeyboard([
           Markup.button.url("🎮 Play BirdEnergy", GAME_URL),
         ])
@@ -102,22 +103,15 @@ bot.command(["me", "profile"], async (ctx) => {
       data.firstName ||
       "Player";
 
-    const bestScore = data.bestScore ?? 0;
-    const totalGames = data.totalGames ?? 0;
-
-    const bird = data.preferredBird ?? 0;
-    const background = data.preferredBackground ?? 0;
-    const ground = data.preferredGround ?? 0;
-
     const message =
       "🐦 BirdEnergy Profile\n\n" +
       `Player: ${name}\n` +
-      `Best Score: ${bestScore}\n` +
-      `Games Played: ${totalGames}\n\n` +
+      `Best Score: ${data.bestScore ?? 0}\n` +
+      `Games Played: ${data.totalGames ?? 0}\n\n` +
       "Appearance:\n" +
-      `Bird Skin: #${bird}\n` +
-      `Background: #${background}\n` +
-      `Terrain: #${ground}`;
+      `Bird Skin: #${data.preferredBird ?? 0}\n` +
+      `Background: #${data.preferredBackground ?? 0}\n` +
+      `Terrain: #${data.preferredGround ?? 0}`;
 
     await ctx.reply(
       message,
@@ -127,15 +121,11 @@ bot.command(["me", "profile"], async (ctx) => {
     );
   } catch (error) {
     console.error("Profile command failed:", error);
-
-    await ctx.reply(
-      "Could not load your profile. Please try again later."
-    );
+    await ctx.reply("Could not load your profile.");
   }
-});
+}
 
-
-bot.command("howtoplay", async (ctx) => {
+async function sendHowToPlay(ctx: Context) {
   const message =
     "🎮 How to Play BirdEnergy\n\n" +
     "1. Tap Play to launch the game.\n" +
@@ -150,4 +140,25 @@ bot.command("howtoplay", async (ctx) => {
       Markup.button.url("🎮 Start Playing", GAME_URL),
     ])
   );
+}
+
+// Slash commands
+bot.command(["top", "leaderboard"], sendLeaderboard);
+bot.command(["me", "profile"], sendProfile);
+bot.command("howtoplay", sendHowToPlay);
+
+// Buttons from the /start menu
+bot.action("show_profile", async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendProfile(ctx);
+});
+
+bot.action("show_top", async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendLeaderboard(ctx);
+});
+
+bot.action("show_howtoplay", async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendHowToPlay(ctx);
 });

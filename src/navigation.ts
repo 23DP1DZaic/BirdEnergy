@@ -31,4 +31,3 @@ export const NAV_ITEMS: Array<{
   { screen: 'profile', labelKey: 'nav.profile', icon: 'heart' },
   { screen: 'admin', labelKey: 'nav.admin', icon: 'settings', adminOnly: true },
 ]
-

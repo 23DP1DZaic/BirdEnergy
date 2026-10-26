@@ -830,4 +830,3 @@ export function useT(): {t: typeof t; tn: typeof tn; locale: Locale} {
   const active = useSyncExternalStore(subscribe, getLocale)
   return {t, tn, locale: active}
 }
-
