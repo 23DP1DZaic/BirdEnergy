@@ -15,7 +15,8 @@ import {
 import { getDevTelegramId, shouldUseEmulators } from './devAuth'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
-import { loadAudioAssets, playMusic } from './features/audio'
+//import { loadAudioAssets, playMusic } from './features/audio'
+import { loadAudioAssets } from './features/audio'
 import {
   applyStoredBackgroundIndex,
   getStoredBackgroundIndex,
@@ -92,9 +93,8 @@ function App() {
   // the menu and the game; the AudioContext unlocks on the first tap, which
   // audio.ts handles. Both calls are silent no-ops when the file is missing.
   useEffect(() => {
-    void loadAudioAssets()
-    playMusic()
-  }, [])
+  void loadAudioAssets()
+}, [])
 
   // UI-04 — appearance preferences saved on the profile (preferredBird /
   // preferredBackground / preferredGround) seed the local switchers on

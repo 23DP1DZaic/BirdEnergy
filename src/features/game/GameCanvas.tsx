@@ -42,7 +42,13 @@ import {
 // AUDIO: the menu loop is started once at app level (App.tsx) and keeps
 // playing across screens; this screen only plays the run's sound effects.
 // Both are no-ops without files in src/assets/Sound (see features/audio.ts).
-import { audioStatus, playSfx, unlockAudio } from '../audio'
+import {
+  audioStatus,
+  playMusic,
+  playSfx,
+  stopMusic,
+  unlockAudio,
+} from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
@@ -305,6 +311,12 @@ export function GameCanvas({
         reported = state.phase
         setUiPhase(state.phase)
         onPhaseChange?.(state.phase)
+        // Background music follows the game state.
+        if (state.phase === 'playing') {
+          playMusic()
+        } else {
+          stopMusic()
+        }
         // One death = playing → dead → game-over, so this edge fires exactly
         // once per death (never on the collision frame itself), keeping the
         // current score-saving flow with no duplicate game results.
@@ -451,12 +463,27 @@ export function GameCanvas({
       // AUDIO + HAPTICS — the engine queues events as data; this is where
       // sound happens and where the phone buzzes. Haptics skip `flap` on
       // purpose (a buzz on every tap is noise, not feedback).
-      for (const event of drainEvents(state)) {
-        playSfx(event)
-        if (event === 'hit') haptic(HAPTIC.hit)
-        else if (event === 'die') haptic(HAPTIC.die)
-        else if (event === 'score') haptic(HAPTIC.score)
-      }
+      // old part, in case i will mess up
+      //for (const event of drainEvents(state)) {
+      //  playSfx(event)
+      //  if (event === 'hit') haptic(HAPTIC.hit)
+      //  else if (event === 'die') haptic(HAPTIC.die)
+      //  else if (event === 'score') haptic(HAPTIC.score)
+      //}
+          for (const event of drainEvents(state)) {
+      if (event === 'hit') {
+    // Play death sound 100ms after collision.
+    setTimeout(() => {
+      playSfx('die')
+    }, 200)
+  } else if (event !== 'die') {
+    playSfx(event)
+  }
+
+      if (event === 'hit') haptic(HAPTIC.hit)
+      else if (event === 'die') haptic(HAPTIC.die)
+      else if (event === 'score') haptic(HAPTIC.score)
+    }
       // C — refresh the personal best and the challenge block. The engine
       // derives the completion celebration from the values themselves.
       syncChallenge(state, latest.current)
@@ -680,6 +707,7 @@ export function GameCanvas({
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       actionsRef.current = null
+      stopMusic()
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)
