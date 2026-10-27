@@ -314,11 +314,12 @@ export function GameCanvas({
         onPhaseChange?.(state.phase)
         // Background music is an app-wide loop (App.tsx starts it) that keeps
         // playing across screens. A death stops it and rewinds to the first
-        // sample (stopMusic), so the next attempt starts the track over rather
-        // than resuming mid-phrase; leaving the game must not cut the track.
+        // sample (stopMusic), so the track starts over; it comes back as soon
+        // as the ready screen appears ("click to play"), not on the tap that
+        // finally starts the run. Leaving the game must not cut the track.
         if (state.phase === 'dead') {
           stopMusic()
-        } else if (state.phase === 'playing') {
+        } else if (state.phase === 'ready' || state.phase === 'playing') {
           playMusic()
         }
         // One death = playing → dead → game-over, so this edge fires exactly
