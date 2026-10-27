@@ -82,7 +82,7 @@ export function ProfilePage({
   signedInUid: string | null
   onSignIn: () => void
 }) {
-  const { t } = useT()
+  const { t, tn } = useT()
   // The profile/error + the uid it was loaded for. `loading` is derived:
   // anything the current uid hasn't loaded yet shows the loading state (this
   // also covers sign-out → sign-in back to the same account).
@@ -339,7 +339,6 @@ export function ProfilePage({
 
   /** Edit → the same field becomes editable, focused, and the button is Save. */
   const startEditingName = () => {
-    console.log('EDIT CLICKED')
     setNameError(null)
     setNameSaved(false)
     setEditingName(true)
@@ -347,32 +346,26 @@ export function ProfilePage({
     requestAnimationFrame(() => nameInputRef.current?.focus())
   }
 
-    const saveName = async () => {
+  const saveName = async () => {
     const candidate = nameDraft.trim()
-
     setNameSaved(false)
     setNameError(null)
-
-    // Nothing changed -> just close edit mode.
+    // Nothing changed → just close edit mode.
     if (candidate === (profile.inGameName ?? '')) {
       setEditingName(false)
       return
     }
-
+    // Validation lives in one place (shared with the server's rules); the
+    // button is disabled while the draft is invalid, so this is the belt to
+    // that brace.
     if (!isValidInGameName(candidate)) {
       setNameError(nameRule)
       return
     }
-
     setNameBusy(true)
-
     try {
       const result = await updateProfile({ username: candidate })
-
-      setProfile((p) =>
-        p ? { ...p, inGameName: result.inGameName } : p,
-      )
-
+      setProfile((p) => (p ? { ...p, inGameName: result.inGameName } : p))
       setNameDraft(result.inGameName)
       setNameSaved(true)
       setEditingName(false)
@@ -382,7 +375,7 @@ export function ProfilePage({
       setNameBusy(false)
     }
   }
-  
+
   return (
     <div className="profile-screen">
       <div className="profile-card">
@@ -455,27 +448,27 @@ export function ProfilePage({
               autoComplete="off"
               spellCheck={false}
             />
-           {editingName ? (
-            <button
-              key="save-name"
-              type="submit"
-              className="btn btn-small profile-name-action"
-              disabled={nameBusy || (nameChanged && !nameValid)}
-            >
-              <PixelIcon name="check" size={20} />
-              {nameBusy ? t('common.saving') : t('profile.save')}
-            </button>
-          ) : (
-            <button
-              key="edit-name"
-              type="button"
-              className="btn btn-small profile-name-action"
-              onClick={startEditingName}
-            >
-              <PixelIcon name="settings" size={20} />
-              {t('profile.edit')}
-            </button>
-          )}
+            {editingName ? (
+              <button
+                key="save-name"
+                type="submit"
+                className="btn btn-small profile-name-action"
+                disabled={nameBusy || (nameChanged && !nameValid)}
+              >
+                <PixelIcon name="check" size={20} />
+                {nameBusy ? t('common.saving') : t('profile.save')}
+              </button>
+            ) : (
+              <button
+                key="edit-name"
+                type="button"
+                className="btn btn-small profile-name-action"
+                onClick={startEditingName}
+              >
+                <PixelIcon name="settings" size={20} />
+                {t('profile.edit')}
+              </button>
+            )}
           </div>
           {/* Live rule check while typing: an invalid draft says why before the
               player presses Save (the button is disabled meanwhile). */}
@@ -563,7 +556,7 @@ export function ProfilePage({
         <div className="appearance-top">
           <p className="profile-name-label">{t('profile.appearance')}</p>
           <span className="appearance-balance" aria-live="polite">
-            {t('profile.coins', { n: balance })}
+            {tn('profile.coins', balance)}
           </span>
         </div>
         <div
@@ -605,9 +598,7 @@ export function ProfilePage({
                     selected
                       ? t('profile.selected')
                       : info.locked
-                        ? ` — ${t('profile.lockedAria', {
-                            price: info.price,
-                          })}`
+                        ? ` — ${tn('profile.lockedAria', info.price)}`
                         : ''
                   }`}
                   aria-pressed={selected}
@@ -632,28 +623,17 @@ export function ProfilePage({
                       </span>
                     )}
                   </span>
-                  <span className="appearance-caption">
-                    {selected
-                      ? t('profile.selectedShort')
-                      : info.locked
-                        ? t('profile.locked')
-                        : t('profile.select')}
-                  </span>
                 </button>
                 {info.locked && (
                   <button
                     type="button"
                     className="btn btn-small appearance-buy"
                     disabled={purchaseBusy}
-                    aria-label={t('profile.buyAria', {
-                      item: name,
-                      price: info.price,
-                    })}
+                    aria-label={tn('profile.buyAria', info.price, { item: name })}
                     onClick={() => {
                       if (tabKind !== 'ground') openPurchase(tabKind, i)
                     }}
                   >
-                    <PixelIcon name="unlocked" size={14} />
                     {t('profile.buy')}
                     <span className="appearance-buy-price">{info.price}</span>
                   </button>
@@ -679,9 +659,6 @@ export function ProfilePage({
             {t('profile.prefError', { message: prefError })}
           </p>
         )}
-        <p className="placeholder-note">
-          {t('profile.appearanceHint')}
-        </p>
       </section>
       )}
 
@@ -690,9 +667,8 @@ export function ProfilePage({
       {purchaseTarget && (
         <ConfirmDialog
           title={t('profile.buyTitle')}
-          message={t('profile.buyMessage', {
+          message={tn('profile.buyMessage', purchaseTarget.price, {
             item: purchaseName,
-            price: purchaseTarget.price,
             balance: Math.max(0, balance - purchaseTarget.price),
           })}
           confirmLabel={t('profile.buy')}

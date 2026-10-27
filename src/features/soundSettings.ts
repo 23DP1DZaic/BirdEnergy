@@ -1,57 +1,21 @@
 // Sound preferences (Music / Sound effects) — the two switches in Home's
-// settings menu, stored the same way as the other player choices
-// (homeBackground.ts / groundTile.ts): one localStorage flag per switch plus a
-// window event, so any future audio layer can read the current choice without
-// prop drilling.
+// settings menu (and the game's pause menu), stored the same way as the other
+// player choices (homeBackground.ts / groundTile.ts): one localStorage flag per
+// switch plus a window event, so any future audio layer can read the current
+// choice without prop drilling.
 //
-// features/audio.ts reads these live: every play is gated on the current
-// preference and a change event starts/stops the loop immediately.
+// Each switch has a loudness of its own (0 = silent, 1 = full): the switches
+// turn a channel on/off, the volumes fine-tune it. features/audio.ts reads both
+// live — every play is gated on the current preference and a change event
+// starts/stops the loop or re-sets the gain immediately.
 import { useEffect, useState } from 'react'
 
 const MUSIC_KEY = 'birdenergy.music'
 const SFX_KEY = 'birdenergy.sfx'
-
-export const SOUND_SETTINGS_CHANGE_EVENT = 'birdenergy:sound-settings-change'
 const MUSIC_VOLUME_KEY = 'birdenergy.musicVolume'
 const SFX_VOLUME_KEY = 'birdenergy.sfxVolume'
 
-function readVolume(key: string, fallback: number): number {
-  const saved = localStorage.getItem(key)
-
-  if (saved === null) return fallback
-
-  const value = Number(saved)
-
-  if (!Number.isFinite(value)) {
-    return fallback
-  }
-
-  return Math.max(0, Math.min(1, value))
-}
-
-function writeVolume(key: string, value: number): void {
-  if (!Number.isFinite(value)) return
-
-  const volume = Math.max(0, Math.min(1, value))
-  localStorage.setItem(key, String(volume))
-  window.dispatchEvent(new Event(SOUND_SETTINGS_CHANGE_EVENT))
-}
-
-export function getMusicVolume(): number {
-  return readVolume(MUSIC_VOLUME_KEY, 1)
-}
-
-export function getSfxVolume(): number {
-  return readVolume(SFX_VOLUME_KEY, 0.6)
-}
-
-export function setMusicVolume(value: number): void {
-  writeVolume(MUSIC_VOLUME_KEY, value)
-}
-
-export function setSfxVolume(value: number): void {
-  writeVolume(SFX_VOLUME_KEY, value)
-}
+export const SOUND_SETTINGS_CHANGE_EVENT = 'birdenergy:sound-settings-change'
 
 /** Default is ON: a missing/corrupt flag means "sound enabled". */
 function readFlag(key: string): boolean {
@@ -60,6 +24,20 @@ function readFlag(key: string): boolean {
 
 function writeFlag(key: string, on: boolean): void {
   localStorage.setItem(key, on ? '1' : '0')
+  window.dispatchEvent(new Event(SOUND_SETTINGS_CHANGE_EVENT))
+}
+
+/** Stored loudness as 0..1; a missing/corrupt value means full volume. */
+function readVolume(key: string): number {
+  const stored = localStorage.getItem(key)
+  if (stored === null) return 1
+  const value = Number(stored)
+  if (!Number.isFinite(value)) return 1
+  return Math.min(1, Math.max(0, value))
+}
+
+function writeVolume(key: string, value: number): void {
+  localStorage.setItem(key, String(Math.min(1, Math.max(0, value))))
   window.dispatchEvent(new Event(SOUND_SETTINGS_CHANGE_EVENT))
 }
 
@@ -81,9 +59,28 @@ export function setSfxEnabled(on: boolean): void {
   writeFlag(SFX_KEY, on)
 }
 
+/** Music loudness, 0..1 (scaled onto the track's own mix level by audio.ts). */
+export function getMusicVolume(): number {
+  return readVolume(MUSIC_VOLUME_KEY)
+}
+
+/** Sound-effects loudness, 0..1. */
+export function getSfxVolume(): number {
+  return readVolume(SFX_VOLUME_KEY)
+}
+
+export function setMusicVolume(value: number): void {
+  writeVolume(MUSIC_VOLUME_KEY, value)
+}
+
+export function setSfxVolume(value: number): void {
+  writeVolume(SFX_VOLUME_KEY, value)
+}
+
 export interface SoundSettings {
   music: boolean
   sfx: boolean
+  /** 0..1 loudness of each channel, as stored. */
   musicVolume: number
   sfxVolume: number
   toggleMusic: () => void
@@ -92,14 +89,12 @@ export interface SoundSettings {
   setSfxVolume: (value: number) => void
 }
 
+/** Shared handle: both switches and both volumes, kept in sync externally. */
 export function useSoundSettings(): SoundSettings {
   const [music, setMusic] = useState(isMusicEnabled)
   const [sfx, setSfx] = useState(isSfxEnabled)
-
-  const [musicVolume, setMusicVolumeState] =
-    useState<number>(() => getMusicVolume())
-  const [sfxVolume, setSfxVolumeState] =
-    useState<number>(() => getSfxVolume())
+  const [musicVolume, setMusicVolumeState] = useState(getMusicVolume)
+  const [sfxVolume, setSfxVolumeState] = useState(getSfxVolume)
 
   useEffect(() => {
     const onChange = () => {
@@ -108,12 +103,9 @@ export function useSoundSettings(): SoundSettings {
       setMusicVolumeState(getMusicVolume())
       setSfxVolumeState(getSfxVolume())
     }
-
     window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, onChange)
-
-    return () => {
+    return () =>
       window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, onChange)
-    }
   }, [])
 
   return {
@@ -123,7 +115,7 @@ export function useSoundSettings(): SoundSettings {
     sfxVolume,
     toggleMusic: () => setMusicEnabled(!isMusicEnabled()),
     toggleSfx: () => setSfxEnabled(!isSfxEnabled()),
-    setMusicVolume,
-    setSfxVolume,
+    setMusicVolume: (value: number) => setMusicVolume(value),
+    setSfxVolume: (value: number) => setSfxVolume(value),
   }
 }

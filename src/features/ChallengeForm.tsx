@@ -310,7 +310,7 @@ export function ChallengeForm({
             className="form-input"
             value={
               rewardPreview !== null
-                ? t('form.rewardCoins', { n: rewardPreview })
+                ? tn('form.rewardCoins', rewardPreview)
                 : '—'
             }
             readOnly

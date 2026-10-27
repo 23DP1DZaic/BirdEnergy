@@ -334,7 +334,7 @@ export function ChallengesPage({
         aria-disabled={!ready || busy}
         onClick={() => void claim(item)}
       >
-        {busy ? t('daily.claiming') : t('daily.claim', { n: item.rewardCoins })}
+        {busy ? t('daily.claiming') : tn('daily.claim', item.rewardCoins)}
       </button>
     )
   }
@@ -349,7 +349,7 @@ export function ChallengesPage({
           </h2>
           {coins !== null && (
             <span className="challenge-balance">
-              {t('profile.coins', { n: coins })}
+              {tn('profile.coins', coins)}
             </span>
           )}
         </div>
@@ -379,9 +379,7 @@ export function ChallengesPage({
           <ul className="challenge-list">
             {dailyItems.map((item) => {
               const pct = challengeProgressPct(item.progress, item.targetValue)
-              const title = t(DAILY_TITLE_KEY[item.type], {
-                n: item.targetValue,
-              })
+              const title = tn(DAILY_TITLE_KEY[item.type], item.targetValue)
               return (
                 <li key={item.id} className="challenge-card challenge-card-daily">
                   <div className="challenge-head">
@@ -395,10 +393,10 @@ export function ChallengesPage({
                   <p className="challenge-meta">
                     {t('target.label', {
                       n: item.targetValue,
-                      unit: t(targetUnitKey(item.type)),
+                      unit: tn(targetUnitKey(item.type), item.targetValue),
                     })}
                     <span className="daily-reward">
-                      {t('daily.reward', { n: item.rewardCoins })}
+                      {tn('daily.reward', item.rewardCoins)}
                     </span>
                   </p>
                   <div
@@ -545,12 +543,15 @@ export function ChallengesPage({
                     <p className="challenge-meta">
                       {t('target.label', {
                         n: challenge.targetValue,
-                        unit: t(targetUnitKey(challenge.type)),
+                        unit: tn(
+                          targetUnitKey(challenge.type),
+                          challenge.targetValue,
+                        ),
                       })}{' '}
                       · {formatDateRange(challenge.startDate, challenge.endDate)}
                       {typeof challenge.rewardCoins === 'number' && (
                         <span className="daily-reward">
-                          {t('daily.reward', { n: challenge.rewardCoins })}
+                          {tn('daily.reward', challenge.rewardCoins)}
                         </span>
                       )}
                     </p>

@@ -137,11 +137,30 @@
   gap: 8px;
 }
 
-.game-modal-hint {
-  margin: 0;
-  font-size: 8px;
-  line-height: 1.6;
-  color: rgba(255, 244, 214, 0.7);
+/* The shared Music / Effects block (SoundControls) on the pause panel: same
+   layout as Home's settings menu, recoloured for the dark brown panel. */
+.game-modal .sound-controls {
+  width: 100%;
+  margin: 2px 0;
+}
+
+.game-modal .sound-toggle {
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.35));
+}
+
+.game-modal .sound-toggle:focus-visible,
+.game-modal .sound-slider:focus-visible {
+  outline-color: #ffd23f;
+}
+
+.game-modal .sound-slider::-webkit-slider-runnable-track {
+  background: #7a3d16;
+  border-color: #ffd23f;
+}
+
+.game-modal .sound-slider::-moz-range-track {
+  background: #7a3d16;
+  border-color: #ffd23f;
 }
 
 /* 3-2-1 — centred digit over the frozen world. Pointer-events off: the engine

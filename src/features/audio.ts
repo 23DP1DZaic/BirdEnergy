@@ -30,10 +30,10 @@
 // the first pointer/keyboard interaction.
 import {
   SOUND_SETTINGS_CHANGE_EVENT,
-  isMusicEnabled,
-  isSfxEnabled,
   getMusicVolume,
   getSfxVolume,
+  isMusicEnabled,
+  isSfxEnabled,
 } from './soundSettings'
 
 /** Folders that are scanned, relative to the project root (see the note). */
@@ -115,15 +115,14 @@ function installHooks(): void {
   window.addEventListener('pointerdown', () => unlockAudio())
   window.addEventListener('keydown', () => unlockAudio())
 
-  // Home's switches: turn the music off/on the moment they are flipped.
+  // The switches and volume sliders: react the moment they are moved — start
+  // or stop the loop, and re-set the running track's gain (no restart, so a
+  // slider drag never re-cues the loop from its first sample).
   window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, () => {
-    if (music) {
-      music.gain.gain.value = MUSIC_VOLUME * getMusicVolume()
-    }
+    if (music) music.gain.gain.value = MUSIC_VOLUME * getMusicVolume()
     if (isMusicEnabled()) void applyMusicState()
     else pauseMusic()
   })
-
 
   // Don't burn battery decoding/playing behind another tab.
   document.addEventListener('visibilitychange', () => {

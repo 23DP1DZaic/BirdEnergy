@@ -13,17 +13,27 @@ export const bot = new Telegraf(token);
 const GAME_URL =
   "https://t.me/BirdEnergy_testbot/birdenergygame";
 
+/**
+ * Latvian score label: "1 punkts", "21 punkts", "2 punkti", "11 punkti".
+ * The language takes the singular only after a final 1 that is not part of 11.
+ */
+function scoreLabel(score: number): string {
+  const mod10 = Math.abs(score) % 10;
+  const mod100 = Math.abs(score) % 100;
+  return `${score} ${mod10 === 1 && mod100 !== 11 ? "punkts" : "punkti"}`;
+}
+
 bot.start(async (ctx) => {
   await ctx.reply(
-    "🐦 Welcome to BirdEnergy!\n\n" +
-    "Ready to fly? Choose an option below to get started!",
+    "🐦 Sveiki Bird Energy botā!\n\n" +
+    "Gatavs lidot? Izvēlies zemāk, ar ko sākt!",
     Markup.inlineKeyboard([
-      [Markup.button.url("🎮 Play BirdEnergy", GAME_URL)],
+      [Markup.button.url("🎮 Spēlēt Bird Energy", GAME_URL)],
       [
-        Markup.button.callback("👤 Profile", "show_profile"),
-        Markup.button.callback("🏆 Leaderboard", "show_top"),
+        Markup.button.callback("👤 Profils", "show_profile"),
+        Markup.button.callback("🏆 Reitings", "show_top"),
       ],
-      [Markup.button.callback("❓ How to Play", "show_howtoplay")],
+      [Markup.button.callback("❓ Kā spēlēt", "show_howtoplay")],
     ])
   );
 });
@@ -40,7 +50,7 @@ async function sendLeaderboard(ctx: Context) {
       .get();
 
     if (snapshot.empty) {
-      await ctx.reply("No players on the leaderboard yet.");
+      await ctx.reply("Reitingā vēl nav neviena spēlētāja.");
       return;
     }
 
@@ -53,31 +63,31 @@ async function sendLeaderboard(ctx: Context) {
         data.inGameName ||
         data.username ||
         data.firstName ||
-        "Player";
+        "Spēlētājs";
 
       const score = data.bestScore ?? 0;
-      
+
       const position = medals[index] || `${index + 1}.`;
 
-      return `${position} ${name} — ${score} points`;
+      return `${position} ${name} — ${scoreLabel(score)}`;
     });
 
     await ctx.reply(
-      "🏆 BirdEnergy Leaderboard\n\n" + players.join("\n"),
+      "🏆 Bird Energy reitings\n\n" + players.join("\n"),
       Markup.inlineKeyboard([
-        Markup.button.url("🎮 Play BirdEnergy", GAME_URL),
+        Markup.button.url("🎮 Spēlēt Bird Energy", GAME_URL),
       ])
     );
   } catch (error) {
     console.error("Leaderboard command failed:", error);
-    await ctx.reply("Could not load the leaderboard.");
+    await ctx.reply("Neizdevās ielādēt reitingu.");
   }
 }
 
 async function sendProfile(ctx: Context) {
   try {
     if (!ctx.from) {
-      await ctx.reply("Could not identify your Telegram account.");
+      await ctx.reply("Nevarēju noteikt tavu Telegram kontu.");
       return;
     }
 
@@ -88,9 +98,9 @@ async function sendProfile(ctx: Context) {
 
     if (!userDoc.exists) {
       await ctx.reply(
-        "You don't have a BirdEnergy profile yet. Open the game first!",
+        "Tev vēl nav Bird Energy profila. Vispirms atver spēli!",
         Markup.inlineKeyboard([
-          Markup.button.url("🎮 Play BirdEnergy", GAME_URL),
+          Markup.button.url("🎮 Spēlēt Bird Energy", GAME_URL),
         ])
       );
       return;
@@ -102,56 +112,50 @@ async function sendProfile(ctx: Context) {
       data.inGameName ||
       data.username ||
       data.firstName ||
-      "Player";
+      "Spēlētājs";
 
     const message =
-      "🐦 BirdEnergy Profile\n\n" +
-      `Player: ${name}\n` +
-      `Best Score: ${data.bestScore ?? 0}\n` +
-      `Games Played: ${data.totalGames ?? 0}\n\n` +
-      "Appearance:\n" +
-      `Bird Skin: #${data.preferredBird ?? 0}\n` +
-      `Background: #${data.preferredBackground ?? 0}\n` +
-      `Terrain: #${data.preferredGround ?? 0}`;
+      "🐦 Bird Energy profils\n\n" +
+      `Spēlētājs: ${name}\n` +
+      `Labākais rezultāts: ${scoreLabel(data.bestScore ?? 0)}\n` +
+      `Spēļu skaits: ${data.totalGames ?? 0}\n\n` +
+      "Izskats:\n" +
+      `Skini: #${data.preferredBird ?? 0}\n` +
+      `Fons: #${data.preferredBackground ?? 0}\n` +
+      `Zeme: #${data.preferredGround ?? 0}`;
 
     await ctx.reply(
       message,
       Markup.inlineKeyboard([
-        Markup.button.url("👤 Open Profile", GAME_URL),
+        Markup.button.url("👤 Atvērt profilu", GAME_URL),
       ])
     );
   } catch (error) {
     console.error("Profile command failed:", error);
-    await ctx.reply("Could not load your profile.");
+    await ctx.reply("Neizdevās ielādēt profilu.");
   }
 }
 
 async function sendHowToPlay(ctx: Context) {
   const message =
-    "🎮 How to Play BirdEnergy\n\n" +
-    "1. Tap Play to launch the game.\n" +
-    "2. Tap the screen or press Space to make your bird jump.\n" +
-    "3. Fly through the gaps between pipes.\n" +
-    "4. Avoid obstacles to keep playing.\n" +
-    "5. Beat your personal best and climb the leaderboard!";
+    "🎮 Kā spēlēt Bird Energy\n\n" +
+    "1. Atver spēli — tā sākas ar pieskārienu ekrānam.\n" +
+    "2. Pieskaries ekrānam vai nospied Space, lai putns palēktos.\n" +
+    "3. Lido starp caurulēm un izvairies no šķēršļiem.\n" +
+    "4. Katra pārvarētā caurule dod punktu.\n" +
+    "5. Pārspēj savu rekordu un kāp reitingā!";
 
-    const keyboard = Markup.inlineKeyboard([
-      Markup.button.url("🎮 Start Playing", GAME_URL),
-    ]);
+  const keyboard = Markup.inlineKeyboard([
+    Markup.button.url("🎮 Sākt spēlēt", GAME_URL),
+  ]);
 
-    try {
-      const gifPath = path.join(
-        __dirname,
-        "../assets/howtoplay.gif"
-      );
-    
-      await ctx.replyWithAnimation(
-        Input.fromLocalFile(gifPath),
-        {
-          caption: message,
-          ...keyboard,
-        }
-      );
+  try {
+    const gifPath = path.join(__dirname, "../assets/howtoplay.gif");
+
+    await ctx.replyWithAnimation(Input.fromLocalFile(gifPath), {
+      caption: message,
+      ...keyboard,
+    });
   } catch (error) {
     console.error("Failed to send tutorial GIF:", error);
     await ctx.reply(message, keyboard);

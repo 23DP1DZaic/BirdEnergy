@@ -41,7 +41,7 @@ import {
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
-import { LOCALE_CODE, getLocale, t } from '../i18n'
+import { LOCALE_CODE, getLocale, t, tn } from '../i18n'
 import { describeMutationError } from './adminErrors.ts'
 import type { ChallengeDifficulty } from './economy.ts'
 import type {
@@ -358,6 +358,6 @@ export function targetLabel(challenge: Challenge): string {
         : 'target.points'
   return t('target.label', {
     n: challenge.targetValue,
-    unit: t(unitKey),
+    unit: tn(unitKey, challenge.targetValue),
   })
 }

@@ -52,18 +52,17 @@ import {
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
 import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
+import { SoundControls } from '../SoundControls'
 import {
   SOUND_SETTINGS_CHANGE_EVENT,
-  isMusicEnabled,
   isSfxEnabled,
-  setMusicEnabled,
   setSfxEnabled,
 } from '../soundSettings'
 import {
   PENDING_RUNS_CHANGE_EVENT,
   pendingRunCount,
 } from '../pendingRuns'
-import { getTelegramBotLink } from '../../telegram'
+import { shareScore } from '../shareScore'
 import { useT } from '../../i18n'
 import { prefersReducedMotion } from '../reducedMotion'
 import { GROUND_CHANGE_EVENT, getStoredGroundIndex } from '../groundTile'
@@ -180,10 +179,15 @@ export function GameCanvas({
   const [shownScore, setShownScore] = useState(0)
   // DATA-01 — runs waiting for a connection ("will sync when online").
   const [queued, setQueued] = useState(pendingRunCount)
+  // A run is in flight (or frozen under the pause screen): the corner keeps
+  // only the Pause control, see the control cluster below.
+  const inRun =
+    uiPhase === 'playing' ||
+    uiPhase === 'paused' ||
+    uiPhase === 'countdown' ||
+    uiPhase === 'dead'
   // AUDIO — the in-game speaker button mirrors the Sound effects switch.
   const [sfxOn, setSfxOn] = useState(isSfxEnabled)
-  // AUDIO - the in-game music button mirrors the Music switch.
-  const [musicOn, setMusicOn] = useState(isMusicEnabled)
   // Share feedback: the button doubles as its own confirmation.
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>(
     'idle',
@@ -220,37 +224,23 @@ export function GameCanvas({
   // AUDIO — Home's switches stay authoritative; the in-game button reflects a
   // change made there (and vice versa) through the shared settings event.
   useEffect(() => {
-    const sync = () => {
-      setSfxOn(isSfxEnabled())
-      setMusicOn(isMusicEnabled())
-    }
-
+    const sync = () => setSfxOn(isSfxEnabled())
     window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
-
-    return () => 
-      window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
+    return () => window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
   }, [])
 
-  // SHARE — the native sheet where it exists (Telegram, iOS, Android), the
-  // clipboard everywhere else. Dismissing the sheet is not a failure: the
+  // SHARE — Telegram's own picker first, then the native sheet, then the
+  // clipboard (shareScore.ts). Dismissing a sheet is not a failure: the
   // button only reports an actual error.
   const shareRun = useCallback(async () => {
-    const text = t('share.text', { score: shownScore })
-    const link = getTelegramBotLink()
-    try {
-      if (typeof navigator.share === 'function') {
-        await navigator.share({ title: t('share.title'), text, url: link })
-        return
-      }
-      await navigator.clipboard.writeText(`${text} ${link}`)
-      setShareState('copied')
-    } catch (err) {
-      // AbortError = the player closed the sheet; anything else is actionable.
-      if (err instanceof Error && err.name === 'AbortError') return
-      console.warn('[share] could not share the score', err)
-      setShareState('failed')
-    }
-  }, [shownScore, t])
+    const outcome = await shareScore(
+      t('share.title'),
+      tn('share.text', shownScore),
+    )
+    if (outcome === 'copied') setShareState('copied')
+    else if (outcome === 'failed') setShareState('failed')
+    else setShareState('idle')
+  }, [shownScore, t, tn])
 
   useEffect(() => {
     let cancelled = false
@@ -759,28 +749,23 @@ export function GameCanvas({
         />
       )}
       {/* Top-right control cluster: clear of the canvas HUD (score is drawn
-          top-centre) and of the DEV perf overlay (top-left). */}
+          top-centre) and of the DEV perf overlay (top-left). During a run the
+          corner shows nothing but Pause — the sound switches would sit under
+          the player's thumb at the exact moment they must not be hit; the
+          pause menu carries the full Music / Effects block instead. */}
       <div className="game-controls">
-        <button
-          type="button"
-          className="game-control"
-          aria-pressed={musicOn}
-          aria-label={t(musicOn ? 'music.turnOff' : 'music.turnOn')}
-          title={t(musicOn ? 'music.turnOff' : 'music.turnOn')}
-          onClick={() => setMusicEnabled(!musicOn)}
-        >
-          <PixelIcon name={musicOn ? 'music' : 'musicOff'} size={32} />
-        </button>
-        <button
-          type="button"
-          className="game-control"
-          aria-pressed={sfxOn}
-          aria-label={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
-          title={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
-          onClick={() => setSfxEnabled(!sfxOn)}
-        >
-          <PixelIcon name={sfxOn ? 'soundOn' : 'soundOff'} size={32} />
-        </button>
+        {!inRun && (
+          <button
+            type="button"
+            className="game-control"
+            aria-pressed={sfxOn}
+            aria-label={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
+            title={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
+            onClick={() => setSfxEnabled(!sfxOn)}
+          >
+            <PixelIcon name={sfxOn ? 'soundOn' : 'soundOff'} size={32} />
+          </button>
+        )}
         {uiPhase === 'playing' && (
           <button
             type="button"
@@ -807,6 +792,9 @@ export function GameCanvas({
           <p className="game-modal-score">
             {t('pause.score', { score: shownScore })}
           </p>
+          {/* The same Music / Effects block Home's settings menu shows —
+              reachable mid-run without leaving the game. */}
+          <SoundControls />
           <div className="game-modal-actions">
             <button
               type="button"
@@ -831,7 +819,6 @@ export function GameCanvas({
               {t('pause.playAgain')}
             </button>
           </div>
-          <p className="game-modal-hint">{t('pause.hint')}</p>
         </div>
       )}
 
@@ -861,7 +848,7 @@ export function GameCanvas({
           {coinState === 'confirmed' && coinReward && (
             <p className="game-coins" role="status">
               <span className="game-coins-earned">
-                {t('canvas.coinsEarned', { n: coinReward.earned })}
+                {tn('canvas.coinsEarned', coinReward.earned)}
               </span>
               <span className="game-coins-wallet">
                 {t('canvas.wallet', { n: coinReward.balance })}

@@ -34,7 +34,7 @@ import {
   getTelegramUser,
   isTelegramEnvironment,
 } from '../telegram'
-import { useSoundSettings } from './soundSettings'
+import { SoundControls } from './SoundControls'
 import { useHapticsSetting } from './haptics'
 import { PixelIcon } from './ui/PixelIcon'
 import { LOCALES, LOCALE_LABEL, setLocale, useT } from '../i18n'
@@ -74,16 +74,6 @@ function SettingsMenu({
   onOpenTutorial: () => void
 }) {
   const { t, locale } = useT()
-  const {
-    music,
-    sfx,
-    toggleMusic,
-    toggleSfx,
-    musicVolume,
-    sfxVolume,
-    setMusicVolume,
-    setSfxVolume,
-  } = useSoundSettings()
   const {
     haptics,
     supported: hapticsSupported,
@@ -127,40 +117,10 @@ function SettingsMenu({
           role="menu"
           aria-label={t('home.settings')}
         >
+          {/* Music, sound effects and their loudness — the same block the
+              game's pause menu shows, so the two menus never drift apart. */}
+          <SoundControls />
           <div className="settings-icons">
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={music}
-              className="settings-icon-button"
-              aria-label={t('home.music', {
-                state: t(music ? 'state.on' : 'state.off'),
-              })}
-              title={t('home.music', {
-                state: t(music ? 'state.on' : 'state.off'),
-              })}
-              onClick={toggleMusic}
-            >
-              <PixelIcon name={music ? 'music' : 'musicOff'} size={30} />
-            </button>
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={sfx}
-              className="settings-icon-button"
-              aria-label={t('home.sfx', {
-                state: t(sfx ? 'state.on' : 'state.off'),
-              })}
-              title={t('home.sfx', {
-                state: t(sfx ? 'state.on' : 'state.off'),
-              })}
-              onClick={toggleSfx}
-            >
-              <PixelIcon
-                name={sfx ? 'soundOn' : 'soundOff'}
-                size={30}
-              />
-            </button>
             <button
               type="button"
               role="menuitem"
@@ -175,45 +135,6 @@ function SettingsMenu({
               <PixelIcon name="info" size={30} />
             </button>
           </div>
-
-          <div className="settings-volume-controls">
-            <label className="settings-volume">
-              <span>
-                {t('home.music', {
-                  state: `${Math.round(musicVolume * 100)}%`,
-                })}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={Math.round(musicVolume * 100)}
-                onChange={(e) =>
-                  setMusicVolume(Number(e.currentTarget.value) / 100)
-                }
-              />
-            </label>
-
-            <label className="settings-volume">
-              <span>
-                {t('home.sfx', {
-                  state: `${Math.round(sfxVolume * 100)}%`,
-                })}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={Math.round(sfxVolume * 100)}
-                onChange={(e) =>
-                  setSfxVolume(Number(e.currentTarget.value) / 100)
-                }
-              />
-            </label>
-          </div>
-
           {/* Haptics only shows where the device can vibrate — a switch that
               can never do anything is worse than no switch. */}
           {hapticsSupported && (

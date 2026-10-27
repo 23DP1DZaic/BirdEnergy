@@ -29,7 +29,7 @@ Lai detalizēti pārbaudītu sistēmas uzvedību kļūdainas ievades, nepilnvaro
 
 ### 7.2.1. Ievades validācija (CH-03)
 
-Testu kopa: src/features/challengeValidation.test.ts (npm test). Kļūdas tiek pieteiktas pa laukiem, un tās bloķē saglabāšanu.
+Testu kopa: src/features/challengeValidation.test.ts (npm test). Kļūdas tiek norādītas pa laukiem, un tās bloķē saglabāšanu.
 
 | Nr. | ID | Testa gadījums | Ievaddati / darbība | Sagaidāmais rezultāts | Faktiskais rezultāts | Statuss |
 |---|---|---|---|---|---|---|
@@ -47,7 +47,7 @@ Testu kopa: src/features/challengeValidation.test.ts (npm test). Kļūdas tiek p
 | 12 | KT-V-12 | Nulle vai negatīvs mērķis | targetValue = "0", "-1", "-1000" | validate.positive | validate.positive (visiem 3 variantiem) | Pareizi |
 | 13 | KT-V-13 | Mērķa robežvērtība | targetValue = 1 000 001 un 1 000 000 | Virs robežas — kļūda; tieši uz robežas — pieņemts | validate.maxTarget / bez kļūdas | Pareizi |
 | 14 | KT-V-14 | Tukšs sākuma datums | startDate = "" | validate.startRequired | validate.startRequired | Pareizi |
-| 15 | KT-V-15 | Neeksistējošs sākuma datums | startDate = "2026-02-31", "2026-13-01", "2026-00-10", "01.03.2026" | validate.startInvalid (datums netiek pārritināts uz citu dienu) | validate.startInvalid (visiem 4 variantiem) | Pareizi |
+| 15 | KT-V-15 | Neeksistējošs sākuma datums | startDate = "2026-02-31", "2026-13-01", "2026-00-10", "01.03.2026" | validate.startInvalid (datums netiek pārbīdīts uz citu dienu) | validate.startInvalid (visiem 4 variantiem) | Pareizi |
 | 16 | KT-V-16 | Beigu datums pirms sākuma datuma | 10.03. → 09.03. | validate.endOrder | validate.endOrder | Pareizi |
 | 17 | KT-V-17 | Sākuma un beigu datums vienā dienā | Sākums = beigas | Pieņemts | Kļūdu nav | Pareizi |
 | 18 | KT-V-18 | Fokuss uz kļūdaino lauku | Kļūdains tikai mērķis (0) | Kļūda tikai mērķa laukā; fokuss uz to | 1 kļūda: targetValue; firstInvalidField = targetValue | Pareizi |
@@ -59,7 +59,7 @@ Testu kopa: src/features/challengeValidation.test.ts (npm test). Kļūdas tiek p
 
 ### 7.2.2. Datumu apstrāde
 
-Testu kopa: challengeValidation.test.ts. JavaScript Date pārritina neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts apgrieztais pārveidojums.
+Testu kopa: challengeValidation.test.ts. JavaScript Date pārbīda neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts apgrieztais pārveidojums.
 
 | Nr. | ID | Testa gadījums | Ievaddati / darbība | Sagaidāmais rezultāts | Faktiskais rezultāts | Statuss |
 |---|---|---|---|---|---|---|
@@ -136,9 +136,9 @@ Veicot programmatūras testēšanu, tika identificētas piecas kļūdas, kas iet
 |---|---|---|---|---|---|
 | 1 | Testu tipu pārbaude krita ar TS2339 (import.meta.env), tāpēc kļūdu testus nevarēja palaist vispār | tsconfig.test.json tika veidots atsevišķi no aplikācijas konfigurācijas, un tajā trūka Vite klienta tipu | tsconfig.test.json tipu sarakstam pievienots "vite/client" | npm test tipu pārbaude iziet; palaižas 89 testi | Novērsta |
 | 2 | node --test nevarēja ielādēt challengeValidation moduli (ERR_MODULE_NOT_FOUND) | Node ESM neatrisina importa ceļus bez faila paplašinājuma; Vite to pieļauj, tāpēc kļūda parādījās tikai testos | Importa ceļiem pievienots .ts paplašinājums | 26 formas validācijas testi iziet | Novērsta |
-| 3 | Administrators kā kļūdas paziņojumu redzēja tekstu "null" | describeMutationError apstrādāja tikai Error objektus, bet ne null, undefined vai tukšu ziņojumu | Pievienota vispārīga atbilde "Something went wrong and nothing was changed." | KT-A-10 iziet; admina panelī vairs nav "null" | Novērsta |
+| 3 | Administrators kā kļūdas paziņojumu redzēja tekstu "null" | describeMutationError apstrādāja tikai Error objektus, bet ne null, undefined vai tukšu ziņojumu | Pievienota vispārīga atbilde "Something went wrong and nothing was changed." | KT-A-10 iziet; administratora panelī vairs nav "null" | Novērsta |
 | 4 | npm run setup:test-tools neizdevās Windows vidē (tar: Cannot connect to C: resolve failed; gzip: more than one entry) | Skripts pieņēma, ka visās OS ir .tar.gz no absolūta ceļa, bet Adoptium Windows vidē piegādā ZIP, un GNU tar absolūto ceļu uztver kā tālvadības resursu | Ielādes formāts tiek izvēlēts pēc OS (ZIP Windows vidē); ekstrakcija notiek ar relatīviem ceļiem, izmantojot Windows bsdtar (rezerves variants — PowerShell Expand-Archive) | npm run setup:test-tools uzstāda Java 21 .tools/jre; npm run test:rules iziet (20 testi) | Novērsta |
-| 5 | npm run test:rules krita ar "unknown option '--test'" | Windows vidē komanda tiek palaista ar shell, kas argumentu sarakstu sadala pa vārdiem, tāpēc testu komandas karodziņš --test nonāca firebase-tools opciju analizatorā | Testu komanda tiek ietverta pēdiņās vietās, kur tiek izmantots shell | npm run test:rules iziet; 20 noteikumu testi pret emulatoru | Novērsta |
+| 5 | npm run test:rules krita ar "unknown option '--test'" | Windows vidē komanda tiek palaista ar shell, kas argumentu sarakstu sadala pa vārdiem, tāpēc testu komandas karodziņš --test nonāca firebase-tools opciju analizatorā | Testu komanda tiek ietverta pēdiņās tur, kur tiek izmantots shell | npm run test:rules iziet; 20 noteikumu testi pret emulatoru | Novērsta |
 
 
-Pieci scenāriji — kļūdas ekrāns (ErrorBoundary) pārlūkā, bezsaistes rezultātu rinda, piekrišanas dialoga kļūda, iztrūkstošs audio fails un administratora paziņojums, kad funkcija nav izvietota — prasa pārlūku, tīkla pārtraukumu vai Telegram klientu. Tie nav izpildīti automatizēti, tāpēc to statuss ir "Jāveic manuāli", nevis "Pareizi".
+Pieci scenāriji — kļūdas ekrāns (ErrorBoundary) pārlūkā, bezsaistes rezultātu rinda, piekrišanas dialoga kļūda, trūkstošs audio fails un administratora paziņojums, kad funkcija nav izvietota — prasa pārlūku, tīkla pārtraukumu vai Telegram klientu. Tie nav izpildīti automatizēti, tāpēc to statuss ir "Jāveic manuāli", nevis "Pareizi".

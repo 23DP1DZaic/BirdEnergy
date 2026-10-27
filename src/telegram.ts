@@ -22,6 +22,8 @@ export interface TelegramWebApp {
   colorScheme: 'light' | 'dark'
   ready(): void
   expand(): void
+  /** Opens a t.me link inside Telegram (used for the native share sheet). */
+  openTelegramLink?(url: string): void
 }
 
 export interface TelegramWebAppUser {
@@ -76,6 +78,34 @@ export function getTelegramBotLink(): string {
 /** Returns the Telegram WebApp instance, or null outside Telegram. */
 export function getTelegramWebApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null
+}
+
+/**
+ * Opens Telegram's own "share to…" picker for a text + link.
+ *
+ * A Mini App cannot rely on `navigator.share` or the clipboard: Telegram's
+ * webviews on iOS/Android/Desktop either do not expose them or reject the
+ * call without a permission prompt. `openTelegramLink` with a t.me/share URL
+ * is handled by the client itself, so it works everywhere the app runs.
+ *
+ * Returns false outside Telegram (or on an ancient client) — the caller then
+ * falls back to the Web Share API and the clipboard.
+ */
+export function openTelegramShare(text: string): boolean {
+  const webApp = getTelegramWebApp()
+  if (!webApp || !isTelegramEnvironment()) return false
+  if (typeof webApp.openTelegramLink !== 'function') return false
+  const shareUrl =
+    'https://t.me/share/url?url=' +
+    encodeURIComponent(getTelegramBotLink()) +
+    '&text=' +
+    encodeURIComponent(text)
+  try {
+    webApp.openTelegramLink(shareUrl)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

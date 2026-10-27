@@ -21,9 +21,9 @@ Protokola mērķis ir pārbaudīt, kā sistēma uzvedas kļūdainas ievades, nep
 
 Pārbaudes tvērums:
 
-• administrācijas izaicinājuma formas validācija (CH-03) un datumu apstrāde;
+• administrācijas paneļa izaicinājuma formas validācija (CH-03) un datumu apstrāde;
 
-• admina darbību kļūdu ziņojumi (ADM-01, ADM-02);
+• administratora darbību kļūdu ziņojumi (ADM-01, ADM-02);
 
 • Firestore drošības noteikumi pret tiešu klienta rakstīšanu (SEC-01);
 
@@ -37,7 +37,7 @@ Pārbaudes tvērums:
 
 Visi testi tiek palaisti lokāli un neprasa Firebase akreditāciju. Cloud Functions testi aizstāj Firestore un Auth ar in-memory dubultniekiem, savukārt drošības noteikumi tiek palaisti pret īsto Firestore emulatoru.
 
-Firestore emulators ir Java lietotne; Java 21 tiek uzstādīta projekta iekšienē ar `npm run setup:test-tools` (.tools/, gitignored), tāpēc vide ir atkārtojama arī pēc repozitorija jaunas klonēšanas.
+Firestore emulators ir Java lietotne; Java 21 tiek uzstādīta projekta iekšienē ar `npm run setup:test-tools` (.tools/, gitignored), tāpēc vide ir atkārtojama arī pēc repozitorija noklonēšanas no jauna.
 
 | Statuss | Nozīme |
 |---|---|
@@ -51,7 +51,7 @@ Firestore emulators ir Java lietotne; Java 21 tiek uzstādīta projekta iekšien
 |---|---|---|---|---|
 | Spēles loģika (src/features/game/engine.test.ts) | 51 | 51 | 0 | Izgāja |
 | Formas validācija — kļūdu ceļš (challengeValidation.test.ts) | 26 | 26 | 0 | Izgāja |
-| Admina kļūdu ziņojumi (adminErrors.test.ts) | 12 | 12 | 0 | Izgāja |
+| Administratora kļūdu ziņojumi (adminErrors.test.ts) | 12 | 12 | 0 | Izgāja |
 | Cloud Functions (functions/test) | 103 | 103 | 0 | Izgāja |
 | Firestore drošības noteikumi (test/firestore.rules.test.ts) | 20 | 20 | 0 | Izgāja |
 | Kopā | 212 | 212 | 0 | Izgāja |
@@ -61,7 +61,7 @@ Firestore emulators ir Java lietotne; Java 21 tiek uzstādīta projekta iekšien
 
 ### 5.1. Formas validācija (CH-03) — kļūda lietotāja ievadē
 
-Testu kopa: src/features/challengeValidation.test.ts (npm test). Pārbauda administrācijas paneļa izaicinājuma formas validāciju. Kļūdas tiek pieteiktas pa laukiem, un tās bloķē saglabāšanu.
+Testu kopa: src/features/challengeValidation.test.ts (npm test). Pārbauda administrācijas paneļa izaicinājuma formas validāciju. Kļūdas tiek norādītas pa laukiem, un tās bloķē saglabāšanu.
 
 | ID | Scenārijs / ievade | Sagaidāmais rezultāts | Faktiskais rezultāts | Statuss |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ Testu kopa: src/features/challengeValidation.test.ts (npm test). Pārbauda admin
 | KT-V-12 | Mērķis "0", "-1", "-1000" | validate.positive | validate.positive (visiem 3 variantiem) | Izgāja |
 | KT-V-13 | Mērķis 1 000 001 un 1 000 000 | Virs robežas — kļūda; tieši uz robežas — pieņemts | validate.maxTarget / bez kļūdas | Izgāja |
 | KT-V-14 | Sākuma datums tukšs | validate.startRequired | validate.startRequired | Izgāja |
-| KT-V-15 | Sākuma datums "2026-02-31", "2026-13-01", "2026-00-10", "01.03.2026" | validate.startInvalid (datums netiek pārritināts uz citu dienu) | validate.startInvalid (visiem 4 variantiem) | Izgāja |
+| KT-V-15 | Sākuma datums "2026-02-31", "2026-13-01", "2026-00-10", "01.03.2026" | validate.startInvalid (datums netiek pārbīdīts uz citu dienu) | validate.startInvalid (visiem 4 variantiem) | Izgāja |
 | KT-V-16 | Beigu datums pirms sākuma datuma (10.03 → 09.03) | validate.endOrder | validate.endOrder | Izgāja |
 | KT-V-17 | Sākuma un beigu datums ir viena un tā pati diena | Pieņemts | Kļūdu nav | Izgāja |
 | KT-V-18 | Kļūdains tikai mērķis (0) | Kļūda tikai mērķa laukā; fokuss uz to | 1 kļūda: targetValue; firstInvalidField = targetValue | Izgāja |
@@ -91,7 +91,7 @@ Testu kopa: src/features/challengeValidation.test.ts (npm test). Pārbauda admin
 
 ### 5.2. Datumu apstrāde — nederīgi datumi
 
-Testu kopa: challengeValidation.test.ts. JavaScript Date pārritina neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts apgrieztais pārveidojums.
+Testu kopa: challengeValidation.test.ts. JavaScript Date pārbīda neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts apgrieztais pārveidojums.
 
 | ID | Scenārijs / ievade | Sagaidāmais rezultāts | Faktiskais rezultāts | Statuss |
 |---|---|---|---|---|
@@ -99,9 +99,9 @@ Testu kopa: challengeValidation.test.ts. JavaScript Date pārritina neeksistējo
 | KT-D-02 | 31.02.2026 un 31.04.2026 | null — diena netiek pārbīdīta uz nākamo mēnesi | null / null | Izgāja |
 | KT-D-03 | Formāts "2026-3-1", " 2026-03-01 ", "", "2026-03" | Tikai YYYY-MM-DD (ar atstarpēm malās) ir derīgs | null / derīgs / null / null | Izgāja |
 
-### 5.3. Admina darbību kļūdu ziņojumi (ADM-01/ADM-02)
+### 5.3. Administratora darbību kļūdu ziņojumi (ADM-01/ADM-02)
 
-Testu kopa: src/features/adminErrors.test.ts (npm test). Pārbauda, ko administrators redz, kad izaicinājuma izveide, labošana vai dzēšana neizdodas. Nepareizs kartējums nav crashes, bet maldina lietotāju, tāpēc katrs kods ir piefiksēts.
+Testu kopa: src/features/adminErrors.test.ts (npm test). Pārbauda, ko administrators redz, kad izaicinājuma izveide, labošana vai dzēšana neizdodas. Nepareizs kartējums nesabojā sistēmu, bet maldina lietotāju, tāpēc katrs kļūdas kods ir pārbaudīts ar testu.
 
 | ID | Scenārijs / ievade | Sagaidāmais rezultāts | Faktiskais rezultāts | Statuss |
 |---|---|---|---|---|
@@ -164,7 +164,7 @@ Testu kopa: functions/test (103 testi, npm test mapē functions). Serveris ir vi
 | ID | Defekts | Ietekme | Statuss |
 |---|---|---|---|
 | KT-B-01 | tsconfig.test.json neietvēra vite/client tipus | Tiklīdz tests importēja aplikācijas moduli (challengeValidation → i18n), npm test tipa pārbaude krita ar TS2339 (import.meta.env). Kļūdu testus nevarēja palaist vispār. | Labots: pievienots "vite/client" tipu sarakstam |
-| KT-B-02 | challengeValidation.ts imports bez .ts paplašinājuma | node --test nevarēja ielādēt moduli (ERR_MODULE_NOT_FOUND), jo Node ESM neatrisina bezpaplašinājuma ceļus. | Labots: imports ar .ts paplašinājumu (Vite to atbalsta) |
+| KT-B-02 | challengeValidation.ts importa ceļš bez .ts paplašinājuma | node --test nevarēja ielādēt moduli (ERR_MODULE_NOT_FOUND), jo Node ESM neatrisina bezpaplašinājuma ceļus. | Labots: imports ar .ts paplašinājumu (Vite to atbalsta) |
 | KT-B-03 | describeMutationError(null) atgrieza tekstu "null" | Ja kļūdas vietā nonāk null/undefined, administrators redzēja "null" vai "[object Object]" kā kļūdas ziņojumu. | Labots: tagad vispārīgs ziņojums; pārklāts ar KT-A-10 |
 
 ## 6. Manuāli veicamie testi
@@ -174,25 +174,25 @@ Testu kopa: functions/test (103 testi, npm test mapē functions). Serveris ir vi
 | KT-M-01 | Kļūdas ekrāns (ErrorBoundary): komponentes render kļūda pārlūkā | Redzams "Something went wrong" ar Pārlādēt pogu, nevis tukšs ekrāns | Jāveic manuāli |
 | KT-M-02 | Bezsaistes rinda: atslēgt tīklu pirms rezultāta nosūtīšanas, pēc tam atjaunot | Rezultāts paliek localStorage un tiek nosūtīts vienreiz (bez dubultošanas) | Jāveic manuāli |
 | KT-M-03 | Piekrišanas kļūda: apturēt Functions emulatoru un apstiprināt piekrišanu | Dialogs parāda kļūdas tekstu, spēle netiek bloķēta | Jāveic manuāli |
-| KT-M-04 | Audio faila trūkums: izņemt mp3 no src/assets/Sound/sfx | Klusa nospēle bez kļūdas konsolē, spēle darbojas | Jāveic manuāli |
-| KT-M-05 | Admina paziņojums, kad funkcija nav izvietota (UI līmenis) | Administrators redz KT-A-06 tekstu, forma paliek ar ievadītajiem datiem | Jāveic manuāli |
+| KT-M-04 | Audio faila trūkums: izņemt mp3 no src/assets/Sound/sfx | Skaņa tiek izlaista klusi, bez kļūdām konsolē; spēle darbojas | Jāveic manuāli |
+| KT-M-05 | Administratora paziņojums, kad funkcija nav izvietota (UI līmenis) | Administrators redz KT-A-06 tekstu, forma paliek ar ievadītajiem datiem | Jāveic manuāli |
 
 ## 7. Secinājumi
 
 No 212 automatizētajiem testiem visi 212 izgāja; kritisku defektu nav. Kļūdu ceļš ir pārklāts trijos līmeņos: klienta validācija neļauj nosūtīt nederīgus datus, serveris tos pārbauda vēlreiz (klienta pārbaude nav uzticamības robeža), un drošības noteikumi liedz tiešu klienta rakstīšanu jebkurā no trim aizsargātajām kolekcijām.
 
-Testēšanas gaitā atrasti un laboti trīs defekti (KT-B-01…03): divi testēšanas infrastruktūrā, kas neļāva kļūdu testus palaist, un viens lietotājam redzams — "null" kā kļūdas teksts admina panelī.
+Testēšanas gaitā atrasti un laboti trīs defekti (KT-B-01…03): divi testēšanas infrastruktūrā, kas neļāva kļūdu testus palaist, un viens lietotājam redzams — "null" kā kļūdas teksts administratora panelī.
 
 Pieci UI līmeņa scenāriji (KT-M-01…05) prasa pārlūku vai Telegram klientu, tāpēc šajā vidē tie nav izpildīti un to statuss ir "Jāveic manuāli", nevis "Izgāja".
 
 ## 8. Pielikums — kā atkārtot pārbaudes
 
 ```bash
-npm test                                  # 89 testi (spēle + validācija + admina ziņojumi)
+npm test                                  # 89 testi (spēle + validācija + administratora ziņojumi)
 npm run test:rules                        # 20 noteikumu testi pret Firestore emulatoru
 npm run setup:test-tools                  # Java 21 uzstādīšana .tools/ (ja nav Java)
 cd functions && npm test                  # 103 Cloud Functions testi
-python3 docs/kludu-testesana/build.py     # šī dokumenta pārlāde (DOCX + MD)
+python3 docs/kludu-testesana/build.py     # šī dokumenta pārģenerēšana (DOCX + MD)
 
 # Noteikumu izvietošana un pārbaude, ka dzīvais ruleset sakrīt ar failu:
 npx firebase-tools deploy --only firestore:rules --project birdenergy-f1405

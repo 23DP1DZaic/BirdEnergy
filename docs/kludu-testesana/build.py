@@ -47,7 +47,7 @@ META = [
 SUMMARY = [
     ("Spēles loģika (src/features/game/engine.test.ts)", "51", "51", "0", "Izgāja"),
     ("Formas validācija — kļūdu ceļš (challengeValidation.test.ts)", "26", "26", "0", "Izgāja"),
-    ("Admina kļūdu ziņojumi (adminErrors.test.ts)", "12", "12", "0", "Izgāja"),
+    ("Administratora kļūdu ziņojumi (adminErrors.test.ts)", "12", "12", "0", "Izgāja"),
     ("Cloud Functions (functions/test)", "103", "103", "0", "Izgāja"),
     ("Firestore drošības noteikumi (test/firestore.rules.test.ts)", "20", "20", "0", "Izgāja"),
     ("Kopā", "212", "212", "0", "Izgāja"),
@@ -58,7 +58,7 @@ GROUPS = [
         "title": "5.1. Formas validācija (CH-03) — kļūda lietotāja ievadē",
         "note": "Testu kopa: src/features/challengeValidation.test.ts (npm test). "
                 "Pārbauda administrācijas paneļa izaicinājuma formas validāciju. "
-                "Kļūdas tiek pieteiktas pa laukiem, un tās bloķē saglabāšanu.",
+                "Kļūdas tiek norādītas pa laukiem, un tās bloķē saglabāšanu.",
         "rows": [
             ("KT-V-01", "Tukša forma — saglabāšana",
              "Kļūda visos sešos laukos; fokuss uz pirmo lauku (nosaukums)",
@@ -94,7 +94,7 @@ GROUPS = [
              "validate.startRequired", "validate.startRequired", "Izgāja"),
             ("KT-V-15", "Sākuma datums \"2026-02-31\", \"2026-13-01\", "
                        "\"2026-00-10\", \"01.03.2026\"",
-             "validate.startInvalid (datums netiek pārritināts uz citu dienu)",
+             "validate.startInvalid (datums netiek pārbīdīts uz citu dienu)",
              "validate.startInvalid (visiem 4 variantiem)", "Izgāja"),
             ("KT-V-16", "Beigu datums pirms sākuma datuma (10.03 → 09.03)",
              "validate.endOrder", "validate.endOrder", "Izgāja"),
@@ -122,7 +122,7 @@ GROUPS = [
     },
     {
         "title": "5.2. Datumu apstrāde — nederīgi datumi",
-        "note": "Testu kopa: challengeValidation.test.ts. JavaScript Date pārritina "
+        "note": "Testu kopa: challengeValidation.test.ts. JavaScript Date pārbīda "
                 "neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts "
                 "apgrieztais pārveidojums.",
         "rows": [
@@ -138,11 +138,11 @@ GROUPS = [
         ],
     },
     {
-        "title": "5.3. Admina darbību kļūdu ziņojumi (ADM-01/ADM-02)",
+        "title": "5.3. Administratora darbību kļūdu ziņojumi (ADM-01/ADM-02)",
         "note": "Testu kopa: src/features/adminErrors.test.ts (npm test). Pārbauda, "
                 "ko administrators redz, kad izaicinājuma izveide, labošana vai "
-                "dzēšana neizdodas. Nepareizs kartējums nav crashes, bet maldina "
-                "lietotāju, tāpēc katrs kods ir piefiksēts.",
+                "dzēšana neizdodas. Nepareizs kartējums nesabojā sistēmu, bet "
+                "maldina lietotāju, tāpēc katrs kļūdas kods ir pārbaudīts ar testu.",
         "rows": [
             ("KT-A-01", "functions/permission-denied, \"Admin only. [403]\"",
              "\"Only administrators may change challenges — Admin only.\" bez [403]",
@@ -270,7 +270,7 @@ DEFECTS = [
      "npm test tipa pārbaude krita ar TS2339 (import.meta.env). Kļūdu testus "
      "nevarēja palaist vispār.",
      "Labots: pievienots \"vite/client\" tipu sarakstam"),
-    ("KT-B-02", "challengeValidation.ts imports bez .ts paplašinājuma",
+    ("KT-B-02", "challengeValidation.ts importa ceļš bez .ts paplašinājuma",
      "node --test nevarēja ielādēt moduli (ERR_MODULE_NOT_FOUND), jo Node ESM "
      "neatrisina bezpaplašinājuma ceļus.",
      "Labots: imports ar .ts paplašinājumu (Vite to atbalsta)"),
@@ -292,9 +292,9 @@ MANUAL = [
      "Dialogs parāda kļūdas tekstu, spēle netiek bloķēta",
      "Jāveic manuāli"),
     ("KT-M-04", "Audio faila trūkums: izņemt mp3 no src/assets/Sound/sfx",
-     "Klusa nospēle bez kļūdas konsolē, spēle darbojas",
+     "Skaņa tiek izlaista klusi, bez kļūdām konsolē; spēle darbojas",
      "Jāveic manuāli"),
-    ("KT-M-05", "Admina paziņojums, kad funkcija nav izvietota (UI līmenis)",
+    ("KT-M-05", "Administratora paziņojums, kad funkcija nav izvietota (UI līmenis)",
      "Administrators redz KT-A-06 tekstu, forma paliek ar ievadītajiem datiem",
      "Jāveic manuāli"),
 ]
@@ -305,8 +305,9 @@ SECTIONS_TEXT = {
         "nepilnvarotas piekļuves un servisa kļūmju gadījumos — nevis tikai to, "
         "vai lietotne strādā ar pareiziem datiem.",
         "Pārbaudes tvērums:",
-        "• administrācijas izaicinājuma formas validācija (CH-03) un datumu apstrāde;",
-        "• admina darbību kļūdu ziņojumi (ADM-01, ADM-02);",
+        "• administrācijas paneļa izaicinājuma formas validācija (CH-03) un datumu "
+        "apstrāde;",
+        "• administratora darbību kļūdu ziņojumi (ADM-01, ADM-02);",
         "• Firestore drošības noteikumi pret tiešu klienta rakstīšanu (SEC-01);",
         "• Cloud Functions noraidījumi: autentifikācija, tiesības, ievades validācija "
         "(AUTH-02, DATA-01, ADM-01, UI-03);",
@@ -320,7 +321,7 @@ SECTIONS_TEXT = {
         "savukārt drošības noteikumi tiek palaisti pret īsto Firestore emulatoru.",
         "Firestore emulators ir Java lietotne; Java 21 tiek uzstādīta projekta "
         "iekšienē ar `npm run setup:test-tools` (.tools/, gitignored), tāpēc vide "
-        "ir atkārtojama arī pēc repozitorija jaunas klonēšanas.",
+        "ir atkārtojama arī pēc repozitorija noklonēšanas no jauna.",
     ],
     "conclusion": [
         "No 212 automatizētajiem testiem visi 212 izgāja; kritisku defektu nav. "
@@ -330,17 +331,17 @@ SECTIONS_TEXT = {
         "jebkurā no trim aizsargātajām kolekcijām.",
         "Testēšanas gaitā atrasti un laboti trīs defekti (KT-B-01…03): divi "
         "testēšanas infrastruktūrā, kas neļāva kļūdu testus palaist, un viens "
-        "lietotājam redzams — \"null\" kā kļūdas teksts admina panelī.",
+        "lietotājam redzams — \"null\" kā kļūdas teksts administratora panelī.",
         "Pieci UI līmeņa scenāriji (KT-M-01…05) prasa pārlūku vai Telegram klientu, "
         "tāpēc šajā vidē tie nav izpildīti un to statuss ir \"Jāveic manuāli\", "
         "nevis \"Izgāja\".",
     ],
     "appendix": [
-        "npm test                                  # 89 testi (spēle + validācija + admina ziņojumi)",
+        "npm test                                  # 89 testi (spēle + validācija + administratora ziņojumi)",
         "npm run test:rules                        # 20 noteikumu testi pret Firestore emulatoru",
         "npm run setup:test-tools                  # Java 21 uzstādīšana .tools/ (ja nav Java)",
         "cd functions && npm test                  # 103 Cloud Functions testi",
-        "python3 docs/kludu-testesana/build.py     # šī dokumenta pārlāde (DOCX + MD)",
+        "python3 docs/kludu-testesana/build.py     # šī dokumenta pārģenerēšana (DOCX + MD)",
         "",
         "# Noteikumu izvietošana un pārbaude, ka dzīvais ruleset sakrīt ar failu:",
         "npx firebase-tools deploy --only firestore:rules --project birdenergy-f1405",
@@ -586,7 +587,7 @@ def build_docx() -> None:
     )
     doc.add_paragraph(
         "Kļūdu ceļam (nevis tikai derīgiem datiem) veltīti 26 formas validācijas "
-        "testi, 12 admina ziņojumu testi, 20 drošības noteikumu testi un lielākā "
+        "testi, 12 administratora ziņojumu testi, 20 drošības noteikumu testi un lielākā "
         "daļa no 103 Cloud Functions testiem — kopā vairāk nekā 60 negatīvo "
         "scenāriju."
     )
@@ -791,7 +792,7 @@ SAMPLE_CASES = [
     {
         "title": "7.2.1. Ievades validācija (CH-03)",
         "note": "Testu kopa: src/features/challengeValidation.test.ts (npm test). "
-                "Kļūdas tiek pieteiktas pa laukiem, un tās bloķē saglabāšanu.",
+                "Kļūdas tiek norādītas pa laukiem, un tās bloķē saglabāšanu.",
         "rows": [
             ("KT-V-01", "Tukšas formas saglabāšana", "Visi seši lauki tukši",
              "Kļūda visos laukos; fokuss uz pirmo lauku",
@@ -836,7 +837,7 @@ SAMPLE_CASES = [
             ("KT-V-15", "Neeksistējošs sākuma datums",
              "startDate = \"2026-02-31\", \"2026-13-01\", \"2026-00-10\", "
              "\"01.03.2026\"",
-             "validate.startInvalid (datums netiek pārritināts uz citu dienu)",
+             "validate.startInvalid (datums netiek pārbīdīts uz citu dienu)",
              "validate.startInvalid (visiem 4 variantiem)", "Pareizi"),
             ("KT-V-16", "Beigu datums pirms sākuma datuma", "10.03. → 09.03.",
              "validate.endOrder", "validate.endOrder", "Pareizi"),
@@ -865,7 +866,7 @@ SAMPLE_CASES = [
     },
     {
         "title": "7.2.2. Datumu apstrāde",
-        "note": "Testu kopa: challengeValidation.test.ts. JavaScript Date pārritina "
+        "note": "Testu kopa: challengeValidation.test.ts. JavaScript Date pārbīda "
                 "neeksistējošu dienu (31.02 → 3.03), tāpēc tiek pārbaudīts "
                 "apgrieztais pārveidojums.",
         "rows": [
@@ -1062,7 +1063,7 @@ SAMPLE_DEFECT_ROWS = [
      "undefined vai tukšu ziņojumu",
      "Pievienota vispārīga atbilde \"Something went wrong and nothing was "
      "changed.\"",
-     "KT-A-10 iziet; admina panelī vairs nav \"null\"", "Novērsta"),
+     "KT-A-10 iziet; administratora panelī vairs nav \"null\"", "Novērsta"),
     ("npm run setup:test-tools neizdevās Windows vidē (tar: Cannot connect to "
      "C: resolve failed; gzip: more than one entry)",
      "Skripts pieņēma, ka visās OS ir .tar.gz no absolūta ceļa, bet Adoptium "
@@ -1077,13 +1078,13 @@ SAMPLE_DEFECT_ROWS = [
      "Windows vidē komanda tiek palaista ar shell, kas argumentu sarakstu "
      "sadala pa vārdiem, tāpēc testu komandas karodziņš --test nonāca "
      "firebase-tools opciju analizatorā",
-     "Testu komanda tiek ietverta pēdiņās vietās, kur tiek izmantots shell",
+     "Testu komanda tiek ietverta pēdiņās tur, kur tiek izmantots shell",
      "npm run test:rules iziet; 20 noteikumu testi pret emulatoru", "Novērsta"),
 ]
 
 SAMPLE_MANUAL_NOTE = (
     "Pieci scenāriji — kļūdas ekrāns (ErrorBoundary) pārlūkā, bezsaistes "
-    "rezultātu rinda, piekrišanas dialoga kļūda, iztrūkstošs audio fails un "
+    "rezultātu rinda, piekrišanas dialoga kļūda, trūkstošs audio fails un "
     "administratora paziņojums, kad funkcija nav izvietota — prasa pārlūku, "
     "tīkla pārtraukumu vai Telegram klientu. Tie nav izpildīti automatizēti, "
     "tāpēc to statuss ir \"Jāveic manuāli\", nevis \"Pareizi\"."

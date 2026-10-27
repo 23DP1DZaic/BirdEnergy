@@ -203,32 +203,6 @@
   box-sizing: border-box;
 }
 
-.settings-volume-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 10px;
-  background: #ffd23f;
-  border: 2px solid #a5420c;
-  border-radius: 8px;
-}
-
-.settings-volume {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-family: var(--sans);
-  font-size: 11px;
-  color: #5a1e05;
-}
-
-.settings-volume input[type="range"] {
-  width: 100%;
-  margin: 0;
-  accent-color: #a5420c;
-  cursor: pointer;
-}
-
 /* The three one-tap settings, as sprite glyph buttons. The gear row is the
    menu's headline; the two text rows below it are the switches the sheet has
    no symbol for. */
@@ -276,6 +250,108 @@
 .settings-item:hover,
 .settings-item:focus-visible {
   background: #ffe07a;
+}
+
+/* AUDIO — the shared Music / Sound-effects block (Home's settings menu and the
+   game's pause menu render the same component). One row per channel: sprite
+   toggle on the left, loudness slider filling the rest. */
+.sound-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sound-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sound-toggle {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  filter: drop-shadow(0 2px 0 rgba(90, 30, 5, 0.35));
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A muted channel keeps its art readable but steps back. */
+.sound-toggle[aria-pressed='false'] .pixel-icon {
+  opacity: 0.72;
+}
+
+.sound-toggle:active {
+  transform: translateY(1px);
+}
+
+.sound-toggle:focus-visible {
+  outline: 2px solid #5a1e05;
+  outline-offset: 2px;
+}
+
+/* Loudness slider: a pixel-art track with a square gold handle. */
+.sound-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sound-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  background: #ffe9a8;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+}
+
+.sound-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 3px;
+}
+
+.sound-slider::-moz-range-track {
+  height: 8px;
+  background: #ffe9a8;
+  border: 2px solid #a5420c;
+  border-radius: 999px;
+}
+
+.sound-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 3px;
+}
+
+.sound-slider:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sound-slider:focus-visible {
+  outline: 2px solid #5a1e05;
+  outline-offset: 2px;
+  border-radius: 999px;
 }
 
 /* ------------------------------------------------------------------ */
@@ -786,6 +862,9 @@ a.btn {
   border: 2px solid #ffd23f;
   border-radius: 14px;
   box-sizing: border-box;
+  /* One shadow for every word on the screen — the same lift the In-game name
+     label always had (text-shadow inherits, so the fields below opt out). */
+  text-shadow: 1px 1px 0 rgba(90, 30, 5, 0.85);
 }
 
 /* The in-game name editor is part of the identity card now (no second panel):
@@ -943,6 +1022,8 @@ a.btn {
   font-family: var(--sans);
   font-size: 10px;
   color: #5a1e05;
+  /* Cream field: the card's text shadow would blur the typed name. */
+  text-shadow: none;
   background: #fff8e1;
   border: 2px solid #a5420c;
   border-radius: 8px;
@@ -982,8 +1063,9 @@ a.btn {
 }
 
 /* UI-04 rev / SHOP-01 — appearance picker: three tabs switch one grid of
-   options. Each option is a square thumb with a caption (Select / Selected /
-   Locked); locked shop items add a lock badge and a compact Buy button. */
+   options. Each option is a square thumb; the current pick is shown by the
+   brighter frame alone (no caption under the tiles). Locked shop items add a
+   lock badge on the thumb and a compact Buy button underneath. */
 .appearance-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1008,6 +1090,8 @@ a.btn {
 .appearance-balance {
   font-size: 10px;
   color: #5a1e05;
+  /* The gold pill is a light surface — the card's shadow would smear it. */
+  text-shadow: none;
   background: #ffd23f;
   border: 2px solid #a5420c;
   border-radius: 999px;
@@ -1076,18 +1160,6 @@ a.btn {
   height: 100%;
   background-repeat: no-repeat;
   image-rendering: pixelated;
-}
-
-.appearance-caption {
-  font-size: 9px;
-  line-height: 1.3;
-  color: #5a1e05;
-  text-align: center;
-}
-
-.appearance-tile[aria-pressed='true'] .appearance-caption {
-  color: #a5420c;
-  font-weight: 700;
 }
 
 .appearance-lock {

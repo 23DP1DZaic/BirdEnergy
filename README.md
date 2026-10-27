@@ -23,36 +23,108 @@ Galvenās funkcijas:
 - Challenge meklēšana un filtrēšana
 - Formu validācija un dzēšanas apstiprinājums
 
+## Lietošanas instrukcija
+
+### Bota atrašana un palaišana
+
+1. Atver Telegram (telefonā vai datorā), ieraksti meklēšanā
+   `@BirdEnergy_testbot` vai atver saiti
+   [t.me/BirdEnergy_testbot](https://t.me/BirdEnergy_testbot).
+2. Nospied pogu **Start** (komanda `/start`). Bots atbild ar sveicienu un
+   pogām **Spēlēt Bird Energy**, **Profils**, **Reitings** un **Kā spēlēt**.
+3. Nospied **Spēlēt Bird Energy** — spēle atveras Telegram iekšienē kā Mini
+   App. Nekas nav jāinstalē: tā darbojas gan telefonā, gan datorā.
+
+### Pieteikšanās
+
+Atsevišķa reģistrācija, e-pasts vai parole nav vajadzīga. Atverot spēli no
+bota, Telegram nodod lietotnei parakstītus lietotāja datus (`initData`), un
+serveris tos pārbauda ar HMAC-SHA256. Ja paraksts neder, lietotne paliek viesa
+režīmā: var apskatīt sākuma informāciju, bet nevar spēlēt un saglabāt
+rezultātus. Pirmajā pieteikšanās reizē tiek izveidots profils, un spēle
+pajautā atļauju izmantot Telegram datus.
+
+### Kā spēlēt
+
+1. Nospied **Spēlēt** — spēle sākas ar pirmo pieskārienu ekrānam.
+2. Pieskarties ekrānam (datorā var arī `Space`), lai putns palēktos.
+3. Lido starp caurulēm: katra pārvarētā caurule dod vienu punktu, bet
+   sadursme ar cauruli vai zemi beidz spēli.
+4. Pēc spēles beigām rezultāts tiek saglabāts profilā, un par to tiek
+   piešķirtas monētas.
+5. Spēles laikā augšējā labajā stūrī ir poga **Pauze**. Pauzes izvēlnē var
+   turpināt spēli, sākt to no jauna un noregulēt mūziku, skaņas efektus un to
+   skaļumu.
+6. Poga **Dalīties ar rezultātu** pēc spēles beigām nosūta rezultātu draugam
+   Telegram čatā.
+
+### Punkti, monētas un izskats
+
+Punkti ir spēles rezultāts, bet monētas — iekšējā valūta. Monētas tiek
+piešķirtas par katru nospēlēto spēli, un tās var iztērēt **Profilā**, kur
+pieejami putna skini, debesis un zeme. Iegādātais izskats paliek profilā, un to
+var mainīt jebkurā laikā: izvēlētie skini, debesis un zeme uzreiz redzami gan
+sākumlapā, gan spēlē.
+
+### Reitings un izaicinājumi
+
+- **Reitings** rāda labākos rezultātus par dienu, nedēļu un visu laiku. Tabulā
+  redzams spēlē ievadītais vārds, nevis Telegram lietotājvārds; vārdu var
+  mainīt Profilā.
+- **Izaicinājumi** ir dienas uzdevumi, piemēram, sakrāt noteiktu punktu skaitu
+  vai nospēlēt noteiktu spēļu skaitu. Izpildīta uzdevuma atlīdzība jāsaņem ar
+  pogu **Saņemt**, un tā jāpaņem tajā pašā dienā (pēc Rīgas laika).
+- Administratoram papildus pieejams administratora panelis izaicinājumu
+  pievienošanai, labošanai un dzēšanai.
+
+### Bota komandas
+
+| Komanda | Ko dara |
+| --- | --- |
+| `/start` | Sveiciens un galvenā izvēlne |
+| `/top`, `/leaderboard` | Labāko spēlētāju desmitnieks |
+| `/me`, `/profile` | Tavs profils un izvēlētais izskats |
+| `/howtoplay` | Īsa pamācība ar animāciju |
+
 ## Izmantotās tehnoloģijas
 
 ### Frontend
 
-- React
+- React 19
 - TypeScript
-- Vite
-- HTML5 Canvas
-- Tailwind CSS vai CSS
-- React Router
+- Vite 8 (izstrādes serveris un produkcijas būvējums)
+- HTML5 Canvas 2D — visa spēle tiek zīmēta manuāli (`src/features/game/`), bez spēļu dzinēja
+- Parasts CSS (`src/App.css`, `src/index.css`) — bez Tailwind
+- Pašrakstīta navigācija (`src/navigation.ts`) — bez React Router
+- Pašrakstīts i18n slānis ar trim valodām (en / lv / ru), valoda no Telegram `language_code` (`src/i18n.ts`)
+- Pārlūka API: Web Audio, Vibration API, `navigator.share`, `localStorage`
 
 ### Firebase un datubāze
 
-- Firebase Hosting
-- Cloud Firestore
-- Firebase Cloud Functions
+- Firebase Hosting (projekts `birdenergy-f1405`)
+- Cloud Firestore (kolekcijas + apakškolekcijas; viens saliktais indekss)
+- Firebase Cloud Functions v2 (Node.js 24, reģions `europe-north1`, 9 izsaucamās funkcijas + 1 HTTP webhook)
 - Firebase Authentication ar custom token
-- Firestore Security Rules
+- Firestore Security Rules (+ testi pret Firestore emulatoru)
 
 ### Telegram
 
-- Telegram Mini Apps API
-- Telegram WebApp initData
+- Telegram Mini Apps API (`telegram-web-app.js`)
+- Telegram WebApp `initData` ar servera puses HMAC-SHA256 pārbaudi
+- Telegraf 4 — bota komandas un interaktīvā izvēlne caur webhook
+
+### Testēšana
+
+- Node iebūvētais `node:test`
+- `@firebase/rules-unit-testing` pret īstu Firestore emulatoru (nepieciešama Java 21, `npm run setup:test-tools`)
+- In-memory Firestore/Auth dubultnieki Cloud Functions testiem (nav vajadzīgs emulators vai Firebase akreditācija)
 
 ### Izstrādes un organizēšanas rīki
 
 - GitHub - versiju kontrole un komandas kopīgais repozitorijs
 - Trello - Kanban metodes uzdevumu plānošana
-- Figma - lietotnes ekrānu skices un dizains(https://www.figma.com/design/xwMlw2tNlUCefyzVseyBTm/Bird-Energy?node-id=0-1&t=PrC2u6jPggu5nt5c-1)
-- draw.io - sistēmas arhitektūras, ER un use case diagrammas(https://drive.google.com/file/d/1zYUmfxyr0Mf_M9AZopcbhHjV6l6wG1Kn/view?usp=sharing)
+- Figma - lietotnes ekrānu skices un dizains (https://www.figma.com/design/xwMlw2tNlUCefyzVseyBTm/Bird-Energy?node-id=0-1&t=PrC2u6jPggu5nt5c-1)
+- draw.io - sistēmas arhitektūras, ER un use case diagrammas (https://drive.google.com/file/d/1zYUmfxyr0Mf_M9AZopcbhHjV6l6wG1Kn/view?usp=sharing)
 
 ## Projekta struktūra
 
@@ -69,7 +141,7 @@ bird-energy/
 ├── functions/
 │   └── src/              # Firebase Cloud Functions
 ├── public/               # Statiskie resursi
-├── tests/                # Automatizētie testi
+├── test/                 # Automatizētie testi
 ├── firestore.rules       # Firestore drošības noteikumi
 ├── firestore.indexes.json
 ├── firebase.json
@@ -87,15 +159,15 @@ Atbild par Flappy Bird spēles mehāniku, Canvas implementāciju, Game ekrānu, 
 
 Atbild par Firebase konfigurāciju, Cloud Firestore datubāzi, Firebase Hosting, Firebase custom token autentifikāciju, spēles rezultātu saglabāšanu, Firestore Security Rules un leaderboard datu servisiem.
 
-### Dalībnieks 3 (Alberts) - Telegramm bots, mini app pārvalde
+### Dalībnieks 3 (Alberts) - Telegram bots, Mini App pārvalde
 
-Atbild par Telegramm botu tā komandām, izskatu un Telegram initData verifikāciju. Mini app pārvalde.
+Atbild par Telegram botu, tā komandām, izskatu un Telegram initData verifikāciju. Mini App pārvalde.
 
 ### Dalībnieks 4 (Rodions) - Challenges, administrators un kvalitāte
 
 Atbild par Challenges ekrānu, administratora paneli, Challenge CRUD funkcionalitāti, formu validāciju, dzēšanas apstiprinājumu, meklēšanu un filtrēšanu, integrācijas testēšanu, manuālo testu plānu, dokumentāciju un demo sagatavošanu.
 
-Visi komandas dalībnieki piedalās GitHub repozitorija uzturēšanā, Trello uzdevumu plānošanā, code review, kļūdu labošanā, dokumentācijas sagatavošanā un projekta prezentācijā.
+Visi komandas dalībnieki piedalās GitHub repozitorija uzturēšanā, Trello uzdevumu plānošanā, koda pārskatīšanā, kļūdu labošanā, dokumentācijas sagatavošanā un projekta prezentācijā.
 
 ## Projekta ierobežojumi
 
@@ -228,106 +300,50 @@ nolasīts atpakaļ no Firebase Rules API un salīdzināts ar `firestore.rules` �
 neinteraktīvi: `firebase login --non-interactive` izdrukā saiti un saglabā
 sesiju, bet `firebase login <kods>` to pabeidz.
 
-## Veiktspēja mobilajās ierīcēs
+## Lokālā izstrāde bez Telegram (izstrādes pieteikšanās)
 
-Spēles ekrāns no jauna zīmē visu ainu katrā `requestAnimationFrame` kadru, tāpēc
-vidējas klases Android ierīcēs dominē aizpildīto pikseļu skaits. Lai uz tādām
-ieturētu 60 fps, `src/features/game/GameCanvas.tsx` lieto adaptīvu
-izšķirtspējas kāpni:
+Parasti lietotnē var pieteikties tikai Telegram iekšienē, jo
+`authenticateTelegram` pieprasa parakstītu `initData`. Lai strādātu pārlūkā,
+vari pieteikties ar jebkuru Telegram id, izmantojot **Functions emulatoru**:
 
-- sākuma mērogs ir `min(devicePixelRatio, 2)` (3× telefonam tas ir 55% mazāk
-  pikseļu nekā pilna izšķirtspēja);
-- ja pēdējo 60 kadru logā vismaz 8 kadri pārsniedz 25 ms, mērogs pazeminās
-  (2× → 1,5× → 1×) un aina tiek pārzīmēta tajā pašā taktē;
-- mērogs atkal paceļas tikai pēc 240 tīriem kadriem un tikai ārpus spēles
-  gaitas, lai ierīce uz robežas nešūpotos starp diviem mērogiem.
-
-Fizika, punkti un paliek loģiskajās koordinātās (480 × viewH), tāpēc mērogs
-maina tikai attēla asumu, nevis spēli. Papildus spēles HUD teksts (`Tap to
-flap`, punktu skaitītājs) tiek reizrasterizēts nelielā kešotā slānī un katrā
-kadrā tikai `drawImage` vietā `strokeText` + `fillText`, un, ja panels ir
-ātrāks par 60 Hz, zīmēšana ir ierobežota līdz ~60 kadriem sekundē (loģika
-joprojām soļo katrā kadrā).
-
-Izstrādes režīmā (`npm run dev`) ekrāna augšējā kreisajā stūrī ir redzama
-veiktspējas pārklājuma informācija (fps, kadra laiks, zīmēšanas laiks,
-aktīvais mērogs). Tie paši skaitļi pieejami konsolē kā `window.__birdPerf`;
-`window.__birdSetScaleStep(0|1|2)` piespiedu kāpj pa mēroga skalām manuālai
-pārbaudei. Produkcijas būvējumā (`npm run build`) šī koda nav.
-
-## Local development without Telegram (dev login)
-
-Normally the app can only sign in inside Telegram, because `authenticateTelegram`
-requires signed `initData`. For local browser work you can sign in as any
-Telegram id through the **Functions emulator**:
-
-1. Add your own Telegram id to `birdenergy/.env` (gitignored). You can see it
-   via @userinfobot in Telegram:
+1. Pievieno savu Telegram id failam `birdenergy/.env` (tas ir gitignored). Savu
+   id var uzzināt, rakstot @userinfobot Telegram:
 
    ```env
    VITE_TELEGRAM_ID=123456789
    VITE_USE_EMULATORS=true
    ```
 
-2. Start the emulator suite (Auth + Firestore + Functions). `functions/.env`
-   already holds the real bot token, so initData validation still works there:
+2. Palaid emulatorus (Auth + Firestore + Functions). Failā `functions/.env` jau
+   ir īstais bota tokens, tāpēc arī `initData` pārbaude tur strādā:
 
    ```bash
    cd functions && npm run build && cd ..
    npx firebase-tools emulators:start --only auth,firestore,functions --project birdenergy-f1405
    ```
 
-3. In a second terminal: `npm run dev` → http://localhost:5173
+3. Otrā terminālī: `npm run dev` → http://localhost:5173
 
-The app signs in automatically as `VITE_TELEGRAM_ID` and keeps the session like
-a real login (the emulator UI opens on http://localhost:4000). Add that id to
-`ADMIN_TELEGRAM_IDS` in `functions/.env` to get the admin role locally too.
+Lietotne automātiski pieteiksies kā `VITE_TELEGRAM_ID` un saglabās sesiju tāpat
+kā īstā pieteikšanās reizē (emulatora panelis atveras
+http://localhost:4000). Pievieno šo id `ADMIN_TELEGRAM_IDS` sarakstam failā
+`functions/.env`, lai lokāli iegūtu arī administratora lomu.
 
-### Opening the app in a browser (no dev login)
+### Lietotnes atvēršana pārlūkā (bez izstrādes pieteikšanās iespējas)
 
-Without `VITE_TELEGRAM_ID` a browser visitor cannot sign in at all (no signed
-`initData`), so the page shows an **Open @BirdEnergy_testbot** link instead,
-pointing at the Mini App deep link `t.me/BirdEnergy_testbot/birdenergygame` —
-Telegram opens the app, where sign-in does work. The bot and short name come
-from `VITE_TELEGRAM_BOT_USERNAME` / `VITE_TELEGRAM_APP_NAME` in `.env`
-(defaults match the values above; see `src/telegram.ts`). The sign-in button
-only appears in a browser while `VITE_USE_EMULATORS=true`, because the dev
-bypass exists in the emulator only.
+Bez `VITE_TELEGRAM_ID` pārlūka apmeklētājs nevar pieteikties (nav parakstīta
+`initData`), tāpēc lapa rāda saiti **Atvērt Telegram botu**, kas ved uz Mini App
+deep link `t.me/BirdEnergy_testbot/birdenergygame` — Telegram atver lietotni,
+kur pieteikšanās strādā. Bota vārds un īsais nosaukums nāk no
+`VITE_TELEGRAM_BOT_USERNAME` / `VITE_TELEGRAM_APP_NAME` (noklusējuma vērtības
+sakrīt ar iepriekš minētajām; sk. `src/telegram.ts`). Pieteikšanās poga pārlūkā
+parādās tikai tad, ja `VITE_USE_EMULATORS=true`, jo izstrādes apiešana pastāv
+tikai emulatorā.
 
-Why it is safe: the bypass lives in `resolveDevTelegramUser()`
-(`functions/src/telegramAuth.ts`) and only returns a user when
-`FUNCTIONS_EMULATOR=true`, so deployed functions reject a client-supplied
-`devTelegramId` and fall back to strict initData validation. On the client,
-`src/devAuth.ts` is gated on `import.meta.env.DEV`, so the whole path is
-dropped from `npm run build` output. Role resolution is untouched — it always
-comes from the server-side whitelist.
-
-
-
-
-
-
-
-
-
-
-
-
-
----
-
-
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-
+Kāpēc tas ir droši: apiešana dzīvo `resolveDevTelegramUser()`
+(`functions/src/telegramAuth.ts`) un atgriež lietotāju tikai tad, ja
+`FUNCTIONS_EMULATOR=true`, tāpēc izvietotās funkcijas noraida klienta norādīto
+`devTelegramId` un pārbauda `initData` stingri. Klientā `src/devAuth.ts` ir
+aizsargāts ar `import.meta.env.DEV`, tāpēc šis ceļš pazūd no `npm run build`
+izvades. Lomu noteikšana netiek mainīta — tā vienmēr nāk no servera puses
+saraksta.
