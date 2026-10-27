@@ -12,6 +12,46 @@ const MUSIC_KEY = 'birdenergy.music'
 const SFX_KEY = 'birdenergy.sfx'
 
 export const SOUND_SETTINGS_CHANGE_EVENT = 'birdenergy:sound-settings-change'
+const MUSIC_VOLUME_KEY = 'birdenergy.musicVolume'
+const SFX_VOLUME_KEY = 'birdenergy.sfxVolume'
+
+function readVolume(key: string, fallback: number): number {
+  const saved = localStorage.getItem(key)
+
+  if (saved === null) return fallback
+
+  const value = Number(saved)
+
+  if (!Number.isFinite(value)) {
+    return fallback
+  }
+
+  return Math.max(0, Math.min(1, value))
+}
+
+function writeVolume(key: string, value: number): void {
+  if (!Number.isFinite(value)) return
+
+  const volume = Math.max(0, Math.min(1, value))
+  localStorage.setItem(key, String(volume))
+  window.dispatchEvent(new Event(SOUND_SETTINGS_CHANGE_EVENT))
+}
+
+export function getMusicVolume(): number {
+  return readVolume(MUSIC_VOLUME_KEY, 1)
+}
+
+export function getSfxVolume(): number {
+  return readVolume(SFX_VOLUME_KEY, 0.6)
+}
+
+export function setMusicVolume(value: number): void {
+  writeVolume(MUSIC_VOLUME_KEY, value)
+}
+
+export function setSfxVolume(value: number): void {
+  writeVolume(SFX_VOLUME_KEY, value)
+}
 
 /** Default is ON: a missing/corrupt flag means "sound enabled". */
 function readFlag(key: string): boolean {
@@ -44,29 +84,46 @@ export function setSfxEnabled(on: boolean): void {
 export interface SoundSettings {
   music: boolean
   sfx: boolean
+  musicVolume: number
+  sfxVolume: number
   toggleMusic: () => void
   toggleSfx: () => void
+  setMusicVolume: (value: number) => void
+  setSfxVolume: (value: number) => void
 }
 
-/** Home's handle: both switches, kept in sync with any external change. */
 export function useSoundSettings(): SoundSettings {
   const [music, setMusic] = useState(isMusicEnabled)
   const [sfx, setSfx] = useState(isSfxEnabled)
+
+  const [musicVolume, setMusicVolumeState] =
+    useState<number>(() => getMusicVolume())
+  const [sfxVolume, setSfxVolumeState] =
+    useState<number>(() => getSfxVolume())
 
   useEffect(() => {
     const onChange = () => {
       setMusic(isMusicEnabled())
       setSfx(isSfxEnabled())
+      setMusicVolumeState(getMusicVolume())
+      setSfxVolumeState(getSfxVolume())
     }
+
     window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, onChange)
-    return () =>
+
+    return () => {
       window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, onChange)
+    }
   }, [])
 
   return {
     music,
     sfx,
+    musicVolume,
+    sfxVolume,
     toggleMusic: () => setMusicEnabled(!isMusicEnabled()),
     toggleSfx: () => setSfxEnabled(!isSfxEnabled()),
+    setMusicVolume,
+    setSfxVolume,
   }
 }
