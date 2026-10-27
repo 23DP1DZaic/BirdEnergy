@@ -1211,9 +1211,15 @@ a.btn {
 
 .appearance-buy {
   width: 100%;
-  gap: 4px;
-  padding: 5px 4px;
+  /* The tile grid bottoms out at 64px per column, and the pixel font is wide:
+     "Pirkt" (~45px) and the price (~27px) side by side need ~84px, which pushed
+     the price past the button's right edge. Stacked, each line fits the cell
+     even on the narrowest screen. */
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 2px;
   font-size: 9px;
+  line-height: 1.3;
   box-shadow: 0 2px 0 #a5420c;
 }
 
