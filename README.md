@@ -96,7 +96,7 @@ sākumlapā, gan spēlē.
 - HTML5 Canvas 2D - visa spēle tiek zīmēta manuāli (`src/features/game/`), bez spēļu dzinēja
 - Parasts CSS (`src/App.css`, `src/index.css`)
 - Pašrakstīta navigācija (`src/navigation.ts`)
-- Pašrakstīts i18n slānis ar trim valodām (en / lv / ru), valoda no Telegram `language_code` (`src/i18n.ts`)
+- Pašrakstīts i18n slānis ar trim valodām (en / lv / ru), pēc noklusējuma latviešu valoda, izvēle saglabājas ierīcē (`src/i18n.ts`)
 - Pārlūka API: Web Audio, Vibration API, `navigator.share`, `localStorage`
 
 ### Firebase un datubāze

@@ -11,16 +11,14 @@ declare global {
     __pixelFontReady?: Promise<void>
   }
 }
-import { applyTelegramLanguage } from './i18n';
 import { auth, db, functions } from './firebase';
 import { getDevTelegramId, shouldUseEmulators } from './devAuth';
 import { getInitData, getTelegramUser, initTelegramWebApp, isTelegramEnvironment } from './telegram';
 
 initTelegramWebApp();
 
-// i18n — the language Telegram reports for this user (language_code) picks the
-// first-render language, unless the player already chose one on this device.
-applyTelegramLanguage(getTelegramUser()?.language_code ?? null);
+// i18n — the app opens in Latvian by default (see i18n.ts); the player's own
+// choice in the settings menu is remembered per device.
 
 // Press Start 2P — kick off the load before first render and block the first
 // canvas frame on it (see GameCanvas). The DOM swaps via font-display: swap;

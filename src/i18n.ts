@@ -872,7 +872,9 @@ function readStored(): Locale | null {
   }
 }
 
-let locale: Locale = readStored() ?? 'en'
+// The app ships Latvian-first: a fresh device opens in Latvian, and only an
+// explicit choice in the settings menu (stored) changes that.
+let locale: Locale = readStored() ?? 'lv'
 
 export function getLocale(): Locale {
   return locale
@@ -895,12 +897,6 @@ export function setLocale(next: Locale): void {
   return () => {
     listeners.delete(listener)
   }
-}
-
-export function applyTelegramLanguage(languageCode: string | null): void {
-  if (!languageCode) return
-  const pick = LOCALES.includes(languageCode as Locale) ? (languageCode as Locale) : 'en'
-  if (pick !== locale) setLocale(pick)
 }
 
 export function t(key: string, params?: Record<string, string | number>): string {

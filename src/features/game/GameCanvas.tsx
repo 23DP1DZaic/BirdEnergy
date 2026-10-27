@@ -21,7 +21,6 @@ import {
   isCelebrating,
   LOGICAL_W,
   pauseGame,
-  replayGame,
   resetGame,
   resumeGame,
   runResult,
@@ -679,7 +678,10 @@ export function GameCanvas({
     actionsRef.current = {
       pause: () => pauseGame(state),
       resume: () => resumeGame(state),
-      replay: () => replayGame(state),
+      // "Play again" from the pause menu goes straight to the ready screen
+      // (resetGame), not through replayGame's 3-2-1: after a deliberate
+      // restart the player wants the "tap to play" screen, not a countdown.
+      replay: () => resetGame(state),
     }
 
     // Profile and Game share the background, ground and bird skin indices
