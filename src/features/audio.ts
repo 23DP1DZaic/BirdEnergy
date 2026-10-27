@@ -97,8 +97,6 @@ let musicEl: HTMLAudioElement | null = null
 let musicName: string | null = null
 let wantedMusic: string | null = null
 let hooksInstalled = false
-/** Last play() rejection, shown by the on-screen audio panel (musicDebug). */
-let lastPlayError: string | null = null
 
 type AudioContextCtor = typeof AudioContext
 
@@ -334,62 +332,8 @@ async function applyMusicState(): Promise<void> {
   if (!el.paused) return
   try {
     await el.play()
-    lastPlayError = null
-  } catch (err) {
+  } catch {
     // Autoplay policy (or a network hiccup): the track stays wanted and the
-    // gesture hook retries it on the next tap. The reason is kept for the
-    // on-screen audio panel — a phone has no console.
-    lastPlayError = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    // gesture hook retries it on the next tap.
   }
-}
-
-/** Everything the on-screen audio panel shows about the music channel. */
-export interface MusicDebug {
-  musicEnabled: boolean
-  volumeSetting: number
-  wanted: string | null
-  hasElement: boolean
-  src: string | null
-  paused: boolean | null
-  currentTime: number | null
-  duration: number | null
-  elementVolume: number | null
-  readyState: number | null
-  networkState: number | null
-  mediaError: string | null
-  lastPlayError: string | null
-  contextState: AudioContextState | 'unavailable'
-  soundFiles: string[]
-}
-
-export function musicDebug(): MusicDebug {
-  const el = musicEl
-  const mediaError = el?.error
-    ? `code ${el.error.code}${el.error.message ? ` (${el.error.message})` : ''}`
-    : null
-  return {
-    musicEnabled: isMusicEnabled(),
-    volumeSetting: getMusicVolume(),
-    wanted: wantedMusic,
-    hasElement: el !== null,
-    src: el ? el.currentSrc || el.src : null,
-    paused: el ? el.paused : null,
-    currentTime: el ? Number(el.currentTime.toFixed(2)) : null,
-    duration:
-      el && Number.isFinite(el.duration) ? Number(el.duration.toFixed(1)) : null,
-    elementVolume: el ? Number(el.volume.toFixed(3)) : null,
-    readyState: el ? el.readyState : null,
-    networkState: el ? el.networkState : null,
-    mediaError,
-    lastPlayError,
-    contextState: context ? context.state : 'unavailable',
-    soundFiles: [...KEY_TO_URL.keys()].sort(),
-  }
-}
-
-/** The panel's ▶ button: a real gesture, so it bypasses the autoplay policy. */
-export function retryMusicPlay(): void {
-  lastPlayError = null
-  if (!wantedMusic) wantedMusic = DEFAULT_MUSIC_NAME
-  void applyMusicState()
 }

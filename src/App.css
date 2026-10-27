@@ -987,6 +987,13 @@ a.btn {
   grid-template-columns: 1fr auto;
 }
 
+/* The three score lines are the one place the card's text lift hurts: the dark
+   shadow sits on the small brown numbers and makes them hard to read. */
+.profile-stats .lrow-name,
+.profile-stats .lrow-score {
+  text-shadow: none;
+}
+
 /* Last-used look under the scores: skin, sky and ground in the order they are
    chosen, with the way into the wardrobe right after them. */
 .profile-look {
@@ -1810,61 +1817,4 @@ textarea.form-input {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-}
-
-/* TEMPORARY audio diagnostics (features/AudioDebugPanel.tsx) — remove together
-   with the component once the music channel is confirmed. */
-.audio-debug {
-  position: fixed;
-  left: 8px;
-  bottom: 8px;
-  z-index: 60;
-  max-width: min(94vw, 430px);
-  max-height: 60vh;
-  overflow: auto;
-  padding: 6px 8px;
-  border: 1px solid rgba(140, 165, 255, 0.45);
-  border-radius: 8px;
-  background: rgba(6, 9, 18, 0.9);
-  color: #cfe0ff;
-  font: 10px/1.4 ui-monospace, Consolas, monospace;
-}
-
-.audio-debug-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 700;
-  color: #9db4ff;
-  margin-bottom: 4px;
-}
-
-.audio-debug-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.audio-debug-row span:last-child {
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 58%;
-}
-
-.audio-debug button {
-  font: inherit;
-  padding: 2px 7px;
-  border: 0;
-  border-radius: 5px;
-  background: #243056;
-  color: #dbe6ff;
-  cursor: pointer;
-}
-
-.audio-debug-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
 }
