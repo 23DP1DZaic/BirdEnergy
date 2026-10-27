@@ -20,6 +20,7 @@ const EN: Strings = {
   'common.retry': 'Retry',
   'common.saving': 'Saving…',
   'common.cancel': 'Cancel',
+  'common.close': 'Close',
   'placeholder.coming': 'Coming in {card}',
 
   // --- error boundary ---
@@ -302,6 +303,7 @@ const LV: Strings = {
   'common.retry': 'Mēģināt vēlreiz',
   'common.saving': 'Saglabā…',
   'common.cancel': 'Atcelt',
+  'common.close': 'Aizvērt',
   'placeholder.coming': 'Pienāks ar {card}',
 
   'error.title': 'Kaut kas nogāja greizi',
@@ -572,6 +574,7 @@ const RU: Strings = {
   'common.retry': 'Повторить',
   'common.saving': 'Сохранение…',
   'common.cancel': 'Отмена',
+  'common.close': 'Закрыть',
   'placeholder.coming': 'Появится в {card}',
 
   'error.title': 'Что-то пошло не так',

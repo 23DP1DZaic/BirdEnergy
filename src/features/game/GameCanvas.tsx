@@ -55,11 +55,6 @@ import { HAPTIC, haptic } from '../haptics'
 import { PixelIcon } from '../ui/PixelIcon'
 import { SoundControls } from '../SoundControls'
 import {
-  SOUND_SETTINGS_CHANGE_EVENT,
-  isSfxEnabled,
-  setSfxEnabled,
-} from '../soundSettings'
-import {
   PENDING_RUNS_CHANGE_EVENT,
   pendingRunCount,
 } from '../pendingRuns'
@@ -187,8 +182,8 @@ export function GameCanvas({
     uiPhase === 'paused' ||
     uiPhase === 'countdown' ||
     uiPhase === 'dead'
-  // AUDIO — the in-game speaker button mirrors the Sound effects switch.
-  const [sfxOn, setSfxOn] = useState(isSfxEnabled)
+  // Ready screen: the gear opens the same Music / Effects block Home shows.
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Share feedback: the button doubles as its own confirmation.
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>(
     'idle',
@@ -222,13 +217,7 @@ export function GameCanvas({
     }
   }, [])
 
-  // AUDIO — Home's switches stay authoritative; the in-game button reflects a
-  // change made there (and vice versa) through the shared settings event.
-  useEffect(() => {
-    const sync = () => setSfxOn(isSfxEnabled())
-    window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
-    return () => window.removeEventListener(SOUND_SETTINGS_CHANGE_EVENT, sync)
-  }, [])
+
 
   // SHARE — Telegram's own picker first, then the native sheet, then the
   // clipboard (shareScore.ts). Dismissing a sheet is not a failure: the
@@ -312,6 +301,8 @@ export function GameCanvas({
         reported = state.phase
         setUiPhase(state.phase)
         onPhaseChange?.(state.phase)
+        // The ready-screen settings panel belongs to that screen only.
+        if (state.phase !== 'ready') setSettingsOpen(false)
         // Background music is an app-wide loop (App.tsx starts it) that keeps
         // playing across screens. A death stops it and rewinds to the first
         // sample (stopMusic), so the track starts over; it comes back as soon
@@ -770,12 +761,12 @@ export function GameCanvas({
           <button
             type="button"
             className="game-control"
-            aria-pressed={sfxOn}
-            aria-label={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
-            title={t(sfxOn ? 'sound.turnOff' : 'sound.turnOn')}
-            onClick={() => setSfxEnabled(!sfxOn)}
+            aria-expanded={settingsOpen}
+            aria-label={t('home.settings')}
+            title={t('home.settings')}
+            onClick={() => setSettingsOpen((open) => !open)}
           >
-            <PixelIcon name={sfxOn ? 'soundOn' : 'soundOff'} size={32} />
+            <PixelIcon name="settings" size={32} />
           </button>
         )}
         {uiPhase === 'playing' && (
@@ -790,6 +781,30 @@ export function GameCanvas({
           </button>
         )}
       </div>
+
+      {/* Ready screen settings: the same Music / Effects block Home's settings
+          menu shows, opened from the gear above and closed by the run. */}
+      {!inRun && settingsOpen && (
+        <div
+          className="game-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('home.settings')}
+        >
+          <p className="game-modal-title">{t('home.settings')}</p>
+          <SoundControls />
+          <div className="game-modal-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setSettingsOpen(false)}
+            >
+              <PixelIcon name="close" size={22} />
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* PAUSE — the run is frozen underneath (the engine ignores every input
           but Esc/this button), so the menu sits on the live scene. */}
