@@ -40,14 +40,14 @@ import {
   getStoredBackgroundIndex,
 } from '../homeBackground'
 // AUDIO: the loop is started once at app level (App.tsx) and keeps playing
-// across screens; this screen plays the run's sound effects and only pauses
-// the loop on death, resuming it when the next attempt starts. Everything is
-// a no-op without files in src/assets/Sound (see features/audio.ts).
+// across screens; this screen plays the run's sound effects and stops the loop
+// on death — rewound to the start, so the next attempt begins the track over.
+// Everything is a no-op without files in src/assets/Sound (see features/audio.ts).
 import {
   audioStatus,
-  pauseMusic,
   playMusic,
   playSfx,
+  stopMusic,
   unlockAudio,
 } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
@@ -313,11 +313,11 @@ export function GameCanvas({
         setUiPhase(state.phase)
         onPhaseChange?.(state.phase)
         // Background music is an app-wide loop (App.tsx starts it) that keeps
-        // playing across screens, so this screen only pauses it for the death
-        // and brings it back when the next attempt starts — leaving the game
-        // must not cut the track.
+        // playing across screens. A death stops it and rewinds to the first
+        // sample (stopMusic), so the next attempt starts the track over rather
+        // than resuming mid-phrase; leaving the game must not cut the track.
         if (state.phase === 'dead') {
-          pauseMusic()
+          stopMusic()
         } else if (state.phase === 'playing') {
           playMusic()
         }
@@ -716,6 +716,9 @@ export function GameCanvas({
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       actionsRef.current = null
+      // Leaving the screen hands the loop back to the app: it keeps playing on
+      // every other tab, and after a death it starts again from the beginning.
+      playMusic()
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)
