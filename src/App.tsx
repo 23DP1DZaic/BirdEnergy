@@ -13,6 +13,8 @@ import {
   type TelegramSignInResult,
 } from './auth'
 import { getDevTelegramId, shouldUseEmulators } from './devAuth'
+// TEMPORARY — on-screen audio diagnostics (see AudioDebugPanel.tsx).
+import { AudioDebugPanel } from './features/AudioDebugPanel'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
 //import { loadAudioAssets, playMusic } from './features/audio'
@@ -273,6 +275,8 @@ function App() {
           ))}
         </nav>
       )}
+
+      <AudioDebugPanel />
     </div>
   )
 }

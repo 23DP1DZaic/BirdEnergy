@@ -652,7 +652,7 @@ export function GameCanvas({
       // AUDIO — this tap is the user gesture browsers require to start (or
       // resume) the AudioContext; doing it here beats waiting for a global
       // listener, especially inside Telegram's WebView.
-        unlockAudio()
+      unlockAudio()
       if (state.phase === 'game-over') resetGame(state)
       else flap(state)
       // Run the phase reporting inside the gesture itself: the music's play()

@@ -56,7 +56,11 @@ const SFX_VOLUMES: Record<SfxName, number> = {
   die: 0.55,
 }
 
-const MUSIC_VOLUME = 0.3
+// The track is mastered quietly (peak -1.5 dBFS after normalisation, mean
+// -14.7 dB), so the loop needs a higher mix level than the short SFX to be
+// heard at all on a phone speaker. 0.45 lands the loop around -21 dB mean,
+// clearly under the transient hits but audible.
+const MUSIC_VOLUME = 0.45
 
 // Every audio file Vite can see, keyed by its path relative to this module.
 // eager + query "?url": we only need the URL, and decoding happens lazily.
@@ -93,6 +97,8 @@ let musicEl: HTMLAudioElement | null = null
 let musicName: string | null = null
 let wantedMusic: string | null = null
 let hooksInstalled = false
+/** Last play() rejection, shown by the on-screen audio panel (musicDebug). */
+let lastPlayError: string | null = null
 
 type AudioContextCtor = typeof AudioContext
 
@@ -276,7 +282,12 @@ export function stopMusic(): void {
   wantedMusic = null
   if (!musicEl) return
   musicEl.pause()
-  musicEl.currentTime = 0
+  // Rewinding an element without metadata throws in some WebViews.
+  try {
+    musicEl.currentTime = 0
+  } catch {
+    // Nothing loaded yet — there is no position to rewind.
+  }
 }
 
 /** Music loudness, 0..1 — the track's own mix level scaled by the slider. */
@@ -296,6 +307,11 @@ function ensureMusicElement(name: string): HTMLAudioElement | null {
   el.volume = musicLevel()
   // Keep the track inside the page instead of the native fullscreen player.
   el.setAttribute('playsinline', '')
+  // A first play() that lands before the media is buffered rejects with
+  // NotSupportedError on some WebViews; retry as soon as it can play.
+  el.addEventListener('canplay', () => {
+    if (el.paused && wantedMusic && isMusicEnabled()) void applyMusicState()
+  })
   musicEl = el
   musicName = name
   return el
@@ -318,8 +334,62 @@ async function applyMusicState(): Promise<void> {
   if (!el.paused) return
   try {
     await el.play()
-  } catch {
+    lastPlayError = null
+  } catch (err) {
     // Autoplay policy (or a network hiccup): the track stays wanted and the
-    // gesture hook retries it on the next tap.
+    // gesture hook retries it on the next tap. The reason is kept for the
+    // on-screen audio panel — a phone has no console.
+    lastPlayError = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
   }
+}
+
+/** Everything the on-screen audio panel shows about the music channel. */
+export interface MusicDebug {
+  musicEnabled: boolean
+  volumeSetting: number
+  wanted: string | null
+  hasElement: boolean
+  src: string | null
+  paused: boolean | null
+  currentTime: number | null
+  duration: number | null
+  elementVolume: number | null
+  readyState: number | null
+  networkState: number | null
+  mediaError: string | null
+  lastPlayError: string | null
+  contextState: AudioContextState | 'unavailable'
+  soundFiles: string[]
+}
+
+export function musicDebug(): MusicDebug {
+  const el = musicEl
+  const mediaError = el?.error
+    ? `code ${el.error.code}${el.error.message ? ` (${el.error.message})` : ''}`
+    : null
+  return {
+    musicEnabled: isMusicEnabled(),
+    volumeSetting: getMusicVolume(),
+    wanted: wantedMusic,
+    hasElement: el !== null,
+    src: el ? el.currentSrc || el.src : null,
+    paused: el ? el.paused : null,
+    currentTime: el ? Number(el.currentTime.toFixed(2)) : null,
+    duration:
+      el && Number.isFinite(el.duration) ? Number(el.duration.toFixed(1)) : null,
+    elementVolume: el ? Number(el.volume.toFixed(3)) : null,
+    readyState: el ? el.readyState : null,
+    networkState: el ? el.networkState : null,
+    mediaError,
+    lastPlayError,
+    contextState: context ? context.state : 'unavailable',
+    soundFiles: [...KEY_TO_URL.keys()].sort(),
+  }
+}
+
+/** The panel's ▶ button: a real gesture, so it bypasses the autoplay policy. */
+export function retryMusicPlay(): void {
+  lastPlayError = null
+  if (!wantedMusic) wantedMusic = DEFAULT_MUSIC_NAME
+  void applyMusicState()
 }
