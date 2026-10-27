@@ -39,14 +39,15 @@ import {
   BACKGROUND_CHANGE_EVENT,
   getStoredBackgroundIndex,
 } from '../homeBackground'
-// AUDIO: the menu loop is started once at app level (App.tsx) and keeps
-// playing across screens; this screen only plays the run's sound effects.
-// Both are no-ops without files in src/assets/Sound (see features/audio.ts).
+// AUDIO: the loop is started once at app level (App.tsx) and keeps playing
+// across screens; this screen plays the run's sound effects and only pauses
+// the loop on death, resuming it when the next attempt starts. Everything is
+// a no-op without files in src/assets/Sound (see features/audio.ts).
 import {
   audioStatus,
+  pauseMusic,
   playMusic,
   playSfx,
-  stopMusic,
   unlockAudio,
 } from '../audio'
 import { BIRD_SKIN_CHANGE_EVENT, getStoredBirdSkinIndex } from '../birdSkin'
@@ -311,11 +312,14 @@ export function GameCanvas({
         reported = state.phase
         setUiPhase(state.phase)
         onPhaseChange?.(state.phase)
-        // Background music follows the game state.
-        if (state.phase === 'playing') {
+        // Background music is an app-wide loop (App.tsx starts it) that keeps
+        // playing across screens, so this screen only pauses it for the death
+        // and brings it back when the next attempt starts — leaving the game
+        // must not cut the track.
+        if (state.phase === 'dead') {
+          pauseMusic()
+        } else if (state.phase === 'playing') {
           playMusic()
-        } else {
-          stopMusic()
         }
         // One death = playing → dead → game-over, so this edge fires exactly
         // once per death (never on the collision frame itself), keeping the
@@ -712,7 +716,6 @@ export function GameCanvas({
     window.addEventListener(BIRD_SKIN_CHANGE_EVENT, onBirdSkinChange)
     return () => {
       actionsRef.current = null
-      stopMusic()
       cancelAnimationFrame(raf)
       observer.disconnect()
       canvas.removeEventListener('pointerdown', onPointer)

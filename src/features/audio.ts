@@ -273,7 +273,7 @@ export function playMusic(name: string = DEFAULT_MUSIC_NAME): void {
 }
 
 /** Pauses the music but remembers the track as wanted (toggle off, tab away). */
-function pauseMusic(): void {
+export function pauseMusic(): void {
   musicEl?.pause()
 }
 

@@ -17,8 +17,7 @@ import { getDevTelegramId, shouldUseEmulators } from './devAuth'
 import { AudioDebugPanel } from './features/AudioDebugPanel'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from './firebase'
-//import { loadAudioAssets, playMusic } from './features/audio'
-import { loadAudioAssets } from './features/audio'
+import { loadAudioAssets, playMusic } from './features/audio'
 import {
   applyStoredBackgroundIndex,
   getStoredBackgroundIndex,
@@ -95,8 +94,13 @@ function App() {
   // the menu and the game; the AudioContext unlocks on the first tap, which
   // audio.ts handles. Both calls are silent no-ops when the file is missing.
   useEffect(() => {
-  void loadAudioAssets()
-}, [])
+    void loadAudioAssets()
+    // The loop starts here, not on the game screen: the app is the thing that
+    // owns it, so it plays on the login/consent screen and keeps going across
+    // tabs. Browsers may refuse the first attempt until a gesture — audio.ts
+    // retries on every tap/key, so it starts with the first interaction.
+    playMusic()
+  }, [])
 
   // UI-04 — appearance preferences saved on the profile (preferredBird /
   // preferredBackground / preferredGround) seed the local switchers on
