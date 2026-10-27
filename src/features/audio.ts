@@ -15,8 +15,9 @@
 //   sfx/hit     the collision that starts the death animation
 //   sfx/die     the death fall is most of the way down — a beat before
 //               touchdown, so the cue is felt WITH the crash
-//   music/main  the menu loop, started once at app level and kept playing
-//               on every screen (App.tsx)
+//   music/main  the looping background track — streamed through an <audio>
+//               element and started/stopped by the game screen as a run
+//               starts and ends (GameCanvas.tsx)
 //
 // Every file is OPTIONAL: a name with no file, a failed fetch or a failed
 // decode is a silent no-op, so the app behaves exactly the same with or
@@ -87,7 +88,9 @@ const buffers = new Map<string, AudioBuffer>()
 /** Sounds started since page load — the DEV probe's history (see audioStatus). */
 const played: SfxName[] = []
 const loading = new Map<string, Promise<AudioBuffer | null>>()
-let music: { source: AudioBufferSourceNode; gain: GainNode } | null = null
+/** The looping track: an element, never an AudioBuffer (see applyMusicState). */
+let musicEl: HTMLAudioElement | null = null
+let musicName: string | null = null
 let wantedMusic: string | null = null
 let hooksInstalled = false
 
@@ -110,31 +113,38 @@ function installHooks(): void {
   if (hooksInstalled) return
   hooksInstalled = true
 
-  // Autoplay policy: the context starts suspended and only a user gesture may
-  // resume it. Both gestures the game accepts count.
-  window.addEventListener('pointerdown', () => unlockAudio())
-  window.addEventListener('keydown', () => unlockAudio())
+  // Autoplay policy: the context starts suspended and a track may only start
+  // from a real gesture. Both gestures the game accepts count — and each one
+  // also retries the loop, because the run starts the music on the frame AFTER
+  // the tap that began it, where play() may no longer count as a gesture.
+  const onGesture = () => {
+    unlockAudio()
+    void applyMusicState()
+  }
+  window.addEventListener('pointerdown', onGesture)
+  window.addEventListener('keydown', onGesture)
 
   // The switches and volume sliders: react the moment they are moved — start
-  // or stop the loop, and re-set the running track's gain (no restart, so a
+  // or stop the loop, and re-set the running track's volume (no restart, so a
   // slider drag never re-cues the loop from its first sample).
   window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, () => {
-    if (music) music.gain.gain.value = MUSIC_VOLUME * getMusicVolume()
+    if (musicEl) musicEl.volume = musicLevel()
     if (isMusicEnabled()) void applyMusicState()
     else pauseMusic()
   })
 
-  // Don't burn battery decoding/playing behind another tab.
+  // Don't burn battery playing behind another tab.
   document.addEventListener('visibilitychange', () => {
-    if (!context) return
     if (document.hidden) {
-      void context.suspend()
+      pauseMusic()
+      if (context) void context.suspend()
       return
     }
     // Coming back: the platform may have suspended the context with the tab.
     // Resume it for SFX as well — gating this on the MUSIC switch left a
     // player with music off permanently silent after one tab switch.
-    void unlockAudio()
+    unlockAudio()
+    void applyMusicState()
   })
 }
 
@@ -192,7 +202,13 @@ export function unlockAudio(): void {
  * mount time: with no files in the folders it resolves immediately.
  */
 export async function loadAudioAssets(): Promise<void> {
-  await Promise.all([...KEY_TO_URL.keys()].map((key) => loadBuffer(key)))
+  // SFX only: the music track is streamed, and decoding it here would cost
+  // tens of megabytes of RAM before the first frame of the game.
+  await Promise.all(
+    [...KEY_TO_URL.keys()]
+      .filter((key) => key.startsWith('sfx/'))
+      .map((key) => loadBuffer(key)),
+  )
 }
 
 /** Plays one short sound. No-op when SFX are off or the file is missing. */
@@ -250,46 +266,60 @@ export function playMusic(name: string = DEFAULT_MUSIC_NAME): void {
   void applyMusicState()
 }
 
-/** Stops the music but remembers the track as wanted (used when toggled off). */
+/** Pauses the music but remembers the track as wanted (toggle off, tab away). */
 function pauseMusic(): void {
-  if (!music) return
-  try {
-    music.source.stop()
-  } catch {
-    // Already stopped — nothing to undo.
-  }
-  music.source.disconnect()
-  music.gain.disconnect()
-  music = null
+  musicEl?.pause()
 }
 
-/** Stops the music entirely (screen unmount). */
+/** Stops the music entirely and rewinds it (leave the screen). */
 export function stopMusic(): void {
   wantedMusic = null
-  pauseMusic()
+  if (!musicEl) return
+  musicEl.pause()
+  musicEl.currentTime = 0
 }
 
-/** Starts the wanted track if it is not already playing and still allowed. */
+/** Music loudness, 0..1 — the track's own mix level scaled by the slider. */
+function musicLevel(): number {
+  return MUSIC_VOLUME * getMusicVolume()
+}
+
+/** The element for `name`, created once per track and then reused. */
+function ensureMusicElement(name: string): HTMLAudioElement | null {
+  const url = KEY_TO_URL.get(`music/${name}`)
+  if (!url) return null
+  if (musicEl && musicName === name) return musicEl
+  musicEl?.pause()
+  const el = new Audio(url)
+  el.loop = true
+  el.preload = 'auto'
+  el.volume = musicLevel()
+  // Keep the track inside the page instead of the native fullscreen player.
+  el.setAttribute('playsinline', '')
+  musicEl = el
+  musicName = name
+  return el
+}
+
+/**
+ * Starts the wanted track if it is not already playing and still allowed.
+ *
+ * Music streams through an <audio> element instead of WebAudio on purpose:
+ * decoding a multi-megabyte loop into an AudioBuffer costs tens of megabytes
+ * of RAM and seconds of silence on a phone, and a WebView that refuses the
+ * decode leaves the game permanently quiet. An element plays while it is still
+ * downloading and idles for free.
+ */
 async function applyMusicState(): Promise<void> {
-  if (!wantedMusic || !isMusicEnabled() || music) return
-  const ctx = ensureContext()
-  if (!ctx) return
-  // A suspended context cannot make sound, and a source started in that state
-  // may never be heard. Leave the track wanted — the gesture hook above calls
-  // this again as soon as the context is allowed to run.
-  if (ctx.state !== 'running') return
-
-  const buffer = await loadBuffer(`music/${wantedMusic}`)
-  if (!buffer || !context || context.state !== 'running') return
-  // The settings may have been flipped (or the screen unmounted) while decoding.
-  if (!wantedMusic || !isMusicEnabled() || music) return
-
-  const source = context.createBufferSource()
-  source.buffer = buffer
-  source.loop = true
-  const gain = context.createGain()
-  gain.gain.value = MUSIC_VOLUME * getMusicVolume()
-  source.connect(gain).connect(context.destination)
-  source.start()
-  music = {source, gain}
+  if (!wantedMusic || !isMusicEnabled()) return
+  const el = ensureMusicElement(wantedMusic)
+  if (!el) return
+  el.volume = musicLevel()
+  if (!el.paused) return
+  try {
+    await el.play()
+  } catch {
+    // Autoplay policy (or a network hiccup): the track stays wanted and the
+    // gesture hook retries it on the next tap.
+  }
 }
