@@ -197,6 +197,36 @@
   border: 3px solid #a5420c;
   border-radius: 10px;
   box-shadow: 0 4px 0 #a5420c;
+  width: min(240px, calc(100vw - 24px));
+  max-height: calc(100dvh - 90px);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.settings-volume-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px;
+  background: #ffd23f;
+  border: 2px solid #a5420c;
+  border-radius: 8px;
+}
+
+.settings-volume {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: #5a1e05;
+}
+
+.settings-volume input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: #a5420c;
+  cursor: pointer;
 }
 
 /* The three one-tap settings, as sprite glyph buttons. The gear row is the

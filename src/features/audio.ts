@@ -32,6 +32,8 @@ import {
   SOUND_SETTINGS_CHANGE_EVENT,
   isMusicEnabled,
   isSfxEnabled,
+  getMusicVolume,
+  getSfxVolume,
 } from './soundSettings'
 
 /** Folders that are scanned, relative to the project root (see the note). */
@@ -115,9 +117,13 @@ function installHooks(): void {
 
   // Home's switches: turn the music off/on the moment they are flipped.
   window.addEventListener(SOUND_SETTINGS_CHANGE_EVENT, () => {
+    if (music) {
+      music.gain.gain.value = MUSIC_VOLUME * getMusicVolume()
+    }
     if (isMusicEnabled()) void applyMusicState()
     else pauseMusic()
   })
+
 
   // Don't burn battery decoding/playing behind another tab.
   document.addEventListener('visibilitychange', () => {
@@ -205,7 +211,7 @@ export function playSfx(name: SfxName): void {
     const source = ctx.createBufferSource()
     source.buffer = buffer
     const gain = ctx.createGain()
-    gain.gain.value = SFX_VOLUMES[name] ?? 0.6
+    gain.gain.value = (SFX_VOLUMES[name] ?? 0.6) * getSfxVolume()
     source.connect(gain).connect(ctx.destination)
     source.start()
     played.push(name)
@@ -283,7 +289,7 @@ async function applyMusicState(): Promise<void> {
   source.buffer = buffer
   source.loop = true
   const gain = context.createGain()
-  gain.gain.value = MUSIC_VOLUME
+  gain.gain.value = MUSIC_VOLUME * getMusicVolume()
   source.connect(gain).connect(context.destination)
   source.start()
   music = {source, gain}

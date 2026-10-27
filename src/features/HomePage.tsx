@@ -74,7 +74,16 @@ function SettingsMenu({
   onOpenTutorial: () => void
 }) {
   const { t, locale } = useT()
-  const { music, sfx, toggleMusic, toggleSfx } = useSoundSettings()
+  const {
+    music,
+    sfx,
+    toggleMusic,
+    toggleSfx,
+    musicVolume,
+    sfxVolume,
+    setMusicVolume,
+    setSfxVolume,
+  } = useSoundSettings()
   const {
     haptics,
     supported: hapticsSupported,
@@ -166,6 +175,45 @@ function SettingsMenu({
               <PixelIcon name="info" size={30} />
             </button>
           </div>
+
+          <div className="settings-volume-controls">
+            <label className="settings-volume">
+              <span>
+                {t('home.music', {
+                  state: `${Math.round(musicVolume * 100)}%`,
+                })}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(musicVolume * 100)}
+                onChange={(e) =>
+                  setMusicVolume(Number(e.currentTarget.value) / 100)
+                }
+              />
+            </label>
+
+            <label className="settings-volume">
+              <span>
+                {t('home.sfx', {
+                  state: `${Math.round(sfxVolume * 100)}%`,
+                })}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(sfxVolume * 100)}
+                onChange={(e) =>
+                  setSfxVolume(Number(e.currentTarget.value) / 100)
+                }
+              />
+            </label>
+          </div>
+
           {/* Haptics only shows where the device can vibrate — a switch that
               can never do anything is worse than no switch. */}
           {hapticsSupported && (
