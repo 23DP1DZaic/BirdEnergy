@@ -32,7 +32,7 @@ Galvenās funkcijas:
    [t.me/BirdEnergy_testbot](https://t.me/BirdEnergy_testbot).
 2. Nospied pogu **Start** (komanda `/start`). Bots atbild ar sveicienu un
    pogām **Spēlēt Bird Energy**, **Profils**, **Reitings** un **Kā spēlēt**.
-3. Nospied **Spēlēt Bird Energy** — spēle atveras Telegram iekšienē kā Mini
+3. Nospied **Spēlēt Bird Energy** - spēle atveras Telegram iekšienē kā Mini
    App. Nekas nav jāinstalē: tā darbojas gan telefonā, gan datorā.
 
 ### Pieteikšanās
@@ -46,7 +46,7 @@ pajautā atļauju izmantot Telegram datus.
 
 ### Kā spēlēt
 
-1. Nospied **Spēlēt** — spēle sākas ar pirmo pieskārienu ekrānam.
+1. Nospied **Spēlēt** - spēle sākas ar pirmo pieskārienu ekrānam.
 2. Pieskarties ekrānam (datorā var arī `Space`), lai putns palēktos.
 3. Lido starp caurulēm: katra pārvarētā caurule dod vienu punktu, bet
    sadursme ar cauruli vai zemi beidz spēli.
@@ -60,7 +60,7 @@ pajautā atļauju izmantot Telegram datus.
 
 ### Punkti, monētas un izskats
 
-Punkti ir spēles rezultāts, bet monētas — iekšējā valūta. Monētas tiek
+Punkti ir spēles rezultāts, bet monētas - iekšējā valūta. Monētas tiek
 piešķirtas par katru nospēlēto spēli, un tās var iztērēt **Profilā**, kur
 pieejami putna skini, debesis un zeme. Iegādātais izskats paliek profilā, un to
 var mainīt jebkurā laikā: izvēlētie skini, debesis un zeme uzreiz redzami gan
@@ -93,9 +93,9 @@ sākumlapā, gan spēlē.
 - React 19
 - TypeScript
 - Vite 8 (izstrādes serveris un produkcijas būvējums)
-- HTML5 Canvas 2D — visa spēle tiek zīmēta manuāli (`src/features/game/`), bez spēļu dzinēja
-- Parasts CSS (`src/App.css`, `src/index.css`) — bez Tailwind
-- Pašrakstīta navigācija (`src/navigation.ts`) — bez React Router
+- HTML5 Canvas 2D - visa spēle tiek zīmēta manuāli (`src/features/game/`), bez spēļu dzinēja
+- Parasts CSS (`src/App.css`, `src/index.css`)
+- Pašrakstīta navigācija (`src/navigation.ts`)
 - Pašrakstīts i18n slānis ar trim valodām (en / lv / ru), valoda no Telegram `language_code` (`src/i18n.ts`)
 - Pārlūka API: Web Audio, Vibration API, `navigator.share`, `localStorage`
 
@@ -111,7 +111,7 @@ sākumlapā, gan spēlē.
 
 - Telegram Mini Apps API (`telegram-web-app.js`)
 - Telegram WebApp `initData` ar servera puses HMAC-SHA256 pārbaudi
-- Telegraf 4 — bota komandas un interaktīvā izvēlne caur webhook
+- Telegraf 4 - bota komandas un interaktīvā izvēlne caur webhook
 
 ### Testēšana
 
@@ -123,8 +123,8 @@ sākumlapā, gan spēlē.
 
 - GitHub - versiju kontrole un komandas kopīgais repozitorijs
 - Trello - Kanban metodes uzdevumu plānošana
-- Figma - lietotnes ekrānu skices un dizains (https://www.figma.com/design/xwMlw2tNlUCefyzVseyBTm/Bird-Energy?node-id=0-1&t=PrC2u6jPggu5nt5c-1)
-- draw.io - sistēmas arhitektūras, ER un use case diagrammas (https://drive.google.com/file/d/1zYUmfxyr0Mf_M9AZopcbhHjV6l6wG1Kn/view?usp=sharing)
+- Figma - lietotnes ekrānu skices un dizains
+- draw.io - sistēmas arhitektūras, ER un use case diagrammas
 
 ## Projekta struktūra
 
@@ -189,7 +189,7 @@ Galvenais princips ir izveidot pēc iespējas vienkāršāku sistēmu, kas piln�
 ## Testi
 
 Cloud Functions un validācijas testi atrodas `functions/test/`. Tie neprasa
-emulatoru vai Firebase akreditāciju — Firestore un Auth tiek aizstāti ar
+emulatoru vai Firebase akreditāciju - Firestore un Auth tiek aizstāti ar
 vienkāršiem in-memory dubultniekiem, tāpēc testus var palaist lokāli bez
 papildu iestatīšanas:
 
@@ -207,7 +207,7 @@ datubāzē.
 
 Spēles loģikas testi atrodas `src/features/game/engine.test.ts`. `engine.ts`
 apzināti nesatur DOM kodu, tāpēc visu spēles gaitu var vadīt kadru pa kadram no
-Node — bez pārlūka, emulatora un papildu atkarībām (iebūvētais `node:test`;
+Node - bez pārlūka, emulatora un papildu atkarībām (iebūvētais `node:test`;
 nepieciešams Node 22.18+):
 
 ```bash
@@ -235,7 +235,7 @@ npm run test:rules
 
 Skripts pats palaiž un aptur emulatoru
 (`firebase emulators:exec --only firestore`). Nepieciešama **Java 17+**
-(Firestore emulators ir Java lietotne) un pieejams `firebase-tools` — skripts
+(Firestore emulators ir Java lietotne) un pieejams `firebase-tools` - skripts
 izmanto `npx firebase-tools`, tāpēc atsevišķa instalācija nav vajadzīga.
 `npm test` pārbauda arī šo testu tipus (`tsc -p tsconfig.test.json`).
 
@@ -256,12 +256,12 @@ PowerShell `Expand-Archive`).
 Testi pierāda, ka:
 
 * neviens no trim stāvokļiem nevar tieši rakstīt `users`, `gameResults` vai
-  `challenges` kolekcijās — arī ne paša profila īpašnieks, ne administrators
+  `challenges` kolekcijās - arī ne paša profila īpašnieks, ne administrators
   (rakstīšana notiek tikai Cloud Functions ar Admin SDK, kas šos noteikumus
   apiet pēc konstrukcijas);
 * viesim nav lasīšanas tiesību nekur;
 * spēlētājs lasa tikai savu `users/{uid}` profilu un tikai savus
-  `gameResults` ierakstus — vaicājumam jābūt ierobežotam ar `uid`, un
+  `gameResults` ierakstus - vaicājumam jābūt ierobežotam ar `uid`, un
   nefiltrēti, cita lietotāja, diapazona (`>=`) un `in` vaicājumi tiek noraidīti;
 * `users` saraksts nav lasāms (līderu tabulu apkalpo `getLeaderboard`), bet
   `challenges` sarakstu var lasīt jebkurš pierakstīts lietotājs;
@@ -275,9 +275,9 @@ rezultāti apkopoti `docs/kludu-testesana/`. Dokumentu ģenerē
 vienmēr atbilst palaistajiem testiem, nevis manuāli pārrakstītiem skaitļiem.
 Rodas divi dokumenti ar vienu un to pašu datu avotu:
 
-* `Kludu_testesanas_protokols.docx` — pilnais protokols (vide, klasifikācija,
+* `Kludu_testesanas_protokols.docx` - pilnais protokols (vide, klasifikācija,
   kopsavilkums, visi testu protokoli, manuālie testi, secinājumi);
-* `Programmatura_lietojamibas_testsana.docx` — tā pati pārbaude studiju
+* `Programmatura_lietojamibas_testsana.docx` - tā pati pārbaude studiju
   programmas parauga formātā kā 7. nodaļa ar tabulām 7.1 (testēšanas dati),
   7.2 (detalizētie kļūdu testa gadījumi) un 7.3 (identificēto kļūdu
   novēršana un atkārtota testēšana).
@@ -295,7 +295,7 @@ npx firebase-tools deploy --only firestore:rules --project birdenergy-f1405
 ```
 
 Izvietotais ruleset (`releases/cloud.firestore`) pēc izvietošanas tika
-nolasīts atpakaļ no Firebase Rules API un salīdzināts ar `firestore.rules` —
+nolasīts atpakaļ no Firebase Rules API un salīdzināts ar `firestore.rules` -
 69 rindas, saturs sakrīt 1:1. Bez pārlūka (piem., CI) login var veikt
 neinteraktīvi: `firebase login --non-interactive` izdrukā saiti un saglabā
 sesiju, bet `firebase login <kods>` to pabeidz.
@@ -333,7 +333,7 @@ http://localhost:4000). Pievieno šo id `ADMIN_TELEGRAM_IDS` sarakstam failā
 
 Bez `VITE_TELEGRAM_ID` pārlūka apmeklētājs nevar pieteikties (nav parakstīta
 `initData`), tāpēc lapa rāda saiti **Atvērt Telegram botu**, kas ved uz Mini App
-deep link `t.me/BirdEnergy_testbot/birdenergygame` — Telegram atver lietotni,
+deep link `t.me/BirdEnergy_testbot/birdenergygame` - Telegram atver lietotni,
 kur pieteikšanās strādā. Bota vārds un īsais nosaukums nāk no
 `VITE_TELEGRAM_BOT_USERNAME` / `VITE_TELEGRAM_APP_NAME` (noklusējuma vērtības
 sakrīt ar iepriekš minētajām; sk. `src/telegram.ts`). Pieteikšanās poga pārlūkā
@@ -345,5 +345,5 @@ Kāpēc tas ir droši: apiešana dzīvo `resolveDevTelegramUser()`
 `FUNCTIONS_EMULATOR=true`, tāpēc izvietotās funkcijas noraida klienta norādīto
 `devTelegramId` un pārbauda `initData` stingri. Klientā `src/devAuth.ts` ir
 aizsargāts ar `import.meta.env.DEV`, tāpēc šis ceļš pazūd no `npm run build`
-izvades. Lomu noteikšana netiek mainīta — tā vienmēr nāk no servera puses
+izvades. Lomu noteikšana netiek mainīta - tā vienmēr nāk no servera puses
 saraksta.
