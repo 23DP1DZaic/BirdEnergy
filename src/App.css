@@ -606,6 +606,37 @@ a.btn {
   margin-top: 14px;
 }
 
+/* The data-processing notice listed the Telegram fields one by one, so the
+   five items stay readable instead of becoming a wall of text. */
+.consent-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 10px;
+  line-height: 1.9;
+  color: #fff4d6;
+}
+
+/* The "I agree" box: the whole line is the tap target (phones), and the
+   checkbox itself takes the panel's gold accent. */
+.consent-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 14px;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #fff4d6;
+  cursor: pointer;
+}
+
+.consent-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: #ffd23f;
+}
+
 /* Home tap-to-play: once signed in, the whole screen starts a run, so the page
    itself is the target (its controls opt out — see HomePage.tsx). */
 .page-playable {

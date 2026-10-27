@@ -37,6 +37,8 @@ import {
   submitRun,
   type SavedRunDetail,
 } from './pendingRuns'
+import { hasDataConsent, rememberDataConsent } from './dataConsent'
+import { getTelegramWebApp } from '../telegram'
 import { useT } from '../i18n'
 
 /** ECON-03 — the Game Over coin line's state. */
@@ -58,6 +60,10 @@ export function GamePage({
   onPhaseChange,
 }: GamePageProps) {
   const { t } = useT()
+  // DATA-01 — the notice the player must confirm before the Telegram sign-in
+  // screen is even offered. Stored per device (dataConsent.ts).
+  const [dataConsentGiven, setDataConsentGiven] = useState(hasDataConsent)
+  const [noticeChecked, setNoticeChecked] = useState(false)
   const [profile, setProfile] = useState<ProfileCheck | null>(null)
   const [consentBusy, setConsentBusy] = useState(false)
   const [consentError, setConsentError] = useState('')
@@ -223,6 +229,68 @@ export function GamePage({
     (profile !== null && profile.kind === 'consented'
       ? profile.profile.bestScore ?? 0
       : 0)
+
+  // DATA-01 — the data-processing notice comes FIRST: signing in reads the
+  // Telegram profile, so the player agrees (or leaves) before that screen.
+  if (!signedInUid && !dataConsentGiven) {
+    const acceptNotice = () => {
+      rememberDataConsent()
+      setDataConsentGiven(true)
+    }
+    const declineNotice = () => {
+      // "No" means leaving the game: inside Telegram the Mini App closes, in a
+      // plain browser there is nothing to close, so it goes back to Home.
+      const webApp = getTelegramWebApp()
+      if (webApp && typeof webApp.close === 'function') {
+        webApp.close()
+        return
+      }
+      onDecline()
+    }
+    return (
+      <PlaceholderPage card="GAME-01">
+        <div className="consent">
+          <h2 className="consent-title">{t('notice.title')}</h2>
+          <p className="consent-text">{t('notice.intro')}</p>
+          <ul className="consent-list">
+            <li>{t('notice.itemName')}</li>
+            <li>{t('notice.itemUsername')}</li>
+            <li>{t('notice.itemId')}</li>
+            <li>{t('notice.itemPhoto')}</li>
+            <li>{t('notice.itemLanguage')}</li>
+          </ul>
+          <p className="consent-text consent-fineprint">
+            {t('notice.fineprint')}
+          </p>
+          <label className="consent-check">
+            <input
+              type="checkbox"
+              checked={noticeChecked}
+              onChange={(e) => setNoticeChecked(e.target.checked)}
+            />
+            <span>{t('notice.checkbox')}</span>
+          </label>
+          <div className="consent-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={acceptNotice}
+              disabled={!noticeChecked}
+            >
+              {t('notice.continue')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={declineNotice}
+            >
+              {t('notice.exit')}
+            </button>
+          </div>
+        </div>
+      </PlaceholderPage>
+    )
+  }
 
   if (!signedInUid) {
     return (

@@ -24,6 +24,8 @@ export interface TelegramWebApp {
   expand(): void
   /** Opens a t.me link inside Telegram (used for the native share sheet). */
   openTelegramLink?(url: string): void
+  /** Closes the Mini App (used when the player declines the data notice). */
+  close?(): void
 }
 
 export interface TelegramWebAppUser {

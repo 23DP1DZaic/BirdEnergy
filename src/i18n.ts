@@ -50,6 +50,19 @@ const EN: Strings = {
   'game.agree': 'Agree and play',
   'game.decline': 'No thanks',
 
+  // --- data-processing notice (before the Telegram sign-in) ---
+  'notice.title': 'Your data in the game',
+  'notice.intro': 'Bird Energy opens through Telegram. To create your player account and keep your scores, the game uses this Telegram data:',
+  'notice.itemName': 'first and last name — shown on the leaderboard;',
+  'notice.itemUsername': '@username — to recognise your account;',
+  'notice.itemId': 'Telegram id — the number your scores and coins are stored under;',
+  'notice.itemPhoto': 'profile photo — shown on your profile screen;',
+  'notice.itemLanguage': 'interface language — to open the game in your language.',
+  'notice.fineprint': 'Nothing is shared publicly except the name on the leaderboard, and no data is passed to third parties. Without this consent the game cannot save your scores, so it closes.',
+  'notice.checkbox': 'I agree to my Telegram data being used as described above.',
+  'notice.continue': 'Agree and continue',
+  'notice.exit': 'No, exit the game',
+
   // --- canvas (game over panel) ---
   'canvas.tapToFlap': 'Tap to flap',
   'canvas.gameOver': 'Game Over',
@@ -316,6 +329,18 @@ const LV: Strings = {
   'game.agree': 'Piekrītu un spēlēju',
   'game.decline': 'Nē, paldies',
 
+  'notice.title': 'Tavi dati spēlē',
+  'notice.intro': 'Bird Energy atveras caur Telegram. Lai izveidotu tavu spēlētāja kontu un saglabātu rezultātus, spēle izmanto šos Telegram datus:',
+  'notice.itemName': 'vārds un uzvārds — redzams reitingā;',
+  'notice.itemUsername': '@lietotājvārds — lai atpazītu tavu kontu;',
+  'notice.itemId': 'Telegram id — numurs, ar kuru glabājas tavi rezultāti un monētas;',
+  'notice.itemPhoto': 'profila bilde — redzama tavā profila ekrānā;',
+  'notice.itemLanguage': 'saskarnes valoda — lai spēle atvērtos tavā valodā.',
+  'notice.fineprint': 'Publiski redzams ir tikai vārds reitingā, un dati netiek nodoti trešajām personām. Bez šīs piekrišanas spēle nevar saglabāt rezultātus, tāpēc tā aizveras.',
+  'notice.checkbox': 'Piekrītu, ka mani Telegram dati tiek izmantoti, kā aprakstīts iepriekš.',
+  'notice.continue': 'Piekrītu un turpinu',
+  'notice.exit': 'Nē, iziet no spēles',
+
   'canvas.tapToFlap': 'Pieskarties, lai paceltos',
   'canvas.gameOver': 'Spēle beigusies',
   'canvas.newBest': 'JAUNS REKORDS! ({best})',
@@ -573,6 +598,18 @@ const RU: Strings = {
   'game.consentFineprint': 'Мы храним ваш Telegram id и имя пользователя только для определения результатов. Публично видно лишь имя, которое вы видите в рейтинге.',
   'game.agree': 'Согласен и играю',
   'game.decline': 'Нет, спасибо',
+
+  'notice.title': 'Ваши данные в игре',
+  'notice.intro': 'Bird Energy открывается через Telegram. Чтобы создать ваш игровой аккаунт и сохранять результаты, игра использует эти данные Telegram:',
+  'notice.itemName': 'имя и фамилия — видны в рейтинге;',
+  'notice.itemUsername': '@username — чтобы узнавать ваш аккаунт;',
+  'notice.itemId': 'Telegram id — номер, под которым хранятся ваши результаты и монеты;',
+  'notice.itemPhoto': 'фото профиля — показывается на экране профиля;',
+  'notice.itemLanguage': 'язык интерфейса — чтобы игра открывалась на вашем языке.',
+  'notice.fineprint': 'Публично видно только имя в рейтинге, данные не передаются третьим лицам. Без этого согласия игра не может сохранять результаты, поэтому она закрывается.',
+  'notice.checkbox': 'Я прочитал(а) и согласен(на), что мои данные Telegram используются так, как описано выше.',
+  'notice.continue': 'Согласиться и продолжить',
+  'notice.exit': 'Нет, выйти из игры',
 
   'canvas.tapToFlap': 'Нажми, чтобы взлететь',
   'canvas.gameOver': 'Игра окончена',
